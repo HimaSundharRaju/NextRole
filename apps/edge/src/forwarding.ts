@@ -55,6 +55,27 @@ export function instanceCount(value: unknown, fallback = 2): number {
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
+/**
+ * Visits to any other address of this Worker (its workers.dev address, or an old domain after a
+ * move) are sent to the same path on APP_URL, the one address where sign-in works.
+ */
+export function canonicalRedirect(request: Request, appUrl: unknown): Response | null {
+  if (typeof appUrl !== "string" || appUrl === "") return null;
+  let canonical: URL;
+  try {
+    canonical = new URL(appUrl);
+  } catch {
+    return null;
+  }
+  const url = new URL(request.url);
+  if (url.host === canonical.host || LOCAL_HOSTS.has(url.hostname)) return null;
+  // 308 keeps the method, so a form posted to an old address still arrives as a POST.
+  return Response.redirect(
+    new URL(`${url.pathname}${url.search}`, canonical.origin).toString(),
+    308,
+  );
+}
+
 /** Plain-HTTP visits are sent to HTTPS (local development excepted). */
 export function httpsRedirect(request: Request): Response | null {
   const url = new URL(request.url);

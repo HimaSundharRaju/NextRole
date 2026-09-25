@@ -42,7 +42,10 @@ What to copy from each:
 
 - **Cloudflare**: your **Account ID** (shown on the Workers & Pages overview), and an **API
   token** created from the "Edit Cloudflare Workers" template with the **Containers** edit
-  permission added, which the deploy needs to upload the images.
+  permission added, which the deploy needs to upload the images. Include the zone for your
+  domain (for example `hearthspace.in`) in the token's zone resources so the deploy can attach the
+  custom domain. If that step reports a permission error, also give the token DNS edit
+  permission on that zone.
 - **Neon**: create a project on Postgres 16 and copy the **direct** (not pooled) connection string.
   It ends in `?sslmode=require`.
 - **Upstash**: create a Redis database with TLS and copy its `rediss://default:…@…:6379` URL. Leave
@@ -53,14 +56,25 @@ What to copy from each:
 
 ## 2. Choose the address
 
-Your app's public URL is `APP_URL`. It must match exactly what visitors use, because sign-in only
-accepts requests from that origin.
+The `APP_URL` variable is the app's one public address. Sign-in only works there, and the Worker
+redirects every other address it receives (such as its workers.dev address) to it.
 
+- **A subdomain of a domain you already have on Cloudflare** (recommended), for example
+  `https://nextrole.hearthspace.in`. Each deploy attaches `APP_URL`'s hostname to the Worker as a
+  custom domain, which adds a DNS record for that one subdomain and its certificate. The rest of
+  the domain and the site already on it are untouched. The domain must be in the same Cloudflare
+  account as the Worker, and the subdomain must not already have a DNS record.
 - **workers.dev**: `https://nextrole.<your-subdomain>.workers.dev`. Your subdomain is shown under
   Workers & Pages in the Cloudflare dashboard.
-- **Your own domain** (for example `https://nextrole.sundhar.io`): the domain must use Cloudflare
-  DNS. After the first deploy, open the `nextrole` Worker's settings, add the custom domain under
-  Domains & Routes, then change `APP_URL` and run the deploy again.
+
+A path on an existing site, such as `hearthspace.in/nextrole`, isn't supported. The app would
+share that site's origin, so its cookies and scripts could reach NextRole accounts. The app's URLs
+would also have to be rewritten for the path, and changed back after any later move.
+
+**Moving to a new domain later**: add the new domain to the same Cloudflare account, set `APP_URL`
+to the new address and `REDIRECT_DOMAINS` to the old hostname (for example
+`nextrole.hearthspace.in`), then deploy. Both hostnames stay attached, and visitors to the old one
+are redirected to the same page on the new one. Nothing in the code changes.
 
 ## 3. Add the GitHub secrets and variables
 
@@ -84,7 +98,8 @@ In the repository on GitHub, open **Settings → Secrets and variables → Actio
 
 | Name                 | Value                                                                                      |
 | -------------------- | ------------------------------------------------------------------------------------------ |
-| `APP_URL`            | The public URL from step 2, for example `https://nextrole.example.workers.dev`             |
+| `APP_URL`            | The public URL from step 2, for example `https://nextrole.hearthspace.in`                  |
+| `REDIRECT_DOMAINS`   | Optional: old hostnames to keep attached and redirect to `APP_URL`, comma-separated        |
 | `EMAIL_FROM`         | Sender on your verified domain, for example `NextRole <no-reply@sundhar.io>`               |
 | `AI_MODEL`           | Optional: `claude-sonnet-5` costs about 60% less per call than the default `claude-opus-5` |
 | `ANTHROPIC_BASE_URL` | Optional: route Claude calls through Cloudflare AI Gateway (see below)                     |

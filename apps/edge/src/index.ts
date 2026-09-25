@@ -1,5 +1,6 @@
 import { Container, getContainer, getRandom } from "@cloudflare/containers";
 import {
+  canonicalRedirect,
   forwardToOrigin,
   httpsRedirect,
   instanceCount,
@@ -68,7 +69,7 @@ async function keepAlive(env: Env): Promise<void> {
 
 export default {
   async fetch(request, env): Promise<Response> {
-    const redirect = httpsRedirect(request);
+    const redirect = canonicalRedirect(request, env.APP_URL) ?? httpsRedirect(request);
     if (redirect) return redirect;
     // The app keeps no state in memory (sessions live in Postgres), so any container can serve.
     const web = await getRandom(env.WEB, instanceCount(env.WEB_INSTANCES));

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canonicalRedirect,
   forwardToOrigin,
   httpsRedirect,
   instanceCount,
@@ -36,6 +37,29 @@ describe("forwardToOrigin", () => {
     );
     expect(forwarded.headers.has("x-forwarded-for")).toBe(false);
     expect(forwarded.headers.has("x-real-ip")).toBe(false);
+  });
+});
+
+describe("canonicalRedirect", () => {
+  const appUrl = "https://nextrole.hearthspace.in";
+
+  it("sends other addresses to the same path on APP_URL", () => {
+    for (const other of [
+      "https://nextrole.acct.workers.dev/jobs?q=go",
+      "https://old.example.com/jobs?q=go",
+    ]) {
+      const response = canonicalRedirect(new Request(other, { method: "POST" }), appUrl);
+      expect(response?.status).toBe(308);
+      expect(response?.headers.get("location")).toBe("https://nextrole.hearthspace.in/jobs?q=go");
+    }
+  });
+
+  it("leaves APP_URL itself, local development and a missing APP_URL alone", () => {
+    expect(canonicalRedirect(new Request(`${appUrl}/jobs`), appUrl)).toBeNull();
+    expect(canonicalRedirect(new Request("http://nextrole.hearthspace.in/"), appUrl)).toBeNull();
+    expect(canonicalRedirect(new Request("http://localhost:8787/"), appUrl)).toBeNull();
+    expect(canonicalRedirect(new Request("https://x.workers.dev/"), undefined)).toBeNull();
+    expect(canonicalRedirect(new Request("https://x.workers.dev/"), "not a url")).toBeNull();
   });
 });
 

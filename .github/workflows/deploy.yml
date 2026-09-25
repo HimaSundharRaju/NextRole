@@ -48,6 +48,7 @@ jobs:
       EMAIL_FROM: ${{ vars.EMAIL_FROM }}
       AI_MODEL: ${{ vars.AI_MODEL }}
       ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
+      REDIRECT_DOMAINS: ${{ vars.REDIRECT_DOMAINS }}
       WRANGLER_SEND_METRICS: "false"
     steps:
       - name: Check configuration
@@ -102,7 +103,18 @@ jobs:
           ' "$secrets_file" APP_URL DATABASE_URL REDIS_URL BETTER_AUTH_SECRET ENCRYPTION_KEY \
             ANTHROPIC_API_KEY SMTP_URL GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET EMAIL_FROM AI_MODEL \
             ANTHROPIC_BASE_URL
-          pnpm exec wrangler deploy --secrets-file "$secrets_file"
+          # Custom domains: APP_URL's host (unless it's the workers.dev address) plus any old
+          # addresses in REDIRECT_DOMAINS, which the Worker redirects to APP_URL. Each deploy
+          # replaces the Worker's set of custom domains with exactly these.
+          domain_args=()
+          app_host=$(node -p 'new URL(process.env.APP_URL).hostname')
+          [[ "$app_host" == *.workers.dev ]] || domain_args+=(--domain "$app_host")
+          IFS=',' read -ra old_hosts <<< "$REDIRECT_DOMAINS"
+          for host in "${old_hosts[@]}"; do
+            host=$(echo "$host" | xargs)
+            [ -n "$host" ] && domain_args+=(--domain "$host")
+          done
+          pnpm exec wrangler deploy --secrets-file "$secrets_file" "${domain_args[@]}"
           rm -f "$secrets_file"
 
       - name: Smoke test
