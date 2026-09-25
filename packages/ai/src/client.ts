@@ -229,8 +229,14 @@ export async function runStructured<S extends z.ZodType>(
   const model = configuredModel();
   const params = modelParams(model, call.feature);
   const output = call.viaTool
-    ? // `auto` because some models reject a forced tool choice; the system prompt asks for the call.
-      { tools: [resultTool(call.schema)], tool_choice: { type: "auto" as const } }
+    ? {
+        tools: [resultTool(call.schema)],
+        // Require the call: with `auto`, a model can answer in text instead. Models that reject a
+        // forced choice get `auto`, and the system prompt asks for the call.
+        tool_choice: modelCapabilities(model).forcedToolChoice
+          ? { type: "tool" as const, name: RESULT_TOOL_NAME }
+          : { type: "auto" as const },
+      }
     : { output_config: { ...params.output_config, format: betaZodOutputFormat(call.schema) } };
   const system = call.viaTool
     ? `${call.system}\n\nSubmit your result by calling the ${RESULT_TOOL_NAME} tool.`

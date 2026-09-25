@@ -49,11 +49,16 @@ const REFUSAL_FALLBACK_MODELS = new Set([
   "claude-fable-5-1",
 ]);
 
+/** Models that reject a forced tool choice (`tool_choice` of type "tool" or "any"). */
+const NO_FORCED_TOOL_MODELS = new Set(["claude-opus-5-5", "claude-fable-5-1", "claude-mythos-5-1"]);
+
 export interface ModelCapabilities {
   /** Adaptive thinking and the effort setting, which the API rejects before Claude 4.6. */
   adaptiveThinking: boolean;
   /** Server-side refusal fallbacks (`fallbacks: "default"`). */
   refusalFallbacks: boolean;
+  /** Whether a request can require a specific tool call. */
+  forcedToolChoice: boolean;
 }
 
 export function modelCapabilities(model: string): ModelCapabilities {
@@ -61,6 +66,7 @@ export function modelCapabilities(model: string): ModelCapabilities {
   return {
     adaptiveThinking: !PRE_ADAPTIVE_MODEL.test(id),
     refusalFallbacks: REFUSAL_FALLBACK_MODELS.has(id),
+    forcedToolChoice: !NO_FORCED_TOOL_MODELS.has(id),
   };
 }
 

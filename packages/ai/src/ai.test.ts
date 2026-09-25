@@ -94,13 +94,25 @@ describe("cost estimation", () => {
 });
 
 describe("model capabilities", () => {
-  it("uses adaptive thinking from Claude 4.6 on, and fallbacks only where classifiers decline", () => {
+  it("reports adaptive thinking, refusal fallbacks and forced tool use per model", () => {
     expect(modelCapabilities("claude-opus-5")).toEqual({
       adaptiveThinking: true,
       refusalFallbacks: true,
+      forcedToolChoice: true,
     });
+    for (const model of ["claude-opus-5-5", "claude-fable-5-1"]) {
+      expect(modelCapabilities(model)).toEqual({
+        adaptiveThinking: true,
+        refusalFallbacks: true,
+        forcedToolChoice: false,
+      });
+    }
     for (const model of ["claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-6"]) {
-      expect(modelCapabilities(model)).toEqual({ adaptiveThinking: true, refusalFallbacks: false });
+      expect(modelCapabilities(model)).toEqual({
+        adaptiveThinking: true,
+        refusalFallbacks: false,
+        forcedToolChoice: true,
+      });
     }
     for (const model of [
       "claude-haiku-4-5",
@@ -112,6 +124,7 @@ describe("model capabilities", () => {
       expect(modelCapabilities(model)).toEqual({
         adaptiveThinking: false,
         refusalFallbacks: false,
+        forcedToolChoice: true,
       });
     }
   });
@@ -164,7 +177,7 @@ describe("AnthropicProvider against a fake Messages API", () => {
       fallbacks: "default",
       thinking: { type: "adaptive" },
       output_config: { effort: "high" },
-      tool_choice: { type: "auto" },
+      tool_choice: { type: "tool", name: RESULT_TOOL_NAME },
       system: [{ type: "text", cache_control: { type: "ephemeral" } }],
     });
     // A structured output of this size is rejected by the API, and so is a strict tool.
@@ -185,6 +198,29 @@ describe("AnthropicProvider against a fake Messages API", () => {
       inputTokens: 1200,
     });
     expect(usage[0]!.costMicroUsd).toBeGreaterThan(0);
+  });
+
+  it("asks for the result tool without forcing it on models that reject forced tool use", async () => {
+    const model = "claude-opus-5-5";
+    process.env.AI_MODEL = model;
+    try {
+      const tailored: TailorResult = {
+        resume: SAMPLE_RESUME,
+        summaryOfChanges: [],
+        addedKeywords: [],
+        missingKeywords: [],
+        suggestions: [],
+      };
+      fake.enqueue({
+        blocks: [{ type: "tool_use", name: RESULT_TOOL_NAME, input: tailored }],
+        stopReason: "tool_use",
+        model,
+      });
+      await provider.tailorResume({ resume: SAMPLE_RESUME, job }, ctx);
+    } finally {
+      delete process.env.AI_MODEL;
+    }
+    expect(fake.requests[0]?.body).toMatchObject({ model, tool_choice: { type: "auto" } });
   });
 
   it("reports an incomplete response when Claude doesn't call the result tool", async () => {
