@@ -44,6 +44,7 @@ data model, the Claude integration and the security model.
 | ----------------- | ---------------------------------------------------------------------------------------------------------- |
 | `apps/web`        | Next.js 16 app (App Router, React 19, Tailwind CSS 4): pages, server actions, API routes, auth             |
 | `apps/worker`     | BullMQ worker: job-board ingestion, job alerts, follow-up reminders; also applies migrations in production |
+| `apps/edge`       | Cloudflare Worker that routes traffic to the web containers and keeps the background worker running        |
 | `packages/ai`     | Claude integration: prompts, structured outputs, the Studio editing tool, usage metering, a mock for tests |
 | `packages/resume` | Resume schema, skills taxonomy, ATS checks, PDF and Word rendering                                         |
 | `packages/jobs`   | Job-board connectors, HTML sanitizing, normalization, matching, ingestion, alerts                          |
@@ -134,8 +135,14 @@ pull request and builds both Docker images.
 
 ## Deployment
 
-The two images are built from the repository root. Both run as a non-root user and include a
-health check.
+**Cloudflare** is the supported production target. A Worker (`apps/edge`) routes traffic to the
+web containers and keeps the background worker running. Postgres (Neon) and Redis (Upstash) are
+managed services, and GitHub Actions deploys `main` after CI passes. Follow
+[docs/DEPLOY_CLOUDFLARE.md](docs/DEPLOY_CLOUDFLARE.md) to create the accounts and add the GitHub
+secrets.
+
+The same images run on any container platform. They are built from the repository root, and both
+run as a non-root user and include a health check.
 
 ```bash
 docker build -f apps/web/Dockerfile -t nextrole-web .        # Next.js standalone server, port 3000

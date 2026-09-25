@@ -1,0 +1,64 @@
+// NextRole on Cloudflare: this Worker receives all traffic and forwards it to the web containers.
+// A second container runs the background worker. Postgres and Redis are external managed
+// services. Secrets are uploaded by .github/workflows/deploy.yml (see docs/DEPLOY_CLOUDFLARE.md).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nextrole",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-20",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+
+  "containers": [
+    {
+      // Next.js server (apps/web/Dockerfile), built from the repository root.
+      "name": "nextrole-web",
+      "class_name": "WebContainer",
+      "image": "../web/Dockerfile",
+      "image_build_context": "../..",
+      "instance_type": "standard-1",
+      // WEB_INSTANCES serve traffic; the rest is headroom for rolling updates.
+      "max_instances": 4,
+    },
+    {
+      // Background worker (apps/worker/Dockerfile).
+      "name": "nextrole-jobs",
+      "class_name": "JobsContainer",
+      "image": "../worker/Dockerfile",
+      "image_build_context": "../..",
+      "instance_type": "basic",
+      "max_instances": 2,
+    },
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "WEB", "class_name": "WebContainer" },
+      { "name": "JOBS", "class_name": "JobsContainer" },
+    ],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WebContainer", "JobsContainer"] }],
+
+  // Every 5 minutes: start the background worker if needed and keep web containers warm.
+  "triggers": { "crons": ["*/5 * * * *"] },
+
+  "vars": {
+    "NODE_ENV": "production",
+    "AI_PROVIDER": "anthropic",
+    "LOG_LEVEL": "info",
+    "WEB_INSTANCES": "2",
+    "KEEP_WARM": "true",
+  },
+
+  "secrets": {
+    "required": [
+      "APP_URL",
+      "DATABASE_URL",
+      "REDIS_URL",
+      "BETTER_AUTH_SECRET",
+      "ENCRYPTION_KEY",
+      "ANTHROPIC_API_KEY",
+      "SMTP_URL",
+    ],
+  },
+}
