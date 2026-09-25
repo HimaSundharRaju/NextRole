@@ -94,7 +94,7 @@ jobs:
       - run: pnpm db:seed -- --demo
       - run: pnpm --filter @nextrole/web exec playwright install --with-deps chromium
       - run: pnpm test:e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
