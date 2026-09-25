@@ -13,14 +13,14 @@ import mammoth from "mammoth";
 import { z } from "zod";
 import {
   assertUsable,
-  FALLBACK_PARAMS,
   getAnthropic,
   mapAnthropicError,
+  modelParams,
   recordUsage,
   runStructured,
   textOf,
 } from "./client";
-import { configuredModel, FEATURE_EFFORT } from "./config";
+import { configuredModel } from "./config";
 import { jobBlock, profileBlock, resumeJson, resumeText } from "./context";
 import {
   ANSWERS_SYSTEM,
@@ -306,15 +306,14 @@ export class AnthropicProvider implements AiProvider {
 
     let reply = "";
     let message: BetaMessage;
+    const model = configuredModel();
     try {
       const stream = getAnthropic().beta.messages.stream(
         {
-          model: configuredModel(),
+          model,
+          // The ceiling for Claude Haiku 4.5; newer models allow more.
           max_tokens: 64_000,
-          ...FALLBACK_PARAMS,
-          betas: [...FALLBACK_PARAMS.betas],
-          thinking: { type: "adaptive" },
-          output_config: { effort: FEATURE_EFFORT.studio },
+          ...modelParams(model, "studio"),
           system: [{ type: "text", text: STUDIO_SYSTEM, cache_control: { type: "ephemeral" } }],
           tools: [UPDATE_RESUME_TOOL],
           tool_choice: { type: "auto" },

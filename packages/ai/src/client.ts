@@ -7,7 +7,13 @@ import type {
 import { AiRefusalError, ExternalServiceError } from "@nextrole/core/errors";
 import { createLogger } from "@nextrole/core/logger";
 import type { z } from "zod";
-import { configuredModel, estimateCostMicroUsd, FEATURE_EFFORT, type AiFeature } from "./config";
+import {
+  configuredModel,
+  estimateCostMicroUsd,
+  FEATURE_EFFORT,
+  modelCapabilities,
+  type AiFeature,
+} from "./config";
 import type { AiCallContext, UsageRecord } from "./types";
 
 const log = createLogger("ai");
@@ -21,6 +27,26 @@ export const FALLBACK_PARAMS = {
   betas: ["server-side-fallback-2026-07-01"],
   fallbacks: "default",
 } as const;
+
+/**
+ * Request fields that depend on the model: adaptive thinking at the feature's effort level
+ * (Claude 4.6 and later; older models such as Claude Haiku 4.5 reject both) and refusal
+ * fallbacks (only models whose safety classifiers can decline a request).
+ */
+export function modelParams(model: string, feature: AiFeature) {
+  const { adaptiveThinking, refusalFallbacks } = modelCapabilities(model);
+  return {
+    ...(refusalFallbacks
+      ? { betas: [...FALLBACK_PARAMS.betas], fallbacks: FALLBACK_PARAMS.fallbacks }
+      : {}),
+    ...(adaptiveThinking
+      ? {
+          thinking: { type: "adaptive" as const },
+          output_config: { effort: FEATURE_EFFORT[feature] },
+        }
+      : {}),
+  };
+}
 
 let client: Anthropic | undefined;
 
@@ -178,19 +204,15 @@ export async function runStructured<S extends z.ZodType>(
   call: StructuredCall<S>,
 ): Promise<z.infer<S>> {
   const model = configuredModel();
+  const params = modelParams(model, call.feature);
   let message: BetaMessage;
   try {
     const stream = getAnthropic().beta.messages.stream(
       {
         model,
         max_tokens: call.maxTokens ?? 32_000,
-        ...FALLBACK_PARAMS,
-        betas: [...FALLBACK_PARAMS.betas],
-        thinking: { type: "adaptive" },
-        output_config: {
-          effort: FEATURE_EFFORT[call.feature],
-          format: betaZodOutputFormat(call.schema),
-        },
+        ...params,
+        output_config: { ...params.output_config, format: betaZodOutputFormat(call.schema) },
         system: [{ type: "text", text: call.system, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: call.content }],
       },

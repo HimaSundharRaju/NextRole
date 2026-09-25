@@ -105,7 +105,7 @@ every variable with its default.
 | `BETTER_AUTH_SECRET`                       | yes      | At least 32 random characters; signs sessions and tokens                                                    |
 | `ENCRYPTION_KEY`                           | yes      | 32 random bytes, base64; for encrypting stored third-party credentials such as mailbox tokens (AES-256-GCM) |
 | `ANTHROPIC_API_KEY`                        | yes      | Claude API key                                                                                              |
-| `AI_MODEL`                                 | no       | Claude model, default `claude-opus-5`                                                                       |
+| `AI_MODEL`                                 | no       | Claude model, default `claude-opus-5`. `claude-sonnet-5` and `claude-haiku-4-5` cost less.                  |
 | `SMTP_URL`, `EMAIL_FROM`                   | prod     | Outgoing email. Production requires email verification, so SMTP must be configured.                         |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | no       | Enables "Continue with Google"                                                                              |
 | `TRUSTED_PROXIES`                          | no       | Proxy IPs/CIDRs to trust when requests pass through more than one proxy hop                                 |
