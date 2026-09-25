@@ -5,6 +5,7 @@
   "globalPassThroughEnv": [
     "DATABASE_URL",
     "DATABASE_POOL_MAX",
+    "DATABASE_CA_CERT",
     "REDIS_URL",
     "ANTHROPIC_API_KEY",
     "AI_PROVIDER",

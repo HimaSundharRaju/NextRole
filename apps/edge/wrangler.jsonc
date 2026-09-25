@@ -46,6 +46,8 @@
     "NODE_ENV": "production",
     "AI_PROVIDER": "anthropic",
     "LOG_LEVEL": "info",
+    // Connections per container: 3 containers x 4 = 12, within a small pooler's limit.
+    "DATABASE_POOL_MAX": "4",
     "WEB_INSTANCES": "2",
     "KEEP_WARM": "true",
   },

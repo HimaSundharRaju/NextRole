@@ -19,6 +19,8 @@ export const serverEnvSchema = z
 
     DATABASE_URL: z.string().min(1),
     DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
+    // PEM of the CA that signs the database server certificate (e.g. Supabase's own CA).
+    DATABASE_CA_CERT: z.string().optional(),
     REDIS_URL: z.string().min(1).default("redis://localhost:6379"),
 
     BETTER_AUTH_SECRET: z.string().min(32, "must be at least 32 characters"),

@@ -10,7 +10,7 @@ flowchart LR
   worker --> web["Web containers × 2<br/>Next.js (apps/web)"]
   cron([Cron, every 5 min]) --> worker
   worker -. keeps running .-> jobs["Jobs container<br/>BullMQ worker (apps/worker)"]
-  web --> pg[(Neon Postgres)]
+  web --> pg[(Supabase Postgres)]
   web --> redis[(Upstash Redis)]
   jobs --> pg
   jobs --> redis
@@ -33,10 +33,14 @@ flowchart LR
 | Service                                    | Used for                                        | Plan                                                            |
 | ------------------------------------------ | ----------------------------------------------- | --------------------------------------------------------------- |
 | [Cloudflare](https://dash.cloudflare.com)  | Worker, containers, domain                      | **Workers Paid** ($5/month), which Containers require           |
-| [Neon](https://neon.tech)                  | PostgreSQL database                             | Free tier is enough to start                                    |
+| [Supabase](https://supabase.com)           | PostgreSQL database                             | Free plan is enough to start                                    |
 | [Upstash](https://upstash.com)             | Redis for job queues and rate limits            | Pay-as-you-go (the job queues send a steady stream of commands) |
 | [Anthropic](https://console.anthropic.com) | Claude API                                      | Pay per use; set a monthly spend limit in the console           |
 | [Resend](https://resend.com)               | Email: sign-up verification and password resets | Free tier; verify the domain you send from                      |
+
+Workers Paid is a subscription for the Cloudflare account's Workers, separate from your domains'
+plans. A domain on Cloudflare's Free plan, such as `hearthspace.in`, stays on the Free plan and
+keeps all its settings.
 
 What to copy from each:
 
@@ -45,8 +49,19 @@ What to copy from each:
   permission added, which the deploy needs to upload the images. Remove the template's zone
   permission (Workers Routes). The deploy only uses account-level permissions and never changes
   a domain, so the token can't touch `hearthspace.in` or any other domain you have.
-- **Neon**: create a project on Postgres 16 and copy the **direct** (not pooled) connection string.
-  It ends in `?sslmode=require`.
+- **Supabase**: create a **new project** just for NextRole. If you already use Supabase for
+  another site, put it in the same organization; the two projects share nothing.
+  - Pick the region closest to your users, for example Mumbai for India, and save the
+    database password.
+  - Under **Connect**, copy the **Session pooler** connection string and put your password in
+    it. The direct connection only works over IPv6, which GitHub Actions can't use.
+  - Under **Project Settings → Database → SSL Configuration**, download the certificate.
+    Supabase signs its database certificates with its own CA, so NextRole needs this file to
+    verify the connection.
+  - Under **Project Settings → Data API**, turn the Data API off. NextRole talks to Postgres
+    directly and every table has row-level security, but nothing needs that API.
+  - The free plan allows two active projects. The session pooler's small connection limit is why
+    `DATABASE_POOL_MAX` is 4 per container in `apps/edge/wrangler.jsonc`.
 - **Upstash**: create a Redis database with TLS and copy its `rediss://default:…@…:6379` URL. Leave
   eviction off; the job queues need every key kept.
 - **Anthropic**: create an API key.
@@ -99,17 +114,18 @@ In the repository on GitHub, open **Settings → Secrets and variables → Actio
 
 **Secrets**
 
-| Name                                       | Value                                    |
-| ------------------------------------------ | ---------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`                     | The Cloudflare API token                 |
-| `CLOUDFLARE_ACCOUNT_ID`                    | The Cloudflare account ID                |
-| `DATABASE_URL`                             | The Neon connection string               |
-| `REDIS_URL`                                | The Upstash `rediss://` URL              |
-| `BETTER_AUTH_SECRET`                       | Output of `openssl rand -base64 48`      |
-| `ENCRYPTION_KEY`                           | Output of `openssl rand -base64 32`      |
-| `ANTHROPIC_API_KEY`                        | The Claude API key                       |
-| `SMTP_URL`                                 | The Resend SMTP URL                      |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional: enables "Continue with Google" |
+| Name                                       | Value                                                                       |
+| ------------------------------------------ | --------------------------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`                     | The Cloudflare API token                                                    |
+| `CLOUDFLARE_ACCOUNT_ID`                    | The Cloudflare account ID                                                   |
+| `DATABASE_URL`                             | The Supabase session pooler connection string                               |
+| `DATABASE_CA_CERT`                         | The full text of Supabase's certificate file, including the BEGIN/END lines |
+| `REDIS_URL`                                | The Upstash `rediss://` URL                                                 |
+| `BETTER_AUTH_SECRET`                       | Output of `openssl rand -base64 48`                                         |
+| `ENCRYPTION_KEY`                           | Output of `openssl rand -base64 32`                                         |
+| `ANTHROPIC_API_KEY`                        | The Claude API key                                                          |
+| `SMTP_URL`                                 | The Resend SMTP URL                                                         |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional: enables "Continue with Google"                                    |
 
 **Variables**
 
@@ -140,7 +156,7 @@ Set these two once and keep them. Changing `BETTER_AUTH_SECRET` signs everyone o
      → Add → Custom domain** and enter the hostname, for example `nextrole.hearthspace.in`.
    - Then run Deploy again, so its smoke test checks the live address.
 3. Open `APP_URL`, sign up and confirm your email.
-4. Make yourself an admin in Neon's SQL editor:
+4. Make yourself an admin in Supabase's SQL editor:
    `update users set role = 'admin' where email = 'you@example.com';`
 
 After that, every push to `main` deploys automatically once CI passes.

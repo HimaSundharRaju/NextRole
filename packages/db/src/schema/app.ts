@@ -88,7 +88,7 @@ export const profiles = pgTable(
     updatedAt,
   },
   (table) => [index("profiles_skills_idx").using("gin", table.skills)],
-);
+).enableRLS();
 
 /* ------------------------------------------------------------------------------------------ */
 /* Companies & jobs (ingested from public ATS job boards)                                     */
@@ -116,7 +116,7 @@ export const companies = pgTable(
     updatedAt,
   },
   (table) => [uniqueIndex("companies_ats_board_uq").on(table.ats, table.boardToken)],
-);
+).enableRLS();
 
 export const SALARY_PERIODS = ["year", "month", "hour"] as const;
 
@@ -163,7 +163,7 @@ export const jobs = pgTable(
     index("jobs_search_idx").using("gin", table.searchVector),
     index("jobs_skills_idx").using("gin", table.skills),
   ],
-);
+).enableRLS();
 
 export const MATCH_VERDICTS = ["strong", "good", "stretch", "poor"] as const;
 export type MatchVerdict = (typeof MATCH_VERDICTS)[number];
@@ -186,7 +186,7 @@ export const jobMatches = pgTable(
     createdAt,
   },
   (table) => [primaryKey({ columns: [table.userId, table.jobId] })],
-);
+).enableRLS();
 
 /* ------------------------------------------------------------------------------------------ */
 /* Resumes                                                                                     */
@@ -215,7 +215,7 @@ export const resumes = pgTable(
       .on(table.userId)
       .where(sql`is_primary`),
   ],
-);
+).enableRLS();
 
 export const REVISION_SOURCES = [
   "manual",
@@ -241,7 +241,7 @@ export const resumeRevisions = pgTable(
     createdAt,
   },
   (table) => [index("resume_revisions_resume_idx").on(table.resumeId, table.createdAt.desc())],
-);
+).enableRLS();
 
 /** Resume Studio conversation history. */
 export const resumeMessages = pgTable(
@@ -257,7 +257,7 @@ export const resumeMessages = pgTable(
     createdAt,
   },
   (table) => [index("resume_messages_resume_idx").on(table.resumeId, table.createdAt)],
-);
+).enableRLS();
 
 /* ------------------------------------------------------------------------------------------ */
 /* Applications, outreach & notifications                                                     */
@@ -319,7 +319,7 @@ export const applications = pgTable(
       .on(table.userId, table.jobId)
       .where(sql`job_id is not null`),
   ],
-);
+).enableRLS();
 
 export const APPLICATION_EVENT_TYPES = [
   "created",
@@ -343,7 +343,7 @@ export const applicationEvents = pgTable(
     createdAt,
   },
   (table) => [index("application_events_app_idx").on(table.applicationId, table.createdAt)],
-);
+).enableRLS();
 
 export const OUTREACH_CHANNELS = ["email", "linkedin"] as const;
 
@@ -370,7 +370,7 @@ export const outreachMessages = pgTable(
     updatedAt,
   },
   (table) => [index("outreach_user_idx").on(table.userId, table.createdAt.desc())],
-);
+).enableRLS();
 
 export const NOTIFICATION_TYPES = ["job_match", "follow_up", "system"] as const;
 
@@ -391,7 +391,7 @@ export const notifications = pgTable(
     index("notifications_user_idx").on(table.userId, table.createdAt.desc()),
     uniqueIndex("notifications_dedupe_uq").on(table.userId, table.dedupeKey),
   ],
-);
+).enableRLS();
 
 /* ------------------------------------------------------------------------------------------ */
 /* Operations: AI metering, audit trail, concierge specialists                                */
@@ -412,7 +412,7 @@ export const aiUsage = pgTable(
     createdAt,
   },
   (table) => [index("ai_usage_user_created_idx").on(table.userId, table.createdAt)],
-);
+).enableRLS();
 
 export const auditLogs = pgTable(
   "audit_logs",
@@ -431,7 +431,7 @@ export const auditLogs = pgTable(
     index("audit_logs_actor_idx").on(table.actorUserId, table.createdAt.desc()),
     index("audit_logs_action_idx").on(table.action, table.createdAt.desc()),
   ],
-);
+).enableRLS();
 
 /** Concierge plan: a specialist works a client's pipeline on their behalf. */
 export const specialistAssignments = pgTable(
@@ -450,4 +450,4 @@ export const specialistAssignments = pgTable(
     primaryKey({ columns: [table.specialistId, table.clientId] }),
     index("specialist_assignments_client_idx").on(table.clientId),
   ],
-);
+).enableRLS();
