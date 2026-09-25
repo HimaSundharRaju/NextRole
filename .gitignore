@@ -30,3 +30,7 @@ blob-report/
 
 # local Redis snapshots
 dump.rdb
+
+# local Cloudflare dev state and secrets
+.wrangler/
+.dev.vars*

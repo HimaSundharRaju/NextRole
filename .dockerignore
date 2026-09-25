@@ -12,8 +12,10 @@
 **/*.tsbuildinfo
 **/*.log
 **/.DS_Store
+**/.wrangler
 
 # Never send local secrets to the Docker daemon.
 **/.env
 **/.env.*
 !.env.example
+**/.dev.vars*

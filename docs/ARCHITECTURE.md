@@ -6,13 +6,14 @@ pipeline, the Claude integration and the security model. For setup and deploymen
 
 ## Components
 
-| Component     | Runs as                      | Responsibilities                                                                       |
-| ------------- | ---------------------------- | -------------------------------------------------------------------------------------- |
-| `apps/web`    | Next.js 16 standalone server | UI (React Server Components), server actions, API routes, authentication, Claude calls |
-| `apps/worker` | Node.js process with BullMQ  | Job-board ingestion, job alerts, follow-up reminders; `dist/migrate.js` for migrations |
-| PostgreSQL 16 | Managed database             | All durable state, including sessions and full-text search                             |
-| Redis         | Managed cache (`noeviction`) | BullMQ queues and schedulers, distributed rate limits                                  |
-| Anthropic API | External                     | Claude Opus 5 for every AI feature                                                     |
+| Component     | Runs as                      | Responsibilities                                                                                                             |
+| ------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web`    | Next.js 16 standalone server | UI (React Server Components), server actions, API routes, authentication, Claude calls                                       |
+| `apps/worker` | Node.js process with BullMQ  | Job-board ingestion, job alerts, follow-up reminders; `dist/migrate.js` for migrations                                       |
+| `apps/edge`   | Cloudflare Worker            | Routes traffic to the web containers and keeps the jobs container running (see [DEPLOY_CLOUDFLARE.md](DEPLOY_CLOUDFLARE.md)) |
+| PostgreSQL 16 | Managed database             | All durable state, including sessions and full-text search                                                                   |
+| Redis         | Managed cache (`noeviction`) | BullMQ queues and schedulers, distributed rate limits                                                                        |
+| Anthropic API | External                     | Claude Opus 5 for every AI feature                                                                                           |
 
 The two services share code through workspace packages. `core` holds configuration, logging,
 crypto, Redis, rate limiting, email and the queue contracts. `db` holds the schema and
