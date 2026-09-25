@@ -168,7 +168,7 @@ export const jobs = pgTable(
 export const MATCH_VERDICTS = ["strong", "good", "stretch", "poor"] as const;
 export type MatchVerdict = (typeof MATCH_VERDICTS)[number];
 
-/** Claude's fit analysis of a job against the user's resume (cached per user+job). */
+/** The AI's fit analysis of a job against the user's resume (cached per user+job). */
 export const jobMatches = pgTable(
   "job_matches",
   {

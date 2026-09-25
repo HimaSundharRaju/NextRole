@@ -5,7 +5,7 @@ export interface PlanDefinition {
   name: string;
   priceUsd: number;
   tagline: string;
-  /** Monthly cap on Claude spend per user, which bounds cost and abuse. */
+  /** Monthly cap on AI spend per user, which bounds cost and abuse. */
   monthlyAiBudgetUsd: number;
   features: string[];
 }
@@ -19,7 +19,7 @@ export const PLANS: Record<Plan, PlanDefinition> = {
     monthlyAiBudgetUsd: 2,
     features: [
       "Real-time job feed with match scores",
-      "Claude resume studio",
+      "AI resume studio",
       "~10 tailored applications a month",
       "Application tracker",
     ],

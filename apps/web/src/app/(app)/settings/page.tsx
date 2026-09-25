@@ -51,7 +51,7 @@ export default async function SettingsPage() {
       <Card>
         <CardHeader
           title="About you"
-          description="Context Claude uses to write in your voice. Never shared with employers unless you send it."
+          description="Context the AI uses to write in your voice. Never shared with employers unless you send it."
         />
         <CardBody>
           <AboutForm

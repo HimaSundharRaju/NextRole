@@ -84,7 +84,7 @@ export function OnboardingWizard({
               <>
                 <h2 className="text-lg font-semibold">Add your resume</h2>
                 <p className="mb-5 mt-1 text-sm text-muted-foreground">
-                  Claude reads it exactly as written. You can polish it in the Resume Studio later.
+                  The AI reads it exactly as written. You can polish it in the Resume Studio later.
                 </p>
                 <ResumeImport makePrimary onDone={setImported} />
               </>

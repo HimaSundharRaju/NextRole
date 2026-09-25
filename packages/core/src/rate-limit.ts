@@ -8,7 +8,7 @@ import { RateLimitError } from "./errors";
 import { getRedis } from "./redis";
 
 export const RATE_LIMIT_POLICIES = {
-  /** Expensive Claude calls (tailoring, generation, analysis). */
+  /** Expensive AI calls (tailoring, generation, analysis). */
   aiHeavy: { points: 40, duration: 60 * 60 },
   /** Interactive resume-studio chat turns. */
   aiChat: { points: 120, duration: 60 * 60 },

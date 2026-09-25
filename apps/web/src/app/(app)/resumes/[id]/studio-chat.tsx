@@ -107,7 +107,7 @@ export function StudioChat({
       });
       if (!response.ok || !response.body) {
         const body = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Claude is unavailable right now. Please try again.");
+        throw new Error(body.error ?? "The AI service is unavailable right now. Please try again.");
       }
       for await (const event of readEvents(response)) {
         if (event.type === "text") {
@@ -180,7 +180,7 @@ export function StudioChat({
               {message.content ? (
                 <p className="whitespace-pre-wrap">{message.content}</p>
               ) : (
-                <span className="inline-flex gap-1 py-1" aria-label="Claude is writing">
+                <span className="inline-flex gap-1 py-1" aria-label="The AI is writing">
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.2s]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.1s]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground" />
@@ -219,7 +219,7 @@ export function StudioChat({
             onKeyDown={onKeyDown}
             rows={2}
             maxLength={4000}
-            placeholder="Ask Claude to improve your resume…"
+            placeholder="Ask the AI to improve your resume…"
             className="min-h-11 flex-1 resize-none rounded-xl border border-input bg-card px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/25"
             aria-label="Message"
           />
