@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nextrole
+          POSTGRES_PASSWORD: nextrole
+          POSTGRES_DB: nextrole_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nextrole -d nextrole_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      # Enables the Postgres integration tests (job ingestion, reminders).
+      TEST_DATABASE_URL: postgres://nextrole:nextrole@localhost:5432/nextrole_test
+      NEXT_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  e2e:
+    name: End-to-end (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nextrole
+          POSTGRES_PASSWORD: nextrole
+          POSTGRES_DB: nextrole
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nextrole -d nextrole"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgres://nextrole:nextrole@localhost:5432/nextrole
+      REDIS_URL: redis://localhost:6379
+      # Deterministic AI responses; the app refuses this provider in production.
+      AI_PROVIDER: mock
+      NEXT_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate throwaway secrets
+        run: |
+          auth_secret="$(openssl rand -base64 48)"
+          encryption_key="$(openssl rand -base64 32)"
+          echo "::add-mask::$auth_secret"
+          echo "::add-mask::$encryption_key"
+          echo "BETTER_AUTH_SECRET=$auth_secret" >> "$GITHUB_ENV"
+          echo "ENCRYPTION_KEY=$encryption_key" >> "$GITHUB_ENV"
+      - run: pnpm db:migrate
+      - run: pnpm db:seed -- --demo
+      - run: pnpm --filter @nextrole/web exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7
+
+  docker:
+    name: Docker image (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [web, worker]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          push: false
+          tags: nextrole-${{ matrix.app }}:ci
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}

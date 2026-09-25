@@ -1,0 +1,8 @@
+pnpm-lock.yaml
+packages/db/drizzle/
+**/.next/
+**/dist/
+**/coverage/
+# Written by `next dev`; keep them byte-identical so it doesn't re-create them.
+apps/web/AGENTS.md
+apps/web/CLAUDE.md

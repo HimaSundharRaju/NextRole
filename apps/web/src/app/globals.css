@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f8fb;
+  --foreground: #0b1220;
+  --card: #ffffff;
+  --card-foreground: #0b1220;
+  --muted: #eef1f6;
+  --muted-foreground: #5b6477;
+  --border: #e2e6ee;
+  --input: #d6dbe5;
+  --ring: #6366f1;
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-foreground: #ffffff;
+  --primary-soft: #eef0ff;
+  --accent: #0ea5e9;
+  --success: #059669;
+  --success-soft: #e7f7f0;
+  --warning: #b45309;
+  --warning-soft: #fdf3e2;
+  --danger: #dc2626;
+  --danger-soft: #fdecec;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0d14;
+    --foreground: #e7eaf1;
+    --card: #11151f;
+    --card-foreground: #e7eaf1;
+    --muted: #1a2030;
+    --muted-foreground: #98a1b5;
+    --border: #232a3a;
+    --input: #2c3448;
+    --ring: #818cf8;
+    --primary: #6d6af5;
+    --primary-hover: #7c7af7;
+    --primary-foreground: #ffffff;
+    --primary-soft: #1d1f3d;
+    --accent: #38bdf8;
+    --success: #34d399;
+    --success-soft: #0f2a21;
+    --warning: #fbbf24;
+    --warning-soft: #2c2210;
+    --danger: #f87171;
+    --danger-soft: #2f1414;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --font-sans:
+    var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* Job descriptions: sanitized HTML from job boards. */
+.job-description {
+  line-height: 1.65;
+  font-size: 0.95rem;
+}
+.job-description h2,
+.job-description h3,
+.job-description h4,
+.job-description h5 {
+  font-weight: 600;
+  margin: 1.25rem 0 0.5rem;
+}
+.job-description p {
+  margin: 0.6rem 0;
+}
+.job-description ul,
+.job-description ol {
+  margin: 0.5rem 0 0.75rem 1.25rem;
+}
+.job-description ul {
+  list-style: disc;
+}
+.job-description ol {
+  list-style: decimal;
+}
+.job-description li {
+  margin: 0.25rem 0;
+}
+.job-description a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+/* The resume preview is always "paper", regardless of the app theme. */
+.resume-paper {
+  background: #ffffff;
+  color: #111827;
+  box-shadow:
+    0 1px 3px rgb(15 23 42 / 0.08),
+    0 12px 32px rgb(15 23 42 / 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

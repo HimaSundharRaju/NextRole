@@ -1,0 +1,35 @@
+{
+  "name": "@nextrole/jobs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./connectors": "./src/connectors/index.ts",
+    "./match": "./src/match.ts",
+    "./sanitize": "./src/sanitize.ts",
+    "./ingest": "./src/ingest.ts",
+    "./alerts": "./src/alerts.ts"
+  },
+  "scripts": {
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nextrole/core": "workspace:*",
+    "@nextrole/db": "workspace:*",
+    "@nextrole/resume": "workspace:*",
+    "drizzle-orm": "0.45.3",
+    "sanitize-html": "2.17.7",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.2",
+    "@types/sanitize-html": "2.16.1",
+    "eslint": "9.39.5",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.1",
+    "vitest": "5.0.1"
+  }
+}

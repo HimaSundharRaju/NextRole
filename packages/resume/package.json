@@ -1,0 +1,36 @@
+{
+  "name": "@nextrole/resume",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts",
+    "./skills": "./src/skills.ts",
+    "./theme": "./src/theme.ts",
+    "./text": "./src/text.ts",
+    "./ats": "./src/ats.ts",
+    "./pdf": "./src/pdf.tsx",
+    "./docx": "./src/docx.ts",
+    "./fixtures": "./src/fixtures.ts"
+  },
+  "scripts": {
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@react-pdf/renderer": "4.9.0",
+    "docx": "9.7.2",
+    "react": "19.3.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.2",
+    "@types/react": "19.3.0",
+    "eslint": "9.39.5",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.1",
+    "vitest": "5.0.1"
+  }
+}

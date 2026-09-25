@@ -1,0 +1,36 @@
+{
+  "name": "@nextrole/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "bullmq": "6.3.8",
+    "drizzle-orm": "0.45.3",
+    "ioredis": "6.0.0",
+    "pg": "8.23.0",
+    "pino": "10.3.1",
+    "sanitize-html": "2.17.7",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@nextrole/core": "workspace:*",
+    "@nextrole/db": "workspace:*",
+    "@nextrole/jobs": "workspace:*",
+    "@nextrole/resume": "workspace:*",
+    "@types/node": "26.6.2",
+    "eslint": "9.39.5",
+    "tsup": "8.5.1",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.1",
+    "vitest": "5.0.1"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "@nextrole/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./env": "./src/env.ts",
+    "./logger": "./src/logger.ts",
+    "./crypto": "./src/crypto.ts",
+    "./errors": "./src/errors.ts",
+    "./redis": "./src/redis.ts",
+    "./rate-limit": "./src/rate-limit.ts",
+    "./mailer": "./src/mailer.ts",
+    "./queues": "./src/queues.ts"
+  },
+  "scripts": {
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ioredis": "6.0.0",
+    "nodemailer": "10.0.10",
+    "pino": "10.3.1",
+    "rate-limiter-flexible": "11.2.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.2",
+    "@types/nodemailer": "8.0.2",
+    "eslint": "9.39.5",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.1",
+    "vitest": "5.0.1"
+  }
+}
