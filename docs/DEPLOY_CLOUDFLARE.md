@@ -42,10 +42,9 @@ What to copy from each:
 
 - **Cloudflare**: your **Account ID** (shown on the Workers & Pages overview), and an **API
   token** created from the "Edit Cloudflare Workers" template with the **Containers** edit
-  permission added, which the deploy needs to upload the images. Include the zone for your
-  domain (for example `hearthspace.in`) in the token's zone resources so the deploy can attach the
-  custom domain. If that step reports a permission error, also give the token DNS edit
-  permission on that zone.
+  permission added, which the deploy needs to upload the images. Remove the template's zone
+  permission (Workers Routes). The deploy only uses account-level permissions and never changes
+  a domain, so the token can't touch `hearthspace.in` or any other domain you have.
 - **Neon**: create a project on Postgres 16 and copy the **direct** (not pooled) connection string.
   It ends in `?sslmode=require`.
 - **Upstash**: create a Redis database with TLS and copy its `rediss://default:…@…:6379` URL. Leave
@@ -59,22 +58,40 @@ What to copy from each:
 The `APP_URL` variable is the app's one public address. Sign-in only works there, and the Worker
 redirects every other address it receives (such as its workers.dev address) to it.
 
-- **A subdomain of a domain you already have on Cloudflare** (recommended), for example
-  `https://nextrole.hearthspace.in`. Each deploy attaches `APP_URL`'s hostname to the Worker as a
-  custom domain, which adds a DNS record for that one subdomain and its certificate. The rest of
-  the domain and the site already on it are untouched. The domain must be in the same Cloudflare
-  account as the Worker, and the subdomain must not already have a DNS record.
+- **A subdomain of a domain you already have on Cloudflare**, for example
+  `https://nextrole.hearthspace.in`. You attach it to the Worker once after the first deploy
+  (step 4). The domain must be in the same Cloudflare account as the Worker.
 - **workers.dev**: `https://nextrole.<your-subdomain>.workers.dev`. Your subdomain is shown under
   Workers & Pages in the Cloudflare dashboard.
+
+**What a subdomain changes on the parent domain**, for example `hearthspace.in`:
+
+- **Only one DNS record is added.** Attaching `nextrole.hearthspace.in` creates a DNS record and a
+  certificate for that name only. Cloudflare refuses to attach it if the name already has a
+  record, so nothing existing is overwritten.
+- **Nothing else changes:**
+  - The deploy token has no access to the domain.
+  - The Worker only receives requests for `nextrole.hearthspace.in`.
+  - NextRole's cookies are set for `nextrole.hearthspace.in` only.
+  - Its HSTS header covers only that subdomain.
+  - Removing the custom domain from the Worker later deletes its DNS record again.
+- **The parent's zone settings still apply to the subdomain.** If email addresses on NextRole pages
+  show as `[email protected]`, add a Configuration Rule for the hostname
+  `nextrole.hearthspace.in` that turns off Email Address Obfuscation. The rule doesn't affect the
+  rest of the domain.
 
 A path on an existing site, such as `hearthspace.in/nextrole`, isn't supported. The app would
 share that site's origin, so its cookies and scripts could reach NextRole accounts. The app's URLs
 would also have to be rewritten for the path, and changed back after any later move.
 
-**Moving to a new domain later**: add the new domain to the same Cloudflare account, set `APP_URL`
-to the new address and `REDIRECT_DOMAINS` to the old hostname (for example
-`nextrole.hearthspace.in`), then deploy. Both hostnames stay attached, and visitors to the old one
-are redirected to the same page on the new one. Nothing in the code changes.
+**Moving to a new domain later**:
+
+1. Add the new domain to the same Cloudflare account.
+2. Attach it to the `nextrole` Worker the same way as in step 4.
+3. Set `APP_URL` to the new address and run Deploy.
+
+The old `nextrole.hearthspace.in` keeps redirecting to the same pages on the new domain until you
+remove it from the Worker, which also deletes its DNS record. Nothing in the code changes.
 
 ## 3. Add the GitHub secrets and variables
 
@@ -99,7 +116,6 @@ In the repository on GitHub, open **Settings → Secrets and variables → Actio
 | Name                 | Value                                                                                      |
 | -------------------- | ------------------------------------------------------------------------------------------ |
 | `APP_URL`            | The public URL from step 2, for example `https://nextrole.hearthspace.in`                  |
-| `REDIRECT_DOMAINS`   | Optional: old hostnames to keep attached and redirect to `APP_URL`, comma-separated        |
 | `EMAIL_FROM`         | Sender on your verified domain, for example `NextRole <no-reply@sundhar.io>`               |
 | `AI_MODEL`           | Optional: `claude-sonnet-5` costs about 60% less per call than the default `claude-opus-5` |
 | `ANTHROPIC_BASE_URL` | Optional: route Claude calls through Cloudflare AI Gateway (see below)                     |
@@ -118,9 +134,13 @@ Set these two once and keep them. Changing `BETTER_AUTH_SECRET` signs everyone o
 
 1. Open **Actions → Deploy → Run workflow** on `main`. The first run takes about 10 minutes
    because it builds both images.
-2. When it finishes, the smoke test has already checked `APP_URL/api/health`. Open `APP_URL`, sign
-   up and confirm your email.
-3. Make yourself an admin in Neon's SQL editor:
+2. **Attach your domain** (once, only if `APP_URL` isn't the workers.dev address).
+   - Until you do, the first run ends with a "Custom domain not attached yet" warning.
+   - In the Cloudflare dashboard, open **Workers & Pages → nextrole → Settings → Domains & Routes
+     → Add → Custom domain** and enter the hostname, for example `nextrole.hearthspace.in`.
+   - Then run Deploy again, so its smoke test checks the live address.
+3. Open `APP_URL`, sign up and confirm your email.
+4. Make yourself an admin in Neon's SQL editor:
    `update users set role = 'admin' where email = 'you@example.com';`
 
 After that, every push to `main` deploys automatically once CI passes.

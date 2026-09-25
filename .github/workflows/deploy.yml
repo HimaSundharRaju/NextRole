@@ -48,7 +48,6 @@ jobs:
       EMAIL_FROM: ${{ vars.EMAIL_FROM }}
       AI_MODEL: ${{ vars.AI_MODEL }}
       ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
-      REDIRECT_DOMAINS: ${{ vars.REDIRECT_DOMAINS }}
       WRANGLER_SEND_METRICS: "false"
     steps:
       - name: Check configuration
@@ -103,23 +102,19 @@ jobs:
           ' "$secrets_file" APP_URL DATABASE_URL REDIS_URL BETTER_AUTH_SECRET ENCRYPTION_KEY \
             ANTHROPIC_API_KEY SMTP_URL GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET EMAIL_FROM AI_MODEL \
             ANTHROPIC_BASE_URL
-          # Custom domains: APP_URL's host (unless it's the workers.dev address) plus any old
-          # addresses in REDIRECT_DOMAINS, which the Worker redirects to APP_URL. Each deploy
-          # replaces the Worker's set of custom domains with exactly these.
-          domain_args=()
-          app_host=$(node -p 'new URL(process.env.APP_URL).hostname')
-          [[ "$app_host" == *.workers.dev ]] || domain_args+=(--domain "$app_host")
-          IFS=',' read -ra old_hosts <<< "$REDIRECT_DOMAINS"
-          for host in "${old_hosts[@]}"; do
-            host=$(echo "$host" | xargs)
-            [ -n "$host" ] && domain_args+=(--domain "$host")
-          done
-          pnpm exec wrangler deploy --secrets-file "$secrets_file" "${domain_args[@]}"
+          # No routes or custom domains are passed, so the deploy never changes any domain's DNS
+          # or routes. The custom domain is attached once in the Cloudflare dashboard.
+          pnpm exec wrangler deploy --secrets-file "$secrets_file"
           rm -f "$secrets_file"
 
       - name: Smoke test
         if: steps.config.outputs.ready == 'true'
         run: |
+          host=$(node -p 'new URL(process.env.APP_URL).hostname')
+          if ! getent hosts "$host" > /dev/null; then
+            echo "::warning title=Custom domain not attached yet::$host doesn't resolve. Attach it to the nextrole Worker (docs/DEPLOY_CLOUDFLARE.md, step 4), then run Deploy again."
+            exit 0
+          fi
           # The first request after a deploy starts a container, which can take a minute.
           for attempt in $(seq 1 20); do
             status=$(curl -s -o health.json -w '%{http_code}' --max-time 60 "$APP_URL/api/health" || true)
