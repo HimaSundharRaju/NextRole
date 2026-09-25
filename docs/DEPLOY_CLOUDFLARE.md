@@ -1,8 +1,8 @@
 # Deploy GetTargetRole on Cloudflare
 
 GetTargetRole runs on Cloudflare as a Worker in front of two containers built from this repository's
-Dockerfiles. Postgres and Redis are managed services outside Cloudflare, and Claude is called from
-the server with your API key.
+Dockerfiles. Postgres and Redis are managed services outside Cloudflare, and the AI model is called
+from the server with your Anthropic API key.
 
 ```mermaid
 flowchart LR
@@ -14,7 +14,7 @@ flowchart LR
   web --> redis[(Upstash Redis)]
   jobs --> pg
   jobs --> redis
-  web -->|Claude API| claude[Anthropic]
+  web -->|AI requests| anthropic[Anthropic API]
   web -->|SMTP| mail[Resend]
   jobs -->|public job boards| boards[Greenhouse · Lever · Ashby · SmartRecruiters]
 ```
@@ -35,7 +35,7 @@ flowchart LR
 | [Cloudflare](https://dash.cloudflare.com)  | Worker, containers, domain                      | **Workers Paid** ($5/month), which Containers require           |
 | [Supabase](https://supabase.com)           | PostgreSQL database                             | Free plan is enough to start                                    |
 | [Upstash](https://upstash.com)             | Redis for job queues and rate limits            | Pay-as-you-go (the job queues send a steady stream of commands) |
-| [Anthropic](https://console.anthropic.com) | Claude API                                      | Pay per use; set a monthly spend limit in the console           |
+| [Anthropic](https://console.anthropic.com) | AI model API                                    | Pay per use; set a monthly spend limit in the console           |
 | [Resend](https://resend.com)               | Email: sign-up verification and password resets | Free tier; verify the domain you send from                      |
 
 Workers Paid is a subscription for the Cloudflare account's Workers, separate from your domains'
@@ -123,7 +123,7 @@ In the repository on GitHub, open **Settings → Secrets and variables → Actio
 | `REDIS_URL`                                | The Upstash `rediss://` URL                                                 |
 | `BETTER_AUTH_SECRET`                       | Output of `openssl rand -base64 48`                                         |
 | `ENCRYPTION_KEY`                           | Output of `openssl rand -base64 32`                                         |
-| `ANTHROPIC_API_KEY`                        | The Claude API key                                                          |
+| `ANTHROPIC_API_KEY`                        | The Anthropic API key                                                       |
 | `SMTP_URL`                                 | The Resend SMTP URL                                                         |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional: enables "Continue with Google"                                    |
 
@@ -134,7 +134,7 @@ In the repository on GitHub, open **Settings → Secrets and variables → Actio
 | `APP_URL`            | The public URL from step 2, for example `https://gettargetrole.hearthspace.in`             |
 | `EMAIL_FROM`         | Sender on your verified domain, for example `GetTargetRole <no-reply@sundhar.io>`          |
 | `AI_MODEL`           | Optional: `claude-sonnet-5` costs about 60% less per call than the default `claude-opus-5` |
-| `ANTHROPIC_BASE_URL` | Optional: route Claude calls through Cloudflare AI Gateway (see below)                     |
+| `ANTHROPIC_BASE_URL` | Optional: route AI calls through Cloudflare AI Gateway (see below)                         |
 
 With the GitHub CLI, the two generated secrets can be set without ever displaying them:
 
@@ -173,7 +173,7 @@ After that, every push to `main` deploys automatically once CI passes.
   `KEEP_WARM` to `"false"` to let idle web containers sleep. That is cheaper, but the first visit
   after a quiet period waits for a container to start. Container time is billed on top of the
   Workers Paid plan; see Cloudflare's Containers pricing.
-- **Claude spend**: every call's cost is stored in the `ai_usage` table and capped per user by plan.
+- **AI spend**: every call's cost is stored in the `ai_usage` table and capped per user by plan.
   To also get Cloudflare's usage dashboards, caching and rate limits, create an AI Gateway in the
   Cloudflare dashboard and set the `ANTHROPIC_BASE_URL` variable to
   `https://gateway.ai.cloudflare.com/v1/<account id>/<gateway name>/anthropic`.

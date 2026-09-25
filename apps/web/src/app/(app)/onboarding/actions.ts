@@ -12,7 +12,7 @@ export const generateResume = authedAction(
     background: z
       .string()
       .trim()
-      .min(80, "Add a few sentences about your experience so Claude has something to work with")
+      .min(80, "Add a few sentences about your experience so the AI has something to work with")
       .max(20_000),
   }),
   async (input, user) => {
@@ -25,7 +25,7 @@ export const generateResume = authedAction(
       title: `${input.targetRole} resume`,
       content: result.resume,
       source: "ai_generate",
-      note: "Generated with Claude",
+      note: "Generated with AI",
       makePrimary: true,
     });
     return { id: resume.id, suggestions: result.suggestions };

@@ -81,7 +81,7 @@ export function AboutForm({ initial }: { initial: AboutInput }) {
       <Field
         label="Your voice"
         htmlFor="voiceNotes"
-        hint="Anything Claude should know when writing cover letters and answers for you: motivations, strengths, tone, notice period, relocation plans…"
+        hint="Anything the AI should know when writing cover letters and answers for you: motivations, strengths, tone, notice period, relocation plans…"
         error={errors.voiceNotes}
       >
         <Textarea

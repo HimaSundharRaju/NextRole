@@ -172,12 +172,12 @@ export function ResumeImport({
             <Field
               label="Your background"
               htmlFor="background"
-              hint="Jobs, dates, what you built or achieved, tools you use, education. Rough notes are fine — Claude will write it up."
+              hint="Jobs, dates, what you built or achieved, tools you use, education. Rough notes are fine — the AI will write it up."
             >
               <Textarea id="background" name="background" rows={10} required minLength={80} />
             </Field>
             <Button type="submit" loading={pending}>
-              {pending ? "Claude is writing your resume…" : "Write my resume"}
+              {pending ? "Writing your resume…" : "Write my resume"}
             </Button>
           </form>
         ) : null}

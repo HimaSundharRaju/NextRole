@@ -129,7 +129,7 @@ export function ApplyKit({
     <Card>
       <CardHeader
         title="Apply kit"
-        description="Claude prepares everything; you review and submit."
+        description="The AI prepares everything; you review and submit."
         action={applied ? <Badge tone="success">Applied</Badge> : null}
       />
       <div>
@@ -294,7 +294,7 @@ export function ApplyKit({
               )
             }
           >
-            Answer with Claude
+            Answer with AI
           </Button>
           {answers.map((item, index) => (
             <div key={item.question} className="rounded-lg border border-border p-3">

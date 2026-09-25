@@ -3,7 +3,7 @@ import { annualize } from "./normalize";
 
 /**
  * Deterministic, zero-cost fit score used to rank the job feed and trigger alerts.
- * Claude's deeper fit analysis (packages/ai) runs on demand for a single job.
+ * The AI's deeper fit analysis (packages/ai) runs on demand for a single job.
  */
 
 export interface CandidateSignals {
