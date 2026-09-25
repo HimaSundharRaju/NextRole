@@ -1,7 +1,8 @@
-import { AiRefusalError } from "@nextrole/core/errors";
+import { AiRefusalError, ExternalServiceError } from "@nextrole/core/errors";
 import { SAMPLE_JOB_DESCRIPTION, SAMPLE_RESUME } from "@nextrole/resume/fixtures";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AnthropicProvider, applyResumeChanges, UPDATE_RESUME_TOOL } from "./anthropic-provider";
+import { RESULT_TOOL_NAME } from "./client";
 import { estimateCostMicroUsd, modelCapabilities } from "./config";
 import { startFakeAnthropic } from "./fake-anthropic";
 import { MockProvider } from "./mock-provider";
@@ -48,7 +49,7 @@ describe("applyResumeChanges", () => {
 });
 
 describe("update_resume tool schema", () => {
-  it("is strict-mode compatible: closed objects with every property required", () => {
+  it("asks for every section in closed objects, without strict mode", () => {
     const visit = (node: unknown): void => {
       if (!node || typeof node !== "object") return;
       const schema = node as Record<string, unknown>;
@@ -63,7 +64,8 @@ describe("update_resume tool schema", () => {
       );
     };
     visit(UPDATE_RESUME_TOOL.input_schema);
-    expect(UPDATE_RESUME_TOOL.strict).toBe(true);
+    // The API rejects this schema in strict mode: its compiled grammar is too large.
+    expect(UPDATE_RESUME_TOOL).not.toHaveProperty("strict");
   });
 });
 
@@ -138,7 +140,7 @@ describe("AnthropicProvider against a fake Messages API", () => {
     usage.length = 0;
   });
 
-  it("tailors with structured output, refusal fallbacks and a cached system prompt", async () => {
+  it("tailors through the result tool, with refusal fallbacks and a cached system prompt", async () => {
     const tailored: TailorResult = {
       resume: { ...SAMPLE_RESUME, summary: "Tailored summary." },
       summaryOfChanges: ["Rewrote the summary"],
@@ -147,8 +149,8 @@ describe("AnthropicProvider against a fake Messages API", () => {
       suggestions: [],
     };
     fake.enqueue({
-      blocks: [{ type: "text", text: JSON.stringify(tailored) }],
-      stopReason: "end_turn",
+      blocks: [{ type: "tool_use", name: RESULT_TOOL_NAME, input: tailored }],
+      stopReason: "tool_use",
     });
 
     const result = await provider.tailorResume({ resume: SAMPLE_RESUME, job }, ctx);
@@ -161,9 +163,17 @@ describe("AnthropicProvider against a fake Messages API", () => {
       model: "claude-opus-5",
       fallbacks: "default",
       thinking: { type: "adaptive" },
-      output_config: { effort: "high", format: { type: "json_schema" } },
+      output_config: { effort: "high" },
+      tool_choice: { type: "auto" },
       system: [{ type: "text", cache_control: { type: "ephemeral" } }],
     });
+    // A structured output of this size is rejected by the API, and so is a strict tool.
+    expect(request?.body.output_config).not.toHaveProperty("format");
+    const tools = request?.body.tools as Array<Record<string, unknown>>;
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toMatchObject({ name: RESULT_TOOL_NAME, input_schema: { type: "object" } });
+    expect(tools[0]).not.toHaveProperty("strict");
+    expect(JSON.stringify(request?.body.system)).toContain(RESULT_TOOL_NAME);
     const content = JSON.stringify(request?.body.messages);
     expect(content).toContain("<job_description>");
     expect(content).toContain("<resume>");
@@ -175,6 +185,16 @@ describe("AnthropicProvider against a fake Messages API", () => {
       inputTokens: 1200,
     });
     expect(usage[0]!.costMicroUsd).toBeGreaterThan(0);
+  });
+
+  it("reports an incomplete response when Claude doesn't call the result tool", async () => {
+    fake.enqueue({
+      blocks: [{ type: "text", text: "Here is your tailored resume." }],
+      stopReason: "end_turn",
+    });
+    const tailoring = provider.tailorResume({ resume: SAMPLE_RESUME, job }, ctx);
+    await expect(tailoring).rejects.toBeInstanceOf(ExternalServiceError);
+    await expect(tailoring).rejects.toThrow("incomplete response");
   });
 
   it("leaves out thinking, effort and fallbacks on Claude Haiku 4.5", async () => {
@@ -286,11 +306,8 @@ describe("AnthropicProvider against a fake Messages API", () => {
       thinking: { type: "adaptive" },
       output_config: { effort: "medium" },
     });
-    expect(body.tools[0]).toMatchObject({
-      name: "update_resume",
-      strict: true,
-      eager_input_streaming: true,
-    });
+    expect(body.tools[0]).toMatchObject({ name: "update_resume", eager_input_streaming: true });
+    expect(body.tools[0]).not.toHaveProperty("strict");
     expect(JSON.stringify(body.messages)).toContain("<current_resume>");
   });
 

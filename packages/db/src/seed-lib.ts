@@ -64,7 +64,7 @@ export const DEFAULT_COMPANIES: Array<{
   { name: "Gusto", ats: "greenhouse", boardToken: "gusto", website: "https://gusto.com" },
   { name: "MongoDB", ats: "greenhouse", boardToken: "mongodb", website: "https://www.mongodb.com" },
   { name: "Palantir", ats: "lever", boardToken: "palantir", website: "https://www.palantir.com" },
-  { name: "Plaid", ats: "lever", boardToken: "plaid", website: "https://plaid.com" },
+  { name: "Plaid", ats: "ashby", boardToken: "plaid", website: "https://plaid.com" },
   { name: "OpenAI", ats: "ashby", boardToken: "openai", website: "https://openai.com" },
   { name: "Notion", ats: "ashby", boardToken: "notion", website: "https://www.notion.so" },
   { name: "Ramp", ats: "ashby", boardToken: "ramp", website: "https://ramp.com" },
