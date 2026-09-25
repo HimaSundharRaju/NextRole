@@ -42,11 +42,12 @@ export function getPool(): pg.Pool {
       max: Number(process.env.DATABASE_POOL_MAX ?? 10),
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
-    });
-    // Protect the database from runaway queries. Set per connection rather than as a startup
-    // option, which connection poolers such as PgBouncer and Supavisor may reject.
-    pool.on("connect", (client) => {
-      client.query("SET statement_timeout = 30000").catch(() => undefined);
+      // Protect the database from runaway queries. Set per connection rather than as a startup
+      // option, which connection poolers such as PgBouncer and Supavisor may reject. The pool
+      // waits for this before handing the connection out, so it never overlaps a query.
+      onConnect: async (client) => {
+        await client.query("SET statement_timeout = 30000");
+      },
     });
     store.__nextrolePool = pool;
   }
