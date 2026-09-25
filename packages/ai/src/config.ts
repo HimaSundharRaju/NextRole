@@ -33,6 +33,37 @@ export function configuredModel(): string {
   return process.env.AI_MODEL || DEFAULT_MODEL;
 }
 
+/** The model without its snapshot date: `claude-haiku-4-5-20251001` → `claude-haiku-4-5`. */
+export function baseModelId(model: string): string {
+  return model.replace(/-\d{8}$/, "");
+}
+
+/** Claude 4.5 and earlier (Haiku 4.5, Sonnet 4.5, ...): no adaptive thinking or effort. */
+const PRE_ADAPTIVE_MODEL = /^claude-(?:3-|(?:opus|sonnet|haiku)-4(?:-[015])?$)/;
+
+/** Models whose safety classifiers can decline a request, which the API can retry elsewhere. */
+const REFUSAL_FALLBACK_MODELS = new Set([
+  "claude-opus-5",
+  "claude-opus-5-5",
+  "claude-fable-5",
+  "claude-fable-5-1",
+]);
+
+export interface ModelCapabilities {
+  /** Adaptive thinking and the effort setting, which the API rejects before Claude 4.6. */
+  adaptiveThinking: boolean;
+  /** Server-side refusal fallbacks (`fallbacks: "default"`). */
+  refusalFallbacks: boolean;
+}
+
+export function modelCapabilities(model: string): ModelCapabilities {
+  const id = baseModelId(model);
+  return {
+    adaptiveThinking: !PRE_ADAPTIVE_MODEL.test(id),
+    refusalFallbacks: REFUSAL_FALLBACK_MODELS.has(id),
+  };
+}
+
 /** USD per million tokens (first-party API list prices). */
 interface ModelPricing {
   input: number;
@@ -49,6 +80,8 @@ const PRICING: Record<string, ModelPricing> = {
   "claude-opus-4-6": { input: 5, output: 25 },
   "claude-sonnet-5": { input: 2, output: 10 },
   "claude-sonnet-4-6": { input: 3, output: 15 },
+  "claude-opus-4-5": { input: 5, output: 25 },
+  "claude-sonnet-4-5": { input: 3, output: 15 },
   "claude-haiku-4-5": { input: 1, output: 5 },
 };
 
@@ -64,7 +97,7 @@ export interface TokenCounts {
 
 /** Estimated cost in micro-dollars (1e-6 USD). Unknown models are priced like Opus 5. */
 export function estimateCostMicroUsd(model: string, tokens: TokenCounts): number {
-  const price = PRICING[model] ?? PRICING[DEFAULT_MODEL]!;
+  const price = PRICING[baseModelId(model)] ?? PRICING[DEFAULT_MODEL]!;
   const usd =
     (tokens.inputTokens * price.input +
       tokens.cacheReadTokens * price.input * CACHE_READ_MULTIPLIER +

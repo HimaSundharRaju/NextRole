@@ -70,7 +70,8 @@ prep and the Studio chat. Its production implementation calls the Anthropic Type
 
 - **Model and reasoning.** Claude Opus 5 (`AI_MODEL`) with adaptive thinking. The effort level is
   set per feature: `high` for writing that is judged on quality (generation, tailoring) and
-  `medium` for interactive and extraction work.
+  `medium` for interactive and extraction work. Models older than Claude 4.6, such as Claude
+  Haiku 4.5, don't support adaptive thinking or effort, so requests to them leave both out.
 - **Structured outputs.** Every non-chat feature requests JSON that matches a Zod schema, so
   results are typed and validated before they reach the database or the UI.
 - **Streaming.** Requests stream and are collected with `finalMessage()`, which avoids timeouts
@@ -79,9 +80,9 @@ prep and the Studio chat. Its production implementation calls the Anthropic Type
   `update_resume` tool with eager input streaming. Every tool input is validated against the
   resume schema before it is applied, and each applied edit is saved as a revision the user can
   restore.
-- **Refusal fallbacks.** Requests opt into server-side fallbacks, so a request that the primary
-  model's safety classifiers decline is retried by the API on a fallback model rather than
-  failing.
+- **Refusal fallbacks.** On models whose safety classifiers can decline a request (Claude Opus 5
+  and 5.5, Claude Fable 5 and 5.1), requests opt into server-side fallbacks, so a declined
+  request is retried by the API on a fallback model rather than failing.
 - **Prompt caching.** System prompts are marked cacheable, which cuts cost and latency on repeat
   calls.
 - **Untrusted content.** Resumes, job descriptions and uploaded documents are wrapped in tagged

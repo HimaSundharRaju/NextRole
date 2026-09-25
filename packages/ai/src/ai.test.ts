@@ -2,10 +2,10 @@ import { AiRefusalError } from "@nextrole/core/errors";
 import { SAMPLE_JOB_DESCRIPTION, SAMPLE_RESUME } from "@nextrole/resume/fixtures";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AnthropicProvider, applyResumeChanges, UPDATE_RESUME_TOOL } from "./anthropic-provider";
-import { estimateCostMicroUsd } from "./config";
+import { estimateCostMicroUsd, modelCapabilities } from "./config";
 import { startFakeAnthropic } from "./fake-anthropic";
 import { MockProvider } from "./mock-provider";
-import type { ResumeChanges, TailorResult } from "./schemas";
+import type { FitAnalysis, ResumeChanges, TailorResult } from "./schemas";
 import type { StudioEvent, UsageRecord } from "./types";
 import { wrapUntrusted } from "./untrusted";
 
@@ -78,6 +78,41 @@ describe("cost estimation", () => {
       }),
     ).toBe(30_500_000);
   });
+
+  it("prices a dated model ID like its alias", () => {
+    expect(
+      estimateCostMicroUsd("claude-haiku-4-5-20251001", {
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      }),
+    ).toBe(6_000_000);
+  });
+});
+
+describe("model capabilities", () => {
+  it("uses adaptive thinking from Claude 4.6 on, and fallbacks only where classifiers decline", () => {
+    expect(modelCapabilities("claude-opus-5")).toEqual({
+      adaptiveThinking: true,
+      refusalFallbacks: true,
+    });
+    for (const model of ["claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-6"]) {
+      expect(modelCapabilities(model)).toEqual({ adaptiveThinking: true, refusalFallbacks: false });
+    }
+    for (const model of [
+      "claude-haiku-4-5",
+      "claude-haiku-4-5-20251001",
+      "claude-sonnet-4-5-20250929",
+      "claude-opus-4-1",
+      "claude-opus-4-20250514",
+    ]) {
+      expect(modelCapabilities(model)).toEqual({
+        adaptiveThinking: false,
+        refusalFallbacks: false,
+      });
+    }
+  });
 });
 
 describe("AnthropicProvider against a fake Messages API", () => {
@@ -142,6 +177,58 @@ describe("AnthropicProvider against a fake Messages API", () => {
     expect(usage[0]!.costMicroUsd).toBeGreaterThan(0);
   });
 
+  it("leaves out thinking, effort and fallbacks on Claude Haiku 4.5", async () => {
+    const fit: FitAnalysis = {
+      score: 72,
+      verdict: "good",
+      summary: "Solid backend match.",
+      strengths: ["Go services at scale"],
+      gaps: [],
+      recommendation: "Apply now.",
+    };
+    const model = "claude-haiku-4-5-20251001";
+    process.env.AI_MODEL = model;
+    try {
+      fake.enqueue({
+        blocks: [{ type: "text", text: JSON.stringify(fit) }],
+        stopReason: "end_turn",
+        model,
+      });
+      expect(await provider.analyzeFit({ resume: SAMPLE_RESUME, job }, ctx)).toMatchObject({
+        score: 72,
+      });
+      fake.enqueue({
+        blocks: [{ type: "text", text: "Looks good." }],
+        stopReason: "end_turn",
+        model,
+      });
+      const events: StudioEvent[] = [];
+      for await (const event of provider.studioChat(
+        { resume: SAMPLE_RESUME, history: [], message: "Any thoughts?" },
+        ctx,
+      )) {
+        events.push(event);
+      }
+      expect(events.at(-1)).toEqual({ type: "done", reply: "Looks good.", changed: false });
+    } finally {
+      delete process.env.AI_MODEL;
+    }
+
+    const [structured, studio] = fake.requests;
+    for (const request of [structured, studio]) {
+      expect(request?.body.model).toBe(model);
+      expect(request?.headers["anthropic-beta"]).toBeUndefined();
+      expect(request?.body).not.toHaveProperty("thinking");
+      expect(request?.body).not.toHaveProperty("fallbacks");
+    }
+    expect(structured?.body.output_config).toEqual({
+      format: expect.objectContaining({ type: "json_schema" }),
+    });
+    expect(studio?.body).not.toHaveProperty("output_config");
+    // 1200 input, 800 cache-read and 400 output tokens at Haiku 4.5's $1 / $5 per million.
+    expect(usage.map((record) => record.costMicroUsd)).toEqual([3280, 3280]);
+  });
+
   it("raises AiRefusalError when Claude declines", async () => {
     fake.enqueue({ blocks: [], stopReason: "refusal" });
     await expect(provider.analyzeFit({ resume: SAMPLE_RESUME, job }, ctx)).rejects.toBeInstanceOf(
@@ -194,6 +281,11 @@ describe("AnthropicProvider against a fake Messages API", () => {
       tools: Array<Record<string, unknown>>;
       messages: unknown;
     };
+    expect(body).toMatchObject({
+      fallbacks: "default",
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium" },
+    });
     expect(body.tools[0]).toMatchObject({
       name: "update_resume",
       strict: true,
