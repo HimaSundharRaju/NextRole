@@ -136,7 +136,7 @@ pull request and builds both Docker images.
 ## Deployment
 
 **Cloudflare** is the supported production target. A Worker (`apps/edge`) routes traffic to the
-web containers and keeps the background worker running. Postgres (Neon) and Redis (Upstash) are
+web containers and keeps the background worker running. Postgres (Supabase) and Redis (Upstash) are
 managed services, and GitHub Actions deploys `main` after CI passes. Follow
 [docs/DEPLOY_CLOUDFLARE.md](docs/DEPLOY_CLOUDFLARE.md) to create the accounts and add the GitHub
 secrets.

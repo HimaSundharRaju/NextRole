@@ -1,6 +1,32 @@
 import { describe, expect, it } from "vitest";
+import { connectionConfig } from "./client";
 import { DEFAULT_COMPANIES } from "./seed-lib";
 import { slugify } from "./slug";
+
+describe("connectionConfig", () => {
+  const url =
+    "postgresql://postgres.ref:p%40ss@aws-0-ap-south-1.pooler.supabase.com:5432/postgres?sslmode=require&application_name=nextrole";
+
+  it("passes the URL through when no CA is configured", () => {
+    expect(connectionConfig(url)).toEqual({ connectionString: url });
+  });
+
+  it("verifies against the given CA and drops SSL parameters that would override it", () => {
+    const config = connectionConfig(
+      url,
+      "-----BEGIN CERTIFICATE-----\\nABC\\n-----END CERTIFICATE-----",
+    );
+    expect(config.ssl).toEqual({
+      ca: "-----BEGIN CERTIFICATE-----\nABC\n-----END CERTIFICATE-----",
+      rejectUnauthorized: true,
+    });
+    const parsed = new URL(config.connectionString!);
+    expect(parsed.searchParams.has("sslmode")).toBe(false);
+    expect(parsed.searchParams.get("application_name")).toBe("nextrole");
+    expect(parsed.password).toBe("p%40ss");
+    expect(parsed.host).toBe("aws-0-ap-south-1.pooler.supabase.com:5432");
+  });
+});
 
 describe("slugify", () => {
   it("builds URL-safe slugs and folds accents", () => {

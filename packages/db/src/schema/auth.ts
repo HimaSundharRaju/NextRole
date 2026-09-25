@@ -32,7 +32,7 @@ export const users = pgTable("users", {
   plan: text("plan", { enum: PLANS }).notNull().default("free"),
   onboardedAt: timestamp("onboarded_at", { withTimezone: true }),
   ...timestamps,
-});
+}).enableRLS();
 
 export const sessions = pgTable(
   "sessions",
@@ -49,7 +49,7 @@ export const sessions = pgTable(
     ...timestamps,
   },
   (table) => [index("sessions_user_id_idx").on(table.userId)],
-);
+).enableRLS();
 
 export const accounts = pgTable(
   "accounts",
@@ -70,7 +70,7 @@ export const accounts = pgTable(
     ...timestamps,
   },
   (table) => [index("accounts_user_id_idx").on(table.userId)],
-);
+).enableRLS();
 
 export const verifications = pgTable(
   "verifications",
@@ -82,4 +82,4 @@ export const verifications = pgTable(
     ...timestamps,
   },
   (table) => [index("verifications_identifier_idx").on(table.identifier)],
-);
+).enableRLS();
