@@ -5,8 +5,8 @@ import * as schema from "./schema";
 export type Database = NodePgDatabase<typeof schema>;
 
 interface DbGlobal {
-  __nextrolePool?: pg.Pool;
-  __nextroleDb?: Database;
+  __gettargetrolePool?: pg.Pool;
+  __gettargetroleDb?: Database;
 }
 
 // Survive Next.js dev hot reloads without leaking a new pool on every edit.
@@ -34,7 +34,7 @@ export function connectionConfig(
 }
 
 export function getPool(): pg.Pool {
-  if (!store.__nextrolePool) {
+  if (!store.__gettargetrolePool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) throw new Error("DATABASE_URL is not set");
     const pool = new pg.Pool({
@@ -49,21 +49,21 @@ export function getPool(): pg.Pool {
         await client.query("SET statement_timeout = 30000");
       },
     });
-    store.__nextrolePool = pool;
+    store.__gettargetrolePool = pool;
   }
-  return store.__nextrolePool;
+  return store.__gettargetrolePool;
 }
 
 export function getDb(): Database {
-  if (!store.__nextroleDb) {
-    store.__nextroleDb = drizzle(getPool(), { schema });
+  if (!store.__gettargetroleDb) {
+    store.__gettargetroleDb = drizzle(getPool(), { schema });
   }
-  return store.__nextroleDb;
+  return store.__gettargetroleDb;
 }
 
 export async function closeDb(): Promise<void> {
-  const pool = store.__nextrolePool;
-  store.__nextrolePool = undefined;
-  store.__nextroleDb = undefined;
+  const pool = store.__gettargetrolePool;
+  store.__gettargetrolePool = undefined;
+  store.__gettargetroleDb = undefined;
   if (pool) await pool.end();
 }

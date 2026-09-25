@@ -1,4 +1,4 @@
-import type { WorkplaceType } from "@nextrole/db/schema";
+import type { WorkplaceType } from "@gettargetrole/db/schema";
 import type { NormalizedSalary } from "./connectors/types";
 
 /** Infers remote/hybrid from free text; returns `fallback` when the text says nothing. */

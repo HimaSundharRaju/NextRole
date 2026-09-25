@@ -244,8 +244,8 @@ export function ResumeDocument({
       title={pdfSafeText(`${basics.name || "Resume"} — Resume`)}
       author={pdfSafeText(basics.name)}
       subject={pdfSafeText(basics.headline)}
-      creator="NextRole"
-      producer="NextRole"
+      creator="GetTargetRole"
+      producer="GetTargetRole"
     >
       <Page size={settings.paperSize} style={styles.page}>
         <View style={styles.header}>

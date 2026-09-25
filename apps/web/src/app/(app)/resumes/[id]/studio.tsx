@@ -1,7 +1,7 @@
 "use client";
 
-import type { Resume, ResumeSettings, TemplateId } from "@nextrole/resume/schema";
-import { TEMPLATE_THEMES } from "@nextrole/resume/theme";
+import type { Resume, ResumeSettings, TemplateId } from "@gettargetrole/resume/schema";
+import { TEMPLATE_THEMES } from "@gettargetrole/resume/theme";
 import {
   ArrowLeft,
   Download,

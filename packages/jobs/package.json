@@ -1,5 +1,5 @@
 {
-  "name": "@nextrole/jobs",
+  "name": "@gettargetrole/jobs",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -17,9 +17,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@nextrole/core": "workspace:*",
-    "@nextrole/db": "workspace:*",
-    "@nextrole/resume": "workspace:*",
+    "@gettargetrole/core": "workspace:*",
+    "@gettargetrole/db": "workspace:*",
+    "@gettargetrole/resume": "workspace:*",
     "drizzle-orm": "0.45.3",
     "sanitize-html": "2.17.7",
     "zod": "4.6.5"

@@ -113,7 +113,7 @@ jobs:
         run: |
           host=$(node -p 'new URL(process.env.APP_URL).hostname')
           if ! getent hosts "$host" > /dev/null; then
-            echo "::warning title=Custom domain not attached yet::$host doesn't resolve. Attach it to the nextrole Worker (docs/DEPLOY_CLOUDFLARE.md, step 4), then run Deploy again."
+            echo "::warning title=Custom domain not attached yet::$host doesn't resolve. Attach it to the gettargetrole Worker (docs/DEPLOY_CLOUDFLARE.md, step 4), then run Deploy again."
             exit 0
           fi
           # The first request after a deploy starts a container, which can take a minute.

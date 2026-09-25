@@ -27,7 +27,7 @@ const REDACT_PATHS = [
 const rootLogger: Logger = pino({
   level: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === "test" ? "silent" : "info"),
   redact: { paths: REDACT_PATHS, censor: "[redacted]" },
-  base: { app: "nextrole" },
+  base: { app: "gettargetrole" },
   timestamp: pino.stdTimeFunctions.isoTime,
 });
 

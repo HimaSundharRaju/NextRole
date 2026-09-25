@@ -1,13 +1,13 @@
-import { SAMPLE_RESUME } from "@nextrole/resume/fixtures";
-import { normalizeResume, type Resume } from "@nextrole/resume/schema";
-import { findSkills } from "@nextrole/resume/skills";
-import { resumeToPlainText } from "@nextrole/resume/text";
+import { SAMPLE_RESUME } from "@gettargetrole/resume/fixtures";
+import { normalizeResume, type Resume } from "@gettargetrole/resume/schema";
+import { findSkills } from "@gettargetrole/resume/skills";
+import { resumeToPlainText } from "@gettargetrole/resume/text";
 import type { AiFeature } from "./config";
 import type { AiCallContext, AiProvider, ResumeSource, StudioEvent } from "./types";
 
 /**
  * Deterministic stand-in for Claude used by automated tests and keyless local development.
- * It is rejected at startup in production (see @nextrole/core env validation).
+ * It is rejected at startup in production (see @gettargetrole/core env validation).
  */
 
 async function meter(feature: AiFeature, ctx: AiCallContext): Promise<void> {

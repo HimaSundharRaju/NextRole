@@ -1,6 +1,6 @@
 "use client";
 
-import { skillLabel } from "@nextrole/resume/skills";
+import { skillLabel } from "@gettargetrole/resume/skills";
 import { CheckCircle2, CircleAlert, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";

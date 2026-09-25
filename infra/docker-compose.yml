@@ -1,4 +1,4 @@
-# Local infrastructure for NextRole.
+# Local infrastructure for GetTargetRole.
 #
 #   pnpm infra:up      Postgres, Redis and Mailpit for `pnpm dev` (ports bound to 127.0.0.1 only)
 #   pnpm infra:down    stop them (data is kept in named volumes)
@@ -7,6 +7,9 @@
 # secrets read from the repository's root .env file:
 #
 #   docker compose -f infra/docker-compose.yml --profile app up --build
+#
+# The project, database and database user keep the app's former name, nextrole, so existing
+# local volumes and DATABASE_URLs keep working after the rename to GetTargetRole.
 
 name: nextrole
 
@@ -75,7 +78,7 @@ services:
   migrate:
     <<: *app-service
     profiles: [app]
-    image: nextrole-worker:local
+    image: gettargetrole-worker:local
     build: *worker-build
     command: ["node", "dist/migrate.js", "--seed"]
     environment: *app-env
@@ -86,7 +89,7 @@ services:
   worker:
     <<: *app-service
     profiles: [app]
-    image: nextrole-worker:local
+    image: gettargetrole-worker:local
     build: *worker-build
     environment: *app-env
     restart: unless-stopped
@@ -99,7 +102,7 @@ services:
   web:
     <<: *app-service
     profiles: [app]
-    image: nextrole-web:local
+    image: gettargetrole-web:local
     build:
       context: ..
       dockerfile: apps/web/Dockerfile

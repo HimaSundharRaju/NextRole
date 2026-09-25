@@ -1,7 +1,7 @@
 "use server";
 
-import { ForbiddenError } from "@nextrole/core/errors";
-import { APPLICATION_STATUSES } from "@nextrole/db/schema";
+import { ForbiddenError } from "@gettargetrole/core/errors";
+import { APPLICATION_STATUSES } from "@gettargetrole/db/schema";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { authedAction } from "@/server/action";

@@ -1,8 +1,8 @@
-import type { StudioEvent } from "@nextrole/ai";
-import { ValidationError } from "@nextrole/core/errors";
-import { createLogger } from "@nextrole/core/logger";
-import { enforceRateLimit } from "@nextrole/core/rate-limit";
-import { companies, getDb, jobs } from "@nextrole/db";
+import type { StudioEvent } from "@gettargetrole/ai";
+import { ValidationError } from "@gettargetrole/core/errors";
+import { createLogger } from "@gettargetrole/core/logger";
+import { enforceRateLimit } from "@gettargetrole/core/rate-limit";
+import { companies, getDb, jobs } from "@gettargetrole/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { aiFor } from "@/server/ai";

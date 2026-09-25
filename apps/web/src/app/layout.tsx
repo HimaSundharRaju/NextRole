@@ -8,12 +8,12 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "NextRole — find, tailor and land your next role",
-    template: "%s · NextRole",
+    default: "GetTargetRole — find, tailor and land your next role",
+    template: "%s · GetTargetRole",
   },
   description:
-    "NextRole finds jobs the moment they go live, writes Claude-quality resumes tailored to each role, and tracks every application.",
-  applicationName: "NextRole",
+    "GetTargetRole finds jobs the moment they go live, writes Claude-quality resumes tailored to each role, and tracks every application.",
+  applicationName: "GetTargetRole",
 };
 
 export const viewport: Viewport = {

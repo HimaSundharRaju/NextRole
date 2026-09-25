@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
-# NextRole web app: a Next.js standalone server running as a non-root user.
-# Build from the repository root:  docker build -f apps/web/Dockerfile -t nextrole-web .
+# GetTargetRole web app: a Next.js standalone server running as a non-root user.
+# Build from the repository root:  docker build -f apps/web/Dockerfile -t gettargetrole-web .
 
 ARG NODE_IMAGE=node:22.23.3-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c
 
@@ -13,8 +13,8 @@ RUN corepack enable
 WORKDIR /repo
 COPY . .
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile --filter "@nextrole/web..."
-RUN pnpm --filter @nextrole/web build
+    pnpm install --frozen-lockfile --filter "@gettargetrole/web..."
+RUN pnpm --filter @gettargetrole/web build
 
 FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production \

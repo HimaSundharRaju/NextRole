@@ -1,6 +1,6 @@
 "use server";
 
-import { APPLICATION_STATUSES } from "@nextrole/db/schema";
+import { APPLICATION_STATUSES } from "@gettargetrole/db/schema";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { authedAction } from "@/server/action";

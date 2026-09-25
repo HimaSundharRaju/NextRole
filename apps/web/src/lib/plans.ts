@@ -1,4 +1,4 @@
-import type { Plan } from "@nextrole/db/schema";
+import type { Plan } from "@gettargetrole/db/schema";
 
 export interface PlanDefinition {
   id: Plan;
