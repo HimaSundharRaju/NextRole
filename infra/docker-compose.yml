@@ -1,0 +1,123 @@
+# Local infrastructure for NextRole.
+#
+#   pnpm infra:up      Postgres, Redis and Mailpit for `pnpm dev` (ports bound to 127.0.0.1 only)
+#   pnpm infra:down    stop them (data is kept in named volumes)
+#
+# The `app` profile also runs the production images (migrations, web on :3000, worker) with
+# secrets read from the repository's root .env file:
+#
+#   docker compose -f infra/docker-compose.yml --profile app up --build
+
+name: nextrole
+
+x-app-env: &app-env
+  NODE_ENV: production
+  APP_URL: http://localhost:3000
+  DATABASE_URL: postgres://nextrole:nextrole@postgres:5432/nextrole
+  REDIS_URL: redis://redis:6379
+  SMTP_URL: smtp://mailpit:1025
+  AI_PROVIDER: anthropic
+
+x-app-service: &app-service
+  env_file:
+    - path: ../.env
+      required: false
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+
+x-worker-build: &worker-build
+  context: ..
+  dockerfile: apps/worker/Dockerfile
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nextrole
+      POSTGRES_PASSWORD: nextrole
+      POSTGRES_DB: nextrole
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nextrole -d nextrole"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    # BullMQ needs keys never to be evicted; the append-only file keeps queued jobs across restarts.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Catches every email the app sends (verification, password reset): inbox at http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+
+  migrate:
+    <<: *app-service
+    profiles: [app]
+    image: nextrole-worker:local
+    build: *worker-build
+    command: ["node", "dist/migrate.js", "--seed"]
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    <<: *app-service
+    profiles: [app]
+    image: nextrole-worker:local
+    build: *worker-build
+    environment: *app-env
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  web:
+    <<: *app-service
+    profiles: [app]
+    image: nextrole-web:local
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    environment: *app-env
+    ports:
+      - "127.0.0.1:3000:3000"
+    tmpfs:
+      - /tmp
+      - /app/apps/web/.next/cache:uid=1000,gid=1000
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  redis-data:

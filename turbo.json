@@ -1,0 +1,42 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "globalEnv": ["NODE_ENV"],
+  "globalPassThroughEnv": [
+    "DATABASE_URL",
+    "DATABASE_POOL_MAX",
+    "REDIS_URL",
+    "ANTHROPIC_API_KEY",
+    "AI_PROVIDER",
+    "AI_MODEL",
+    "BETTER_AUTH_SECRET",
+    "BETTER_AUTH_URL",
+    "TRUSTED_PROXIES",
+    "ENCRYPTION_KEY",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "SMTP_URL",
+    "EMAIL_FROM",
+    "APP_URL",
+    "LOG_LEVEL",
+    "INGEST_INTERVAL_MINUTES",
+    "INGEST_CONCURRENCY",
+    "WORKER_HEALTH_PORT"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {},
+    "typecheck": {},
+    "test": {
+      "env": ["TEST_DATABASE_URL"],
+      "outputs": []
+    }
+  }
+}

@@ -1,0 +1,107 @@
+import { Briefcase, ChevronLeft, ChevronRight } from "lucide-react";
+import type { Metadata } from "next";
+import Link from "next/link";
+import { JobCard } from "@/components/jobs/job-card";
+import { JobFilters } from "@/components/jobs/job-filters";
+import { buttonVariants } from "@/components/ui/button";
+import { EmptyState, PageHeader } from "@/components/ui/misc";
+import { cn, plural } from "@/lib/utils";
+import {
+  jobFiltersSchema,
+  listCompaniesForFilter,
+  searchJobs,
+  type JobFilters as Filters,
+} from "@/server/data/jobs";
+import { requireOnboardedUser } from "@/server/session";
+
+export const metadata: Metadata = { title: "Jobs" };
+
+function pageHref(filters: Filters, page: number): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries({ ...filters, page })) {
+    if (value !== undefined && value !== "" && !(key === "page" && value === 1))
+      params.set(key, String(value));
+  }
+  const query = params.toString();
+  return query ? `/jobs?${query}` : "/jobs";
+}
+
+export default async function JobsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const user = await requireOnboardedUser();
+  const raw = await searchParams;
+  const filters = jobFiltersSchema.parse(
+    Object.fromEntries(
+      Object.entries(raw).map(([key, value]) => [key, Array.isArray(value) ? value[0] : value]),
+    ),
+  );
+  const [result, companies] = await Promise.all([
+    searchJobs(user.id, filters),
+    listCompaniesForFilter(),
+  ]);
+  const page = result.page;
+
+  return (
+    <div className="mx-auto max-w-5xl">
+      <PageHeader
+        title="Jobs"
+        description="Live roles pulled straight from company career pages, ranked against your resume."
+      />
+      <JobFilters filters={filters} companies={companies} />
+
+      <p className="mt-5 text-sm text-muted-foreground">
+        {result.total === 0
+          ? "No open jobs match these filters."
+          : `${plural(result.total, "job")}${result.capped ? " (top matches shown — refine your search to see more)" : ""}`}
+      </p>
+
+      <div className="mt-3 space-y-3">
+        {result.items.length ? (
+          result.items.map((job) => <JobCard key={job.id} job={job} />)
+        ) : (
+          <EmptyState
+            icon={Briefcase}
+            title="Nothing here yet"
+            description="Try a broader search, a longer time window, or check back soon — new roles arrive every few minutes."
+            action={
+              <Link href="/jobs" className={buttonVariants({ variant: "secondary" })}>
+                Clear filters
+              </Link>
+            }
+          />
+        )}
+      </div>
+
+      {result.pageCount > 1 ? (
+        <nav className="mt-6 flex items-center justify-between" aria-label="Pagination">
+          <Link
+            href={pageHref(filters, page - 1)}
+            aria-disabled={page <= 1}
+            className={cn(
+              buttonVariants({ variant: "secondary", size: "sm" }),
+              page <= 1 && "pointer-events-none opacity-50",
+            )}
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden /> Previous
+          </Link>
+          <span className="text-sm text-muted-foreground">
+            Page {page} of {result.pageCount}
+          </span>
+          <Link
+            href={pageHref(filters, page + 1)}
+            aria-disabled={page >= result.pageCount}
+            className={cn(
+              buttonVariants({ variant: "secondary", size: "sm" }),
+              page >= result.pageCount && "pointer-events-none opacity-50",
+            )}
+          >
+            Next <ChevronRight className="h-4 w-4" aria-hidden />
+          </Link>
+        </nav>
+      ) : null}
+    </div>
+  );
+}
