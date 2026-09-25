@@ -1,12 +1,12 @@
-# NextRole
+# GetTargetRole
 
-NextRole is an AI job-search platform. It pulls in real openings from company job boards as they
+GetTargetRole is an AI job-search platform. It pulls in real openings from company job boards as they
 are posted, scores each one against your resume, and uses Claude to write your resume, tailor it
 to a job, draft the cover letter, answer application questions and write the recruiter message.
 Applications are tracked on a board with follow-up reminders. The Concierge plan adds a human
 specialist who works through your job search alongside you.
 
-You stay in control: NextRole prepares everything for an application, **you review it and submit
+You stay in control: GetTargetRole prepares everything for an application, **you review it and submit
 it yourself**. Nothing is auto-submitted on your behalf.
 
 ## Features
@@ -125,7 +125,7 @@ pnpm test:e2e                    # Playwright end-to-end suite
 
 The end-to-end suite runs the real app against Postgres and Redis, using the mock AI provider on
 port 3100. Before the first run: `pnpm db:migrate && pnpm db:seed -- --demo` and
-`pnpm --filter @nextrole/web exec playwright install chromium`. It covers the full candidate
+`pnpm --filter @gettargetrole/web exec playwright install chromium`. It covers the full candidate
 journey (onboarding, apply kit, tracker, Resume Studio, exports) and the security guarantees:
 authentication redirects, CSP headers, CSRF rejection, upload validation, cross-user isolation,
 admin-only access and bans.
@@ -145,14 +145,14 @@ The same images run on any container platform. They are built from the repositor
 run as a non-root user and include a health check.
 
 ```bash
-docker build -f apps/web/Dockerfile -t nextrole-web .        # Next.js standalone server, port 3000
-docker build -f apps/worker/Dockerfile -t nextrole-worker .  # worker, health on port 8081
+docker build -f apps/web/Dockerfile -t gettargetrole-web .        # Next.js standalone server, port 3000
+docker build -f apps/worker/Dockerfile -t gettargetrole-worker .  # worker, health on port 8081
 ```
 
 On each release:
 
 1. Run the migrations once, with the production environment:
-   `docker run --rm --env-file production.env nextrole-worker node dist/migrate.js`. Add `--seed`
+   `docker run --rm --env-file production.env gettargetrole-worker node dist/migrate.js`. Add `--seed`
    to also add the default job boards; it is idempotent.
 2. Roll out the web image (two or more replicas behind a load balancer) and the worker (one or
    more replicas; BullMQ keeps scheduled jobs from being duplicated).

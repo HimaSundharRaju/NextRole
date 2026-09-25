@@ -1,7 +1,7 @@
-import { createLogger } from "@nextrole/core/logger";
-import { closeDb } from "@nextrole/db";
-import { runMigrations } from "@nextrole/db/migrate";
-import { seedCompanies } from "@nextrole/db/seed";
+import { createLogger } from "@gettargetrole/core/logger";
+import { closeDb } from "@gettargetrole/db";
+import { runMigrations } from "@gettargetrole/db/migrate";
+import { seedCompanies } from "@gettargetrole/db/seed";
 
 /**
  * Applies pending database migrations and exits. The worker image ships the SQL migrations in

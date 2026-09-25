@@ -1,5 +1,5 @@
 import "server-only";
-import { ConflictError, NotFoundError } from "@nextrole/core/errors";
+import { ConflictError, NotFoundError } from "@gettargetrole/core/errors";
 import {
   applicationEvents,
   applications,
@@ -9,7 +9,7 @@ import {
   resumes,
   type ApplicationStatus,
   type SubmissionReceipt,
-} from "@nextrole/db";
+} from "@gettargetrole/db";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 
 export type ApplicationRow = typeof applications.$inferSelect;

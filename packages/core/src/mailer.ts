@@ -37,7 +37,7 @@ export async function sendEmail(message: EmailMessage): Promise<void> {
     return;
   }
   await transport.sendMail({
-    from: process.env.EMAIL_FROM ?? "NextRole <no-reply@nextrole.app>",
+    from: process.env.EMAIL_FROM ?? "GetTargetRole <no-reply@gettargetrole.app>",
     to: message.to,
     subject: message.subject,
     text: message.text,

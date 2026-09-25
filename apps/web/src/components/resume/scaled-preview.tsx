@@ -1,6 +1,6 @@
 "use client";
 
-import type { Resume, ResumeSettings } from "@nextrole/resume/schema";
+import type { Resume, ResumeSettings } from "@gettargetrole/resume/schema";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { ResumePreview } from "./resume-preview";

@@ -1,5 +1,5 @@
 {
-  "name": "@nextrole/ai",
+  "name": "@gettargetrole/ai",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.128.0",
-    "@nextrole/core": "workspace:*",
-    "@nextrole/resume": "workspace:*",
+    "@gettargetrole/core": "workspace:*",
+    "@gettargetrole/resume": "workspace:*",
     "mammoth": "1.12.3",
     "zod": "4.6.5"
   },

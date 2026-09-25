@@ -1,6 +1,6 @@
-# Deploy NextRole on Cloudflare
+# Deploy GetTargetRole on Cloudflare
 
-NextRole runs on Cloudflare as a Worker in front of two containers built from this repository's
+GetTargetRole runs on Cloudflare as a Worker in front of two containers built from this repository's
 Dockerfiles. Postgres and Redis are managed services outside Cloudflare, and Claude is called from
 the server with your API key.
 
@@ -49,16 +49,16 @@ What to copy from each:
   permission added, which the deploy needs to upload the images. Remove the template's zone
   permission (Workers Routes). The deploy only uses account-level permissions and never changes
   a domain, so the token can't touch `hearthspace.in` or any other domain you have.
-- **Supabase**: create a **new project** just for NextRole. If you already use Supabase for
+- **Supabase**: create a **new project** just for GetTargetRole. If you already use Supabase for
   another site, put it in the same organization; the two projects share nothing.
   - Pick the region closest to your users, for example Mumbai for India, and save the
     database password.
   - Under **Connect**, copy the **Session pooler** connection string and put your password in
     it. The direct connection only works over IPv6, which GitHub Actions can't use.
   - Under **Project Settings → Database → SSL Configuration**, download the certificate.
-    Supabase signs its database certificates with its own CA, so NextRole needs this file to
+    Supabase signs its database certificates with its own CA, so GetTargetRole needs this file to
     verify the connection.
-  - Under **Project Settings → Data API**, turn the Data API off. NextRole talks to Postgres
+  - Under **Project Settings → Data API**, turn the Data API off. GetTargetRole talks to Postgres
     directly and every table has row-level security, but nothing needs that API.
   - The free plan allows two active projects. The session pooler's small connection limit is why
     `DATABASE_POOL_MAX` is 4 per container in `apps/edge/wrangler.jsonc`.
@@ -74,38 +74,38 @@ The `APP_URL` variable is the app's one public address. Sign-in only works there
 redirects every other address it receives (such as its workers.dev address) to it.
 
 - **A subdomain of a domain you already have on Cloudflare**, for example
-  `https://nextrole.hearthspace.in`. You attach it to the Worker once after the first deploy
+  `https://gettargetrole.hearthspace.in`. You attach it to the Worker once after the first deploy
   (step 4). The domain must be in the same Cloudflare account as the Worker.
-- **workers.dev**: `https://nextrole.<your-subdomain>.workers.dev`. Your subdomain is shown under
+- **workers.dev**: `https://gettargetrole.<your-subdomain>.workers.dev`. Your subdomain is shown under
   Workers & Pages in the Cloudflare dashboard.
 
 **What a subdomain changes on the parent domain**, for example `hearthspace.in`:
 
-- **Only one DNS record is added.** Attaching `nextrole.hearthspace.in` creates a DNS record and a
+- **Only one DNS record is added.** Attaching `gettargetrole.hearthspace.in` creates a DNS record and a
   certificate for that name only. Cloudflare refuses to attach it if the name already has a
   record, so nothing existing is overwritten.
 - **Nothing else changes:**
   - The deploy token has no access to the domain.
-  - The Worker only receives requests for `nextrole.hearthspace.in`.
-  - NextRole's cookies are set for `nextrole.hearthspace.in` only.
+  - The Worker only receives requests for `gettargetrole.hearthspace.in`.
+  - GetTargetRole's cookies are set for `gettargetrole.hearthspace.in` only.
   - Its HSTS header covers only that subdomain.
   - Removing the custom domain from the Worker later deletes its DNS record again.
-- **The parent's zone settings still apply to the subdomain.** If email addresses on NextRole pages
+- **The parent's zone settings still apply to the subdomain.** If email addresses on GetTargetRole pages
   show as `[email protected]`, add a Configuration Rule for the hostname
-  `nextrole.hearthspace.in` that turns off Email Address Obfuscation. The rule doesn't affect the
+  `gettargetrole.hearthspace.in` that turns off Email Address Obfuscation. The rule doesn't affect the
   rest of the domain.
 
-A path on an existing site, such as `hearthspace.in/nextrole`, isn't supported. The app would
-share that site's origin, so its cookies and scripts could reach NextRole accounts. The app's URLs
+A path on an existing site, such as `hearthspace.in/gettargetrole`, isn't supported. The app would
+share that site's origin, so its cookies and scripts could reach GetTargetRole accounts. The app's URLs
 would also have to be rewritten for the path, and changed back after any later move.
 
 **Moving to a new domain later**:
 
 1. Add the new domain to the same Cloudflare account.
-2. Attach it to the `nextrole` Worker the same way as in step 4.
+2. Attach it to the `gettargetrole` Worker the same way as in step 4.
 3. Set `APP_URL` to the new address and run Deploy.
 
-The old `nextrole.hearthspace.in` keeps redirecting to the same pages on the new domain until you
+The old `gettargetrole.hearthspace.in` keeps redirecting to the same pages on the new domain until you
 remove it from the Worker, which also deletes its DNS record. Nothing in the code changes.
 
 ## 3. Add the GitHub secrets and variables
@@ -131,8 +131,8 @@ In the repository on GitHub, open **Settings → Secrets and variables → Actio
 
 | Name                 | Value                                                                                      |
 | -------------------- | ------------------------------------------------------------------------------------------ |
-| `APP_URL`            | The public URL from step 2, for example `https://nextrole.hearthspace.in`                  |
-| `EMAIL_FROM`         | Sender on your verified domain, for example `NextRole <no-reply@sundhar.io>`               |
+| `APP_URL`            | The public URL from step 2, for example `https://gettargetrole.hearthspace.in`             |
+| `EMAIL_FROM`         | Sender on your verified domain, for example `GetTargetRole <no-reply@sundhar.io>`          |
 | `AI_MODEL`           | Optional: `claude-sonnet-5` costs about 60% less per call than the default `claude-opus-5` |
 | `ANTHROPIC_BASE_URL` | Optional: route Claude calls through Cloudflare AI Gateway (see below)                     |
 
@@ -152,8 +152,8 @@ Set these two once and keep them. Changing `BETTER_AUTH_SECRET` signs everyone o
    because it builds both images.
 2. **Attach your domain** (once, only if `APP_URL` isn't the workers.dev address).
    - Until you do, the first run ends with a "Custom domain not attached yet" warning.
-   - In the Cloudflare dashboard, open **Workers & Pages → nextrole → Settings → Domains & Routes
-     → Add → Custom domain** and enter the hostname, for example `nextrole.hearthspace.in`.
+   - In the Cloudflare dashboard, open **Workers & Pages → gettargetrole → Settings → Domains & Routes
+     → Add → Custom domain** and enter the hostname, for example `gettargetrole.hearthspace.in`.
    - Then run Deploy again, so its smoke test checks the live address.
 3. Open `APP_URL`, sign up and confirm your email.
 4. Make yourself an admin in Supabase's SQL editor:
@@ -163,7 +163,7 @@ After that, every push to `main` deploys automatically once CI passes.
 
 ## Operating it
 
-- **Logs**: in the Cloudflare dashboard, open the `nextrole` Worker for request logs and the
+- **Logs**: in the Cloudflare dashboard, open the `gettargetrole` Worker for request logs and the
   Containers page for the container output. Both apps log structured JSON.
 - **Health**: `GET /api/health` checks Postgres and Redis from a web container.
 - **Scale**: `WEB_INSTANCES` and each container's `instance_type` and `max_instances` live in
@@ -180,10 +180,10 @@ After that, every push to `main` deploys automatically once CI passes.
 - **Roll back**: revert the change on `main` (the deploy runs again), or roll back to an earlier
   version from the Worker's Deployments page in the dashboard.
 - **Removed settings**: deploys add and update secrets but never delete them. Remove one with
-  `pnpm --filter @nextrole/edge exec wrangler secret delete <NAME>`.
+  `pnpm --filter @gettargetrole/edge exec wrangler secret delete <NAME>`.
 
 ## Trying it locally
 
-`pnpm --filter @nextrole/edge cf:dev` runs the Worker and both containers on your machine with
+`pnpm --filter @gettargetrole/edge cf:dev` runs the Worker and both containers on your machine with
 Docker. Put the settings in `apps/edge/.dev.vars` (ignored by git), using the same names as the
 secrets above, with `APP_URL=http://localhost:8787`.

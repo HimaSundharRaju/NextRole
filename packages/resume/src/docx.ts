@@ -201,7 +201,7 @@ export async function renderResumeDocx(
   settings.sectionOrder.forEach(addSection);
 
   const document = new Document({
-    creator: "NextRole",
+    creator: "GetTargetRole",
     title: `${basics.name || "Resume"} — Resume`,
     styles: {
       default: {

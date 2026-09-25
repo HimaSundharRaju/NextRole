@@ -26,7 +26,7 @@ export function OnboardingWizard({
         Welcome{firstName ? `, ${firstName}` : ""} 👋
       </h1>
       <p className="mt-1 text-muted-foreground">
-        Two quick steps and NextRole will start matching jobs for you.
+        Two quick steps and GetTargetRole will start matching jobs for you.
       </p>
 
       <ol className="mt-6 flex gap-3 text-sm" aria-label="Setup progress">

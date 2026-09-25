@@ -145,7 +145,7 @@ export function SignUpForm({ googleEnabled }: { googleEnabled: boolean }) {
       <div className="text-center">
         <h1 className="text-xl font-semibold">Check your inbox</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          We sent you a link to verify your email. Open it to finish setting up NextRole.
+          We sent you a link to verify your email. Open it to finish setting up GetTargetRole.
         </p>
       </div>
     );

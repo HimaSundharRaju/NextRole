@@ -1,5 +1,5 @@
-import { createLogger } from "@nextrole/core/logger";
-import { getDb, jobs, notifications, profiles, type Database } from "@nextrole/db";
+import { createLogger } from "@gettargetrole/core/logger";
+import { getDb, jobs, notifications, profiles, type Database } from "@gettargetrole/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { quickMatch } from "./match";
 

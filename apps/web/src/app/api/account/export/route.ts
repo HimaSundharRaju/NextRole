@@ -1,4 +1,4 @@
-import { enforceRateLimit } from "@nextrole/core/rate-limit";
+import { enforceRateLimit } from "@gettargetrole/core/rate-limit";
 import { recordAudit } from "@/server/audit";
 import { exportUserData } from "@/server/data/account";
 import { errorResponse, unauthorized } from "@/server/http";
@@ -19,7 +19,7 @@ export async function GET() {
     return new Response(JSON.stringify(data, null, 2), {
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        "Content-Disposition": `attachment; filename="nextrole-data-${new Date().toISOString().slice(0, 10)}.json"`,
+        "Content-Disposition": `attachment; filename="gettargetrole-data-${new Date().toISOString().slice(0, 10)}.json"`,
         "Cache-Control": "private, no-store",
       },
     });

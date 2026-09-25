@@ -1,5 +1,5 @@
-import { getRedis } from "@nextrole/core/redis";
-import { getDb } from "@nextrole/db";
+import { getRedis } from "@gettargetrole/core/redis";
+import { getDb } from "@gettargetrole/db";
 import { sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 

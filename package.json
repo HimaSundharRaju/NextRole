@@ -1,7 +1,7 @@
 {
-  "name": "nextrole",
+  "name": "gettargetrole",
   "private": true,
-  "description": "NextRole — AI job search platform: real-time job discovery, Claude-powered resumes, tailored apply kits, recruiter outreach and application tracking.",
+  "description": "GetTargetRole — AI job search platform: real-time job discovery, Claude-powered resumes, tailored apply kits, recruiter outreach and application tracking.",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=22.12.0"
@@ -12,12 +12,12 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test --concurrency=1",
-    "test:e2e": "pnpm --filter @nextrole/web test:e2e",
+    "test:e2e": "pnpm --filter @gettargetrole/web test:e2e",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "db:generate": "pnpm --filter @nextrole/db db:generate",
-    "db:migrate": "pnpm --filter @nextrole/db db:migrate",
-    "db:seed": "pnpm --filter @nextrole/db db:seed",
+    "db:generate": "pnpm --filter @gettargetrole/db db:generate",
+    "db:migrate": "pnpm --filter @gettargetrole/db db:migrate",
+    "db:seed": "pnpm --filter @gettargetrole/db db:seed",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down"
   },

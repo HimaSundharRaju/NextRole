@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
-# NextRole background worker (job ingestion, alerts, reminders), running as a non-root user.
+# GetTargetRole background worker (job ingestion, alerts, reminders), running as a non-root user.
 # The same image applies database migrations:  node dist/migrate.js
-# Build from the repository root:  docker build -f apps/worker/Dockerfile -t nextrole-worker .
+# Build from the repository root:  docker build -f apps/worker/Dockerfile -t gettargetrole-worker .
 
 ARG NODE_IMAGE=node:22.23.3-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c
 
@@ -15,9 +15,9 @@ COPY . .
 # Workspace packages are bundled into dist/ by tsup; `pnpm deploy --prod` then collects only the
 # npm packages the bundle imports at runtime.
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile --filter "@nextrole/worker..." \
- && pnpm --filter @nextrole/worker build \
- && pnpm --filter @nextrole/worker deploy --prod --legacy /out
+    pnpm install --frozen-lockfile --filter "@gettargetrole/worker..." \
+ && pnpm --filter @gettargetrole/worker build \
+ && pnpm --filter @gettargetrole/worker deploy --prod --legacy /out
 
 FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production \

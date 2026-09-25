@@ -1,8 +1,15 @@
 import "server-only";
-import type { JobContext } from "@nextrole/ai";
-import { NotFoundError } from "@nextrole/core/errors";
-import { applications, companies, getDb, jobMatches, jobs, type WorkplaceType } from "@nextrole/db";
-import { quickMatch, type QuickMatch } from "@nextrole/jobs/match";
+import type { JobContext } from "@gettargetrole/ai";
+import { NotFoundError } from "@gettargetrole/core/errors";
+import {
+  applications,
+  companies,
+  getDb,
+  jobMatches,
+  jobs,
+  type WorkplaceType,
+} from "@gettargetrole/db";
+import { quickMatch, type QuickMatch } from "@gettargetrole/jobs/match";
 import { and, desc, eq, gte, isNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { candidateSignals } from "./profile";

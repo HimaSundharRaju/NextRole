@@ -1,8 +1,8 @@
 import "server-only";
-import { isAppError } from "@nextrole/core/errors";
-import { createLogger } from "@nextrole/core/logger";
-import { enforceRateLimit, type RateLimitPolicy } from "@nextrole/core/rate-limit";
-import type { Role } from "@nextrole/db";
+import { isAppError } from "@gettargetrole/core/errors";
+import { createLogger } from "@gettargetrole/core/logger";
+import { enforceRateLimit, type RateLimitPolicy } from "@gettargetrole/core/rate-limit";
+import type { Role } from "@gettargetrole/db";
 import { unstable_rethrow } from "next/navigation";
 import type { z } from "zod";
 import { getCurrentUser, type SessionUser } from "./session";

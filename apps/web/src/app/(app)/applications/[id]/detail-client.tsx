@@ -1,7 +1,7 @@
 "use client";
 
-import type { InterviewPrep } from "@nextrole/ai";
-import type { ApplicationStatus } from "@nextrole/db/schema";
+import type { InterviewPrep } from "@gettargetrole/ai";
+import type { ApplicationStatus } from "@gettargetrole/db/schema";
 import { GraduationCap, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";

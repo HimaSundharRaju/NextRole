@@ -1,4 +1,4 @@
-import type { InterviewPrep } from "@nextrole/ai";
+import type { InterviewPrep } from "@gettargetrole/ai";
 import { ArrowLeft, ExternalLink, FileText, Mail, Receipt } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";

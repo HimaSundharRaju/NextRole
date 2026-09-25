@@ -10,5 +10,5 @@ export default defineConfig({
   clean: true,
   // Workspace packages ship TypeScript source, so they are bundled (and are devDependencies);
   // npm dependencies stay external and are installed by `pnpm deploy --prod` in the Docker image.
-  noExternal: [/^@nextrole\//],
+  noExternal: [/^@gettargetrole\//],
 });

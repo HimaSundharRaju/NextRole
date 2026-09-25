@@ -1,4 +1,4 @@
-import { companies, getDb, jobs } from "@nextrole/db";
+import { companies, getDb, jobs } from "@gettargetrole/db";
 import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";

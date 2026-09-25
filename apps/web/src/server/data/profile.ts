@@ -1,10 +1,10 @@
 import "server-only";
-import type { CandidateProfile } from "@nextrole/ai";
-import { getDb, profiles, resumes, users } from "@nextrole/db";
-import type { CandidateSignals } from "@nextrole/jobs/match";
-import type { Resume } from "@nextrole/resume/schema";
-import { findSkills } from "@nextrole/resume/skills";
-import { resumeToPlainText } from "@nextrole/resume/text";
+import type { CandidateProfile } from "@gettargetrole/ai";
+import { getDb, profiles, resumes, users } from "@gettargetrole/db";
+import type { CandidateSignals } from "@gettargetrole/jobs/match";
+import type { Resume } from "@gettargetrole/resume/schema";
+import { findSkills } from "@gettargetrole/resume/skills";
+import { resumeToPlainText } from "@gettargetrole/resume/text";
 import { and, eq } from "drizzle-orm";
 
 export type ProfileRow = typeof profiles.$inferSelect;

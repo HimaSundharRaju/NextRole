@@ -1,7 +1,7 @@
-import { ExternalServiceError } from "@nextrole/core/errors";
+import { ExternalServiceError } from "@gettargetrole/core/errors";
 import type { ConnectorContext } from "./types";
 
-export const USER_AGENT = "NextRoleBot/1.0 (+https://nextrole.app/bot)";
+export const USER_AGENT = "GetTargetRoleBot/1.0 (+https://gettargetrole.app/bot)";
 
 const RETRYABLE = new Set([408, 425, 429, 500, 502, 503, 504]);
 

@@ -7,8 +7,8 @@ import type {
   BetaTool,
   BetaToolUseBlock,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { AiRefusalError, ExternalServiceError } from "@nextrole/core/errors";
-import { createLogger } from "@nextrole/core/logger";
+import { AiRefusalError, ExternalServiceError } from "@gettargetrole/core/errors";
+import { createLogger } from "@gettargetrole/core/logger";
 import { z } from "zod";
 import {
   configuredModel,
