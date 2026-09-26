@@ -5,7 +5,10 @@ import { findSkills } from "@gettargetrole/resume/skills";
 import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { getConnector } from "./connectors";
 import type { Fetcher, NormalizedJob } from "./connectors/types";
+import { parseEmploymentTypes } from "./employment";
+import { parseLocations } from "./locations";
 import { htmlToText, sanitizeJobHtml } from "./sanitize";
+import { parseVisaSignals } from "./visa";
 
 const log = createLogger("ingest");
 
@@ -133,6 +136,8 @@ export async function syncCompany(
       const rows = batch.map((job) => {
         const descriptionHtml = sanitizeJobHtml(job.descriptionHtml);
         const descriptionText = htmlToText(descriptionHtml);
+        const places = parseLocations([job.location], job.placeHints);
+        const visa = parseVisaSignals(descriptionText);
         return {
           companyId: company.id,
           source: company.ats,
@@ -150,6 +155,11 @@ export async function syncCompany(
           salaryMax: wholeSalary(job.salary?.max),
           salaryCurrency: job.salary?.currency ?? null,
           salaryPeriod: job.salary?.period ?? null,
+          countries: places.countries,
+          regions: places.regions,
+          employmentTypes: parseEmploymentTypes(job.employmentType, job.title, descriptionText),
+          visaSponsorship: visa.sponsorship,
+          citizenshipRequired: visa.citizenshipRequired,
           postedAt: job.postedAt && !Number.isNaN(job.postedAt.getTime()) ? job.postedAt : null,
           firstSeenAt: startedAt,
           lastSeenAt: startedAt,
@@ -177,6 +187,12 @@ export async function syncCompany(
             salaryMax: sql`coalesce(excluded.salary_max, ${jobs.salaryMax})`,
             salaryCurrency: sql`coalesce(excluded.salary_currency, ${jobs.salaryCurrency})`,
             salaryPeriod: sql`coalesce(excluded.salary_period, ${jobs.salaryPeriod})`,
+            countries: sql`excluded.countries`,
+            regions: sql`excluded.regions`,
+            // Like skills, signals read from the description survive listings that omit it.
+            employmentTypes: sql`case when excluded.description_text = '' then ${jobs.employmentTypes} else excluded.employment_types end`,
+            visaSponsorship: sql`case when excluded.description_text = '' then ${jobs.visaSponsorship} else excluded.visa_sponsorship end`,
+            citizenshipRequired: sql`case when excluded.description_text = '' then ${jobs.citizenshipRequired} else excluded.citizenship_required end`,
             postedAt: sql`coalesce(${jobs.postedAt}, excluded.posted_at)`,
             lastSeenAt: sql`excluded.last_seen_at`,
             closedAt: sql`null`,

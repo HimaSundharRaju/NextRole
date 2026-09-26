@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./connectors": "./src/connectors/index.ts",
     "./match": "./src/match.ts",
+    "./locations": "./src/locations.ts",
     "./sanitize": "./src/sanitize.ts",
     "./ingest": "./src/ingest.ts",
     "./alerts": "./src/alerts.ts"
