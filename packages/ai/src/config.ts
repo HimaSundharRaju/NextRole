@@ -119,20 +119,31 @@ const OPENAI_PRICING: Record<string, ModelPricing & { cachedInput: number }> = {
 };
 
 const CACHE_READ_MULTIPLIER = 0.1;
+/** Writing a 5-minute cache entry costs 1.25× the input price; a 1-hour entry costs 2×. */
 const CACHE_WRITE_MULTIPLIER = 1.25;
+const CACHE_WRITE_1H_MULTIPLIER = 2;
+/** Both vendors' batch APIs charge half the list price for every token type. */
+const BATCH_MULTIPLIER = 0.5;
 
 export interface TokenCounts {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  /** The part of `cacheWriteTokens` written with the 1-hour TTL. */
+  cacheWrite1hTokens?: number;
 }
 
 /**
  * Estimated cost in micro-dollars (1e-6 USD). `inputTokens` excludes cached reads. Unknown models
- * are priced like Opus 5.
+ * are priced like Opus 5. `batch` applies the batch discount.
  */
-export function estimateCostMicroUsd(model: string, tokens: TokenCounts): number {
+export function estimateCostMicroUsd(
+  model: string,
+  tokens: TokenCounts,
+  options: { batch?: boolean } = {},
+): number {
+  const discount = options.batch ? BATCH_MULTIPLIER : 1;
   const openai = OPENAI_PRICING[baseModelId(model)];
   if (openai) {
     const usd =
@@ -140,14 +151,16 @@ export function estimateCostMicroUsd(model: string, tokens: TokenCounts): number
         tokens.cacheReadTokens * openai.cachedInput +
         tokens.outputTokens * openai.output) /
       1_000_000;
-    return Math.round(usd * 1_000_000);
+    return Math.round(usd * discount * 1_000_000);
   }
   const price = PRICING[baseModelId(model)] ?? PRICING[DEFAULT_MODEL]!;
+  const longWrites = Math.min(tokens.cacheWrite1hTokens ?? 0, tokens.cacheWriteTokens);
   const usd =
     (tokens.inputTokens * price.input +
       tokens.cacheReadTokens * price.input * CACHE_READ_MULTIPLIER +
-      tokens.cacheWriteTokens * price.input * CACHE_WRITE_MULTIPLIER +
+      (tokens.cacheWriteTokens - longWrites) * price.input * CACHE_WRITE_MULTIPLIER +
+      longWrites * price.input * CACHE_WRITE_1H_MULTIPLIER +
       tokens.outputTokens * price.output) /
     1_000_000;
-  return Math.round(usd * 1_000_000);
+  return Math.round(usd * discount * 1_000_000);
 }

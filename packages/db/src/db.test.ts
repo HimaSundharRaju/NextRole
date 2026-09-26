@@ -2,7 +2,9 @@ import { emptyResume } from "@gettargetrole/resume/schema";
 import { describe, expect, it } from "vitest";
 import { connectionConfig } from "./client";
 import {
+  AUTO_PREPARE_BUDGET_SHARE,
   AUTO_PREPARE_DAILY_MAX,
+  fullUseCostUsd,
   MONTHLY_AI_BUDGET_USD,
   nextPlanWithMore,
   PLAN_LIMITS,
@@ -89,6 +91,20 @@ describe("plan limits", () => {
   it("gives auto-prepare a monthly allowance that covers the daily maximum", () => {
     for (const plan of PLAN_ORDER) {
       expect(PLAN_LIMITS[plan].auto).toBeGreaterThanOrEqual(AUTO_PREPARE_DAILY_MAX[plan] * 30);
+    }
+  });
+
+  it("caps spend above the cost of using every allowance, with room for outliers", () => {
+    for (const plan of PLAN_ORDER) {
+      const fullUse = fullUseCostUsd(plan);
+      expect(MONTHLY_AI_BUDGET_USD[plan], plan).toBeGreaterThanOrEqual(fullUse * 1.3);
+      expect(MONTHLY_AI_BUDGET_USD[plan], plan).toBeLessThanOrEqual(fullUse * 2);
+      // Auto-prepare keeps running for someone who uses everything.
+      if (PLAN_LIMITS[plan].auto > 0) {
+        expect(MONTHLY_AI_BUDGET_USD[plan] * AUTO_PREPARE_BUDGET_SHARE, plan).toBeGreaterThan(
+          fullUse,
+        );
+      }
     }
   });
 

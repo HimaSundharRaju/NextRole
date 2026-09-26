@@ -275,7 +275,7 @@ describe.skipIf(!TEST_DATABASE_URL)("auto-prepare (Postgres integration)", () =>
       })),
     );
     await expect(
-      prepare.autoPrepare({ userId, jobId: jobIds[0]!, score: 92 }, ai, now),
+      prepare.autoPrepare({ userId, jobId: jobIds[0]!, score: 92 }, ai, { now }),
     ).resolves.toEqual({ status: "skipped", reason: "monthly_limit" });
     expect(ai.tailorCalls).toBe(0);
   });

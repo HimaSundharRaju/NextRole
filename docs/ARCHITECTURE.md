@@ -89,14 +89,25 @@ monthly allowance). It is off by default; in Settings the user sets a minimum ma
 2. Takes a daily slot under a per-user Postgres advisory lock, so parallel jobs can't exceed the
    limit, and only then creates the application. Applications the user has moved past
    preparing are left alone.
-3. Reuses a tailored resume made from the same main resume, or tailors one, then writes a cover
-   letter from it. A failure gives the slot back and removes the untouched application; the
-   tailored resume is kept, so the retry doesn't pay for it again.
-4. Marks the application "Ready to apply" and sends an `application_ready` notification.
+3. Reuses a tailored resume made from the same main resume, and queues whatever is still
+   missing (the tailored resume, the cover letter) in `ai_batch_requests` for the batch API,
+   which charges half price. The letter is written from the main resume, so both run in the same
+   batch; the facts are the same.
+4. Every 2 minutes the worker sends queued work as one Message Batch (`submit-ai-batches`), and
+   every 5 minutes it reads finished batches (`poll-ai-batches`). Results usually arrive within
+   minutes and always within 24 hours. Once all of an application's results are in, one
+   transaction saves the tailored resume, attaches it and the letter, marks the application
+   "Ready to apply", counts the unit and sends an `application_ready` notification.
+5. A failed entry goes into one more batch. If it fails again, the slot is given back and the
+   untouched application removed; a tailored resume that did succeed is kept, so the next tailor
+   for that job reuses it for free. If batches can't be sent at all for half an hour (an outage,
+   a proxy that doesn't pass the batch API through), the queued work runs as live calls at full
+   price instead.
 
-The queue runs two jobs at a time with a rate limit, separate from alerts and reminders, because
-AI calls take tens of seconds. It needs `ANTHROPIC_API_KEY` in the worker's environment; without
-it the worker logs that auto-prepare is off and skips queueing.
+Features routed to OpenAI, and deployments with `AI_BATCH=off`, skip the batch and call the AI
+right away. The queue runs two jobs at a time with a rate limit, separate from alerts and
+reminders. It needs `ANTHROPIC_API_KEY` in the worker's environment; without it the worker logs
+that auto-prepare is off and skips queueing.
 
 ## AI integration
 
@@ -142,10 +153,20 @@ prep and the Studio chat.
   than failing.
 - **Token economy.** Per-job requests send the user's resume and profile first with a cache
   breakpoint, then the job, so the next job's request reads them from the prompt cache; the
-  Studio caches earlier turns the same way. Caching needs a minimum prefix (512 tokens on
-  `claude-opus-5`, 4,096 on `claude-haiku-4-5`). Tailor returns only the sections it rewrites and
-  copies the rest, and job posts go to the model without their legal notices (equal-opportunity,
-  accommodation, privacy and background-check text).
+  Studio caches earlier turns the same way. These per-user entries live for five minutes.
+  Prefixes every user shares live for an hour: the Studio's tool and instructions, and the
+  instructions of every batch entry, since a batch can run longer than five minutes. In a batch,
+  a resume is cached only when the same user has more than one entry for a feature, because a
+  cache write nobody reads costs more than it saves (1.25× the input price for five minutes, 2×
+  for an hour; reads cost 0.1×). Caching needs a minimum prefix (512 tokens on `claude-opus-5`,
+  1,024 on `claude-sonnet-5`, 4,096 on `claude-haiku-4-5`). Tailor returns only the sections it
+  rewrites and copies the rest, and job posts go to the model without their legal notices
+  (equal-opportunity, accommodation, privacy and background-check text).
+- **Batches.** Background work goes through the Message Batches API at half price
+  (`ClaudeBatches` in `batch.ts`). Batch entries are built by the same code as live calls and
+  their results read by the same code, so a batched tailored resume is identical in kind to a
+  live one; only refusal fallbacks are left out, since their beta header would apply to the
+  whole batch.
 - **Reuse.** A tailored resume stores a hash of the main resume it came from (`resumes.source_hash`),
   as does a fit analysis. Opening Tailor again for a job reuses the existing version when the main
   resume hasn't changed, at no cost; when it has, the job page marks the tailored resume and the
@@ -158,8 +179,11 @@ prep and the Studio chat.
   interview prep, Studio messages and auto-prepared applications. Every AI entry point goes
   through `aiFor(user, unit)`, which checks the allowance and the plan's spend cap, and records a
   row in `usage_events` only when a new result is saved, so reused results and failed calls are
-  free. The spend cap sits just above the cost of using every allowance and only stops outliers.
-  The dashboard, settings and each AI button show what's left this month.
+  free. The spend cap is about 1.35–1.5× the measured cost of using every allowance
+  (`UNIT_COST_USD` and `fullUseCostUsd` in `plans.ts`, which a test keeps in step with the caps),
+  so it only stops outliers: Free $0.30, Plus $6, Pro $15 and Concierge $95 a month. The
+  dashboard, settings and each AI button show what's left this month. Batched calls are recorded
+  at the batch price and flagged (`ai_usage.batch`).
 - **Testing.** `AI_PROVIDER=mock` swaps in a deterministic provider for local development and the
   end-to-end suite. The configuration refuses it when `NODE_ENV=production`.
 
@@ -230,6 +254,9 @@ resume text. Users can export all their data or delete their account.
 - **Shutdown.** On `SIGTERM` the worker stops taking jobs, lets running jobs finish and closes its
   connections.
 - **Logs.** Both services write structured JSON logs with Pino, ready for any log pipeline.
+- **AI spend.** Admin → AI usage shows this month's spend by feature and model, how much input
+  came from the prompt cache, what batches saved, spend against plan revenue at list prices, and
+  the top spenders against their caps.
 - **Releases.** Run migrations first, then roll out the web app and the worker. Keep each
   migration compatible with the version still running, so a rollout never needs downtime. CI
   builds both images on every pull request.

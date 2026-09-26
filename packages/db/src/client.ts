@@ -4,6 +4,9 @@ import * as schema from "./schema";
 
 export type Database = NodePgDatabase<typeof schema>;
 
+/** The database or an open transaction on it; helpers that take one join the transaction. */
+export type DbExecutor = Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 interface DbGlobal {
   __gettargetrolePool?: pg.Pool;
   __gettargetroleDb?: Database;

@@ -1,5 +1,7 @@
 import "server-only";
+import { vendorOf } from "@gettargetrole/ai";
 import {
+  aiBatchRequests,
   aiUsage,
   applications,
   auditLogs,
@@ -10,6 +12,7 @@ import {
   users,
 } from "@gettargetrole/db";
 import { and, desc, eq, gte, ilike, isNull, or, sql } from "drizzle-orm";
+import { PLANS } from "@/lib/plans";
 import { startOfMonth } from "../ai";
 
 export async function platformStats() {
@@ -143,4 +146,107 @@ export async function clientsOf(specialistId: string) {
       ),
     )
     .orderBy(users.name);
+}
+
+const usd = (micro: string | number | null | undefined) => Number(micro ?? 0) / 1_000_000;
+
+/**
+ * This month's AI spend (UTC) broken down for cost control: by feature and model, how much input
+ * came from the prompt cache, what went through batches, the biggest spenders, and spend set
+ * against what the plans bring in at list price.
+ */
+export async function aiUsageReport(now = new Date()) {
+  const db = getDb();
+  const thisMonth = gte(aiUsage.createdAt, startOfMonth(now));
+  const cost = sql<string>`coalesce(sum(${aiUsage.costMicroUsd}), 0)`;
+  const calls = sql<number>`count(*)::int`;
+  const [features, models, spenders, plans, [waiting]] = await Promise.all([
+    db
+      .select({
+        feature: aiUsage.feature,
+        calls,
+        cost,
+        batchCalls: sql<number>`(count(*) filter (where ${aiUsage.batch}))::int`,
+      })
+      .from(aiUsage)
+      .where(thisMonth)
+      .groupBy(aiUsage.feature)
+      .orderBy(desc(cost)),
+    db
+      .select({
+        model: aiUsage.model,
+        calls,
+        cost,
+        batchCost: sql<string>`coalesce(sum(${aiUsage.costMicroUsd}) filter (where ${aiUsage.batch}), 0)`,
+        inputTokens: sql<string>`coalesce(sum(${aiUsage.inputTokens}), 0)`,
+        outputTokens: sql<string>`coalesce(sum(${aiUsage.outputTokens}), 0)`,
+        cacheReadTokens: sql<string>`coalesce(sum(${aiUsage.cacheReadTokens}), 0)`,
+        cacheWriteTokens: sql<string>`coalesce(sum(${aiUsage.cacheWriteTokens}), 0)`,
+      })
+      .from(aiUsage)
+      .where(thisMonth)
+      .groupBy(aiUsage.model)
+      .orderBy(desc(cost)),
+    db
+      .select({ id: users.id, name: users.name, email: users.email, plan: users.plan, cost })
+      .from(aiUsage)
+      .innerJoin(users, eq(aiUsage.userId, users.id))
+      .where(thisMonth)
+      .groupBy(users.id)
+      .orderBy(desc(cost))
+      .limit(10),
+    db.select({ plan: users.plan, count: calls }).from(users).groupBy(users.plan),
+    db
+      .select({ count: calls })
+      .from(aiBatchRequests)
+      .where(sql`${aiBatchRequests.status} in ('queued', 'submitted')`),
+  ]);
+
+  const byModel = models.map((row) => {
+    const input =
+      Number(row.inputTokens) + Number(row.cacheReadTokens) + Number(row.cacheWriteTokens);
+    return {
+      model: row.model,
+      vendor: vendorOf(row.model),
+      calls: row.calls,
+      spendUsd: usd(row.cost),
+      batchSpendUsd: usd(row.batchCost),
+      inputTokens: input,
+      outputTokens: Number(row.outputTokens),
+      cacheReadTokens: Number(row.cacheReadTokens),
+    };
+  });
+  const spendUsd = byModel.reduce((total, row) => total + row.spendUsd, 0);
+  const batchSpendUsd = byModel.reduce((total, row) => total + row.batchSpendUsd, 0);
+  const inputTokens = byModel.reduce((total, row) => total + row.inputTokens, 0);
+  const cacheReadTokens = byModel.reduce((total, row) => total + row.cacheReadTokens, 0);
+  const planRevenueUsd = plans.reduce(
+    (total, row) => total + row.count * PLANS[row.plan].priceUsd,
+    0,
+  );
+
+  return {
+    spendUsd,
+    calls: byModel.reduce((total, row) => total + row.calls, 0),
+    /** Share of input tokens read from the prompt cache (billed at a tenth or less). */
+    cacheReadShare: inputTokens > 0 ? cacheReadTokens / inputTokens : 0,
+    /** Batches bill half price, so the same work at list price would have cost twice as much. */
+    batchSavingsUsd: batchSpendUsd,
+    batchShare: spendUsd > 0 ? batchSpendUsd / spendUsd : 0,
+    waitingInBatches: waiting?.count ?? 0,
+    planRevenueUsd,
+    byFeature: features.map((row) => ({
+      feature: row.feature,
+      calls: row.calls,
+      spendUsd: usd(row.cost),
+      perCallUsd: row.calls > 0 ? usd(row.cost) / row.calls : 0,
+      batchCalls: row.batchCalls,
+    })),
+    byModel,
+    topSpenders: spenders.map((row) => ({
+      ...row,
+      spendUsd: usd(row.cost),
+      capShare: usd(row.cost) / PLANS[row.plan].monthlyAiBudgetUsd,
+    })),
+  };
 }

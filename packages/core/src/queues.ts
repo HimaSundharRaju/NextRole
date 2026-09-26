@@ -16,6 +16,10 @@ export const JOB_NAMES = {
   followUpReminders: "follow-up-reminders",
   /** Prepares one application (tailored resume + cover letter) for a user who turned it on. */
   autoPrepare: "auto-prepare",
+  /** Scheduled: sends queued auto-prepare AI work to the batch API (half price). */
+  submitAiBatches: "submit-ai-batches",
+  /** Scheduled: reads finished batches and marks their applications ready. */
+  pollAiBatches: "poll-ai-batches",
 } as const;
 
 export interface SyncCompanyJob {

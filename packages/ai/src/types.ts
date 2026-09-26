@@ -19,6 +19,8 @@ export interface UsageRecord {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   costMicroUsd: number;
+  /** Made through a batch API, at half price. */
+  batch?: boolean;
 }
 
 export interface AiCallContext {

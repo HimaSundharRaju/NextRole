@@ -79,19 +79,45 @@ export const AUTO_PREPARE_DAILY_MAX: Record<Plan, number> = {
 };
 
 /**
- * Monthly cap on AI spend per plan, in USD: a backstop set just above the cost of using every
- * allowance, so it only stops outliers. It applies to the web app and the worker alike.
+ * Average AI cost of one unit in USD on the default model routes, measured in the quality check
+ * (packages/ai/eval): writing on Claude Sonnet 5, imports and fit on GPT-4o-mini, auto-prepare
+ * through the batch API at half price. Studio is an estimate for a turn with some history.
+ */
+export const UNIT_COST_USD: Record<UsageUnit, number> = {
+  import: 0.0005,
+  tailor: 0.018,
+  letter: 0.012,
+  answers: 0.011,
+  outreach: 0.013,
+  fit: 0.0004,
+  interview: 0.037,
+  studio: 0.02,
+  auto: (0.018 + 0.012) / 2,
+};
+
+/** What a month of using every allowance costs on `plan`, in USD. */
+export function fullUseCostUsd(plan: Plan): number {
+  return USAGE_UNITS.reduce(
+    (total, unit) => total + PLAN_LIMITS[plan][unit] * UNIT_COST_USD[unit],
+    0,
+  );
+}
+
+/**
+ * Monthly cap on AI spend per plan, in USD: a backstop about 1.35–1.5× the cost of using every
+ * allowance (`fullUseCostUsd`), so it only stops outliers such as very long resumes or many
+ * failed attempts. It applies to the web app and the worker alike.
  */
 export const MONTHLY_AI_BUDGET_USD: Record<Plan, number> = {
-  free: 0.5,
-  plus: 9,
-  pro: 25,
-  concierge: 120,
+  free: 0.3,
+  plus: 6,
+  pro: 15,
+  concierge: 95,
 };
 
 /**
  * Auto-prepare stops once this share of the month's budget is used, so the rest stays available
- * for the user's own requests.
+ * for the user's own requests. Even someone using every allowance stays under it.
  */
 export const AUTO_PREPARE_BUDGET_SHARE = 0.8;
 

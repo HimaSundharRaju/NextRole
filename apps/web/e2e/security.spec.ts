@@ -87,4 +87,10 @@ test("admin area is invisible to regular users and banning signs a user out", as
   await expect(
     admin.getByRole("row").filter({ hasText: adminEmail }).filter({ hasText: "admin.user.ban" }),
   ).toBeVisible();
+
+  await admin.goto("/admin?tab=ai");
+  await expect(admin.getByText("AI spend this month")).toBeVisible();
+  for (const title of ["By feature", "By model", "Top spenders"]) {
+    await expect(admin.getByRole("heading", { name: title })).toBeVisible();
+  }
 });

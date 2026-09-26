@@ -126,15 +126,16 @@ describe.skipIf(!TEST_DATABASE_URL)("tailored resumes and metering (Postgres int
   it("counts only this month's AI spend against the plan budget", async () => {
     const database = db.getDb();
     const lastMonth = new Date(db.startOfMonth().getTime() - 86_400_000);
+    const freeCap = db.MONTHLY_AI_BUDGET_USD.free * 1_000_000;
     await database.insert(db.aiUsage).values([
-      { userId, feature: "tailor", model: "m", costMicroUsd: 1_500_000, createdAt: lastMonth },
-      { userId, feature: "tailor", model: "m", costMicroUsd: 300_000 },
+      { userId, feature: "tailor", model: "m", costMicroUsd: freeCap * 3, createdAt: lastMonth },
+      { userId, feature: "tailor", model: "m", costMicroUsd: freeCap / 2 },
     ]);
-    expect(await db.monthlyAiSpendMicroUsd(userId)).toBe(300_000);
+    expect(await db.monthlyAiSpendMicroUsd(userId)).toBe(freeCap / 2);
     expect(await db.hasAiBudget(userId, "free")).toBe(true);
 
-    // Free's cap is $0.50.
-    await db.recordAiUsage(userId, { feature: "studio", model: "m", costMicroUsd: 300_000 });
+    // Reaching Free's cap stops AI work there; Plus has room left.
+    await db.recordAiUsage(userId, { feature: "studio", model: "m", costMicroUsd: freeCap / 2 });
     expect(await db.hasAiBudget(userId, "free")).toBe(false);
     expect(await db.hasAiBudget(userId, "plus")).toBe(true);
   });
