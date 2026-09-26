@@ -135,7 +135,21 @@ export function emptyResume(): Resume {
   };
 }
 
-const clean = (value: string): string => value.replace(/\s+/g, " ").trim();
+const ENTITIES: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&apos;": "'",
+  "&nbsp;": " ",
+};
+
+/** Models sometimes write HTML entities such as `&amp;` into text; a resume is plain text. */
+const decodeEntities = (value: string): string =>
+  value.replace(/&(?:amp|lt|gt|quot|apos|nbsp|#39);/g, (entity) => ENTITIES[entity]!);
+
+const clean = (value: string): string => decodeEntities(value).replace(/\s+/g, " ").trim();
 const cleanList = (values: string[]): string[] => values.map(clean).filter(Boolean);
 const dedupe = (values: string[]): string[] => {
   const seen = new Set<string>();
@@ -147,7 +161,7 @@ const dedupe = (values: string[]): string[] => {
   });
 };
 
-/** Trims whitespace, drops empty bullets/entries and de-duplicates skills. */
+/** Trims whitespace, decodes stray HTML entities, drops empty entries and de-duplicates skills. */
 export function normalizeResume(input: Resume): Resume {
   const resume = resumeSchema.parse(input);
   return {
@@ -161,7 +175,7 @@ export function normalizeResume(input: Resume): Resume {
         .map((link) => ({ label: clean(link.label), url: clean(link.url) }))
         .filter((link) => link.url),
     },
-    summary: resume.summary.trim(),
+    summary: decodeEntities(resume.summary).trim(),
     experience: resume.experience
       .map((item) => ({
         company: clean(item.company),

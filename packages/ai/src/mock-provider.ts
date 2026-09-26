@@ -54,7 +54,9 @@ function skillsFirst(resume: Resume, wanted: string[]): Resume {
 
 export class MockProvider implements AiProvider {
   readonly name = "mock" as const;
-  readonly model = "mock";
+  modelFor(): string {
+    return "mock";
+  }
 
   async importResume(source: ResumeSource, ctx: AiCallContext) {
     await meter("import", ctx);

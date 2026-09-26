@@ -34,3 +34,6 @@ dump.rdb
 # local Cloudflare dev state and secrets
 .wrangler/
 .dev.vars*
+
+# Model quality-check outputs (packages/ai/eval)
+packages/ai/eval/results/

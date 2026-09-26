@@ -64,8 +64,9 @@ export type StudioEvent =
   | { type: "error"; message: string };
 
 export interface AiProvider {
-  readonly name: "anthropic" | "mock";
-  readonly model: string;
+  readonly name: "anthropic" | "openai" | "routed" | "mock";
+  /** The model that handles `feature`. */
+  modelFor(feature: AiFeature): string;
   importResume(source: ResumeSource, ctx: AiCallContext): Promise<ImportResult>;
   generateResume(
     input: { background: string; targetRole: string; profile?: CandidateProfile | null },

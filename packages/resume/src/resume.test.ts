@@ -43,6 +43,17 @@ describe("resume schema", () => {
     expect(clean.experience[0]?.highlights).toEqual(["Built it"]);
   });
 
+  it("decodes HTML entities a model wrote into plain text", () => {
+    const resume = emptyResume();
+    resume.basics.headline = "Senior Engineer, Golang &amp; APIs";
+    resume.summary = "Builds &quot;boring&quot; payment systems &lt;fast&gt;.";
+    resume.skills = [{ name: "Data &amp; ML", items: ["R&amp;D", "Python"] }];
+    const clean = normalizeResume(resume);
+    expect(clean.basics.headline).toBe("Senior Engineer, Golang & APIs");
+    expect(clean.summary).toBe('Builds "boring" payment systems <fast>.');
+    expect(clean.skills).toEqual([{ name: "Data & ML", items: ["R&D", "Python"] }]);
+  });
+
   it("fills in default settings", () => {
     expect(resumeSettingsSchema.parse({})).toEqual(DEFAULT_RESUME_SETTINGS);
     expect(DEFAULT_RESUME_SETTINGS.template).toBe("modern");

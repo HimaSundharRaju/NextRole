@@ -22,6 +22,7 @@ export const WEB_ENV_KEYS = [
   "AI_MODEL",
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_BASE_URL",
+  "OPENAI_API_KEY",
   "SMTP_URL",
   "EMAIL_FROM",
 ] as const;
@@ -41,6 +42,7 @@ export const JOBS_ENV_KEYS = [
   "AI_MODEL",
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_BASE_URL",
+  "OPENAI_API_KEY",
 ] as const;
 
 /** Copies the listed variables that are set, so each container only receives what it uses. */
