@@ -88,8 +88,12 @@ prep and the Studio chat. Its production implementation calls the Anthropic Type
   (`claude-opus-5`, `claude-opus-5-5`, `claude-fable-5` and `claude-fable-5-1`), requests opt into
   server-side fallbacks, so a declined request is retried by the API on a fallback model rather
   than failing.
-- **Prompt caching.** System prompts are marked cacheable, which cuts cost and latency on repeat
-  calls.
+- **Token economy.** Per-job requests send the user's resume and profile first with a cache
+  breakpoint, then the job, so the next job's request reads them from the prompt cache; the
+  Studio caches earlier turns the same way. Caching needs a minimum prefix (512 tokens on
+  `claude-opus-5`, 4,096 on `claude-haiku-4-5`). Tailor returns only the sections it rewrites and
+  copies the rest, and job posts go to the model without their legal notices (equal-opportunity,
+  accommodation, privacy and background-check text).
 - **Untrusted content.** Resumes, job descriptions and uploaded documents are wrapped in tagged
   blocks, and the prompts instruct the model to treat them as data, never as instructions.
 - **Metering and budgets.** Each call records its tokens and estimated cost in `ai_usage`. Before
