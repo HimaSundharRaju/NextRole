@@ -37,6 +37,27 @@ export const tailorResultSchema = z.object({
 });
 export type TailorResult = z.infer<typeof tailorResultSchema>;
 
+/**
+ * What the model returns for Tailor: only what it rewrote, plus the notes. Sections left out or
+ * null are copied from the original resume, which saves output tokens and keeps untouched
+ * sections (and contact details, which never pass through the model) exactly as they were.
+ */
+export const tailorOutputSchema = z.object({
+  headline: z.string().nullish().describe("Headline rewritten for this role; null keeps it"),
+  summary: z.string().nullish(),
+  experience: z.array(experienceSchema).nullish(),
+  education: z.array(educationSchema).nullish(),
+  skills: z.array(skillGroupSchema).nullish(),
+  projects: z.array(projectSchema).nullish(),
+  certifications: z.array(certificationSchema).nullish(),
+  customSections: z.array(customSectionSchema).nullish(),
+  summaryOfChanges: tailorResultSchema.shape.summaryOfChanges,
+  addedKeywords: tailorResultSchema.shape.addedKeywords,
+  missingKeywords: tailorResultSchema.shape.missingKeywords,
+  suggestions: tailorResultSchema.shape.suggestions,
+});
+export type TailorOutput = z.infer<typeof tailorOutputSchema>;
+
 export const fitAnalysisSchema = z.object({
   score: z.number().describe("Fit score from 0 to 100"),
   verdict: z.enum(["strong", "good", "stretch", "poor"]),

@@ -50,7 +50,7 @@ ${WRITING_STANDARDS}
 
 ${INTEGRITY}
 
-Return the full tailored resume, three to six summaryOfChanges bullets in plain language, the job keywords you added (addedKeywords), important requirements the candidate doesn't show (missingKeywords) and specific, optional suggestions.
+Return only what you change: the rewritten headline, and each section you change in full, with all of its entries in their new order. Leave out every section you keep exactly as it is; the original is copied in its place. Contact details are always kept as they are. Also return three to six summaryOfChanges bullets in plain language, the job keywords you added (addedKeywords), important requirements the candidate doesn't show (missingKeywords) and specific, optional suggestions.
 
 ${UNTRUSTED_CONTENT_RULE}`;
 
