@@ -251,7 +251,7 @@ export default async function LandingPage() {
             <p className="mt-3 text-muted-foreground">
               Start free. Upgrade when your search picks up.
             </p>
-            <div className="mt-10 grid gap-5 lg:grid-cols-3">
+            <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
               {Object.values(PLANS).map((plan) => (
                 <div
                   key={plan.id}

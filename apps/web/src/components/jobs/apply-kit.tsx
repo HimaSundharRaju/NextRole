@@ -30,7 +30,12 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { Input, Textarea } from "@/components/ui/form";
 import { Alert } from "@/components/ui/misc";
 import { useToast } from "@/components/ui/toast";
+import { AllowanceNote } from "@/components/usage/usage-bars";
+import type { UnitAllowance } from "@/lib/plans";
 import { cn, formatDate } from "@/lib/utils";
+
+/** Jobs below this match ask before spending a tailored resume (MIN_AI_MATCH in the plans). */
+const LOW_MATCH = 70;
 
 interface KitApplication {
   id: string;
@@ -46,6 +51,11 @@ interface TailorNotes {
   missingKeywords: string[];
   suggestions: string[];
 }
+
+/** What the kit is for: a job on the board, or an application with a pasted job description. */
+export type KitTarget = { jobId: string } | { applicationId: string };
+
+export type KitAllowances = Record<"tailor" | "letter" | "answers" | "outreach", UnitAllowance>;
 
 /** The tailored resume's saved notes, and whether it was made from an older main resume. */
 interface KitTailored {
@@ -86,15 +96,21 @@ export function gmailComposeUrl(to: string, subject: string, body: string): stri
 }
 
 export function ApplyKit({
-  jobId,
+  target,
   applyUrl,
   application,
   tailored,
+  allowances,
+  matchScore,
 }: {
-  jobId: string;
+  target: KitTarget;
+  /** The employer's application page; empty when unknown. */
   applyUrl: string;
   application: KitApplication | null;
   tailored: KitTailored | null;
+  allowances: KitAllowances;
+  /** How well the job matches the main resume; null for pasted job descriptions. */
+  matchScore: number | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -108,6 +124,7 @@ export function ApplyKit({
   const [answers, setAnswers] = useState(application?.answers ?? []);
   const [questions, setQuestions] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [confirmLowMatch, setConfirmLowMatch] = useState(false);
   const [outreach, setOutreach] = useState<{
     email: { subject: string; body: string };
     linkedinNote: string;
@@ -138,9 +155,10 @@ export function ApplyKit({
   const ready = !applied && application?.status === "ready";
 
   function tailor(force: boolean) {
+    setConfirmLowMatch(false);
     run(
       "tailor",
-      () => tailorResumeForJob({ jobId, force }),
+      () => tailorResumeForJob({ ...target, force }),
       (data) => {
         setTailorNotes(data);
         setTailorStale(false);
@@ -227,19 +245,41 @@ export function ApplyKit({
               ) : null}
             </div>
           ) : null}
-          <Button
-            size="sm"
-            variant={application?.resumeId ? "ghost" : "primary"}
-            loading={busy === "tailor"}
-            disabled={busy !== null}
-            onClick={() => tailor(Boolean(application?.resumeId))}
-          >
-            {busy === "tailor"
-              ? "Tailoring… (about 30s)"
-              : application?.resumeId
-                ? "Tailor again"
-                : "Tailor my resume"}
-          </Button>
+          {confirmLowMatch && matchScore !== null ? (
+            <div className="space-y-2 rounded-lg border border-warning/40 bg-warning-soft p-3 text-xs">
+              <p>
+                This job is a {matchScore}% match. Tailoring rarely turns a weak match into an
+                interview. Use 1 of your {allowances.tailor.left} tailored resumes anyway?
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => tailor(Boolean(application?.resumeId))}>
+                  Tailor anyway
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmLowMatch(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button
+              size="sm"
+              variant={application?.resumeId ? "ghost" : "primary"}
+              loading={busy === "tailor"}
+              disabled={busy !== null || allowances.tailor.left === 0}
+              onClick={() =>
+                matchScore !== null && matchScore < LOW_MATCH
+                  ? setConfirmLowMatch(true)
+                  : tailor(Boolean(application?.resumeId))
+              }
+            >
+              {busy === "tailor"
+                ? "Tailoring… (about 30s)"
+                : application?.resumeId
+                  ? "Tailor again"
+                  : "Tailor my resume"}
+            </Button>
+          )}
+          <AllowanceNote allowance={allowances.tailor} />
         </Step>
 
         <Step done={Boolean(coverLetter)} icon={PenLine} title="Cover letter">
@@ -267,11 +307,11 @@ export function ApplyKit({
             size="sm"
             variant={coverLetter ? "ghost" : "primary"}
             loading={busy === "letter"}
-            disabled={busy !== null}
+            disabled={busy !== null || allowances.letter.left === 0}
             onClick={() =>
               run(
                 "letter",
-                () => writeCoverLetter({ jobId }),
+                () => writeCoverLetter({ ...target }),
                 (data) => {
                   setCoverLetter(data.body);
                   setDirty(false);
@@ -282,6 +322,7 @@ export function ApplyKit({
           >
             {coverLetter ? "Rewrite" : "Write cover letter"}
           </Button>
+          <AllowanceNote allowance={allowances.letter} />
         </Step>
 
         <Step done={answers.length > 0} icon={MessageSquareText} title="Application questions">
@@ -298,13 +339,13 @@ export function ApplyKit({
             size="sm"
             variant="secondary"
             loading={busy === "answers"}
-            disabled={busy !== null || !questions.trim()}
+            disabled={busy !== null || !questions.trim() || allowances.answers.left === 0}
             onClick={() =>
               run(
                 "answers",
                 () =>
                   answerApplicationQuestions({
-                    jobId,
+                    ...target,
                     questions: questions
                       .split("\n")
                       .map((line) => line.trim())
@@ -327,6 +368,7 @@ export function ApplyKit({
           >
             Answer with AI
           </Button>
+          <AllowanceNote allowance={allowances.answers} />
           {answers.map((item, index) => (
             <div key={item.question} className="rounded-lg border border-border p-3">
               <div className="flex items-start justify-between gap-2">
@@ -381,7 +423,7 @@ export function ApplyKit({
                 "outreach",
                 () =>
                   draftOutreach({
-                    jobId,
+                    ...target,
                     recipientName: String(form.get("recipientName") ?? "") || undefined,
                     recipientTitle: String(form.get("recipientTitle") ?? "") || undefined,
                     recipientEmail,
@@ -414,12 +456,13 @@ export function ApplyKit({
               size="sm"
               variant="secondary"
               loading={busy === "outreach"}
-              disabled={busy !== null}
+              disabled={busy !== null || allowances.outreach.left === 0}
               className="sm:col-span-3 sm:w-fit"
             >
               Draft email & LinkedIn note
             </Button>
           </form>
+          <AllowanceNote allowance={allowances.outreach} />
           {outreach ? (
             <div className="space-y-3">
               <div className="rounded-lg border border-border p-3">
@@ -462,14 +505,16 @@ export function ApplyKit({
             </div>
           ) : null}
           <div className={cn("flex flex-wrap gap-2", applied && "items-center")}>
-            <a
-              href={applyUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={buttonVariants({ variant: "secondary" })}
-            >
-              Open application <ExternalLink className="h-4 w-4" aria-hidden />
-            </a>
+            {applyUrl ? (
+              <a
+                href={applyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={buttonVariants({ variant: "secondary" })}
+              >
+                Open application <ExternalLink className="h-4 w-4" aria-hidden />
+              </a>
+            ) : null}
             {applied ? (
               <span className="text-sm text-success">
                 Applied on {formatDate(application!.appliedAt)} — receipt saved.
@@ -483,11 +528,13 @@ export function ApplyKit({
                     "applied",
                     async () => {
                       let applicationId = application?.id;
-                      if (!applicationId) {
-                        const saved = await saveJob({ jobId });
+                      if (!applicationId && "jobId" in target) {
+                        const saved = await saveJob({ jobId: target.jobId });
                         if (!saved.ok) return saved;
                         applicationId = saved.data.applicationId;
                       }
+                      if (!applicationId)
+                        return { ok: false as const, error: "Save the job first." };
                       return markApplied({ applicationId });
                     },
                     () =>

@@ -7,14 +7,26 @@ export function ApplyModeBar({
   autoPrepare,
   readyCount,
 }: {
-  autoPrepare: { enabled: boolean; minScore: number; dailyLimit: number };
+  autoPrepare: {
+    /** Whether the user's plan includes auto-prepare. */
+    included: boolean;
+    enabled: boolean;
+    minScore: number;
+    dailyLimit: number;
+  };
   readyCount: number;
 }) {
   return (
     <div className="mb-5 flex flex-col gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
       <p className="flex gap-2">
         <Wand2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-        {autoPrepare.enabled ? (
+        {!autoPrepare.included ? (
+          <span>
+            <span className="font-medium">Apply manually from any job</span>, or paste a job
+            description from anywhere. Auto-prepare, which gets your best new matches ready to
+            submit every day, comes with Pro.
+          </span>
+        ) : autoPrepare.enabled ? (
           <span>
             <span className="font-medium">Auto-prepare is on.</span> New jobs that are a{" "}
             {autoPrepare.minScore}%+ match get a tailored resume and cover letter, up to{" "}
@@ -34,10 +46,14 @@ export function ApplyModeBar({
           </Link>
         ) : null}
         <Link
-          href="/settings#auto-prepare"
+          href={autoPrepare.included ? "/settings#auto-prepare" : "/settings#plan"}
           className={buttonVariants({ variant: "secondary", size: "sm" })}
         >
-          {autoPrepare.enabled ? "Auto-prepare settings" : "Turn on auto-prepare"}
+          {!autoPrepare.included
+            ? "Compare plans"
+            : autoPrepare.enabled
+              ? "Auto-prepare settings"
+              : "Turn on auto-prepare"}
         </Link>
       </div>
     </div>

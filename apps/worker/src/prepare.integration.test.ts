@@ -74,7 +74,9 @@ describe.skipIf(!TEST_DATABASE_URL)("auto-prepare (Postgres integration)", () =>
     await database.execute(
       drizzle.sql`TRUNCATE users, companies, notifications, ai_usage RESTART IDENTITY CASCADE`,
     );
-    await database.insert(db.users).values({ id: userId, name: "Priya", email: "p@example.com" });
+    await database
+      .insert(db.users)
+      .values({ id: userId, name: "Priya", email: "p@example.com", plan: "pro" });
     await database.insert(db.profiles).values({
       userId,
       skills: ["go", "kubernetes", "postgresql"],
@@ -166,6 +168,7 @@ describe.skipIf(!TEST_DATABASE_URL)("auto-prepare (Postgres integration)", () =>
       type: "application_ready",
       link: `/jobs/${jobIds[0]}`,
     });
+    expect(await db.monthlyUnits(userId, "auto")).toBe(1);
 
     // A second run finds it done and spends nothing.
     await expect(
@@ -179,7 +182,7 @@ describe.skipIf(!TEST_DATABASE_URL)("auto-prepare (Postgres integration)", () =>
     const [primary] = await database.select().from(db.resumes);
     const existing = await db.saveTailoredResume({
       userId,
-      jobId: jobIds[0]!,
+      target: { jobId: jobIds[0]! },
       title: "Acme — Senior Software Engineer, Payments",
       content: primary!.content,
       settings: primary!.settings,
@@ -207,6 +210,76 @@ describe.skipIf(!TEST_DATABASE_URL)("auto-prepare (Postgres integration)", () =>
     ).resolves.toMatchObject({ status: "ready" });
   });
 
+  it("runs only on plans that include auto-prepare, capped at the plan's daily maximum", async () => {
+    const database = db.getDb();
+    for (const plan of ["free", "plus"] as const) {
+      await database.update(db.users).set({ plan });
+      await expect(
+        prepare.autoPrepare({ userId, jobId: jobIds[0]!, score: 92 }, ai),
+      ).resolves.toEqual({ status: "skipped", reason: "plan" });
+    }
+    expect(await applicationFor(jobIds[0]!)).toBeUndefined();
+
+    // Pro allows 3 a day even when the user's own setting asks for more.
+    await database.update(db.users).set({ plan: "pro" });
+    await database.update(db.profiles).set({ autoPrepareDailyLimit: 10 });
+    const [company] = await database.select().from(db.companies);
+    const more = await database
+      .insert(db.jobs)
+      .values(
+        [2, 3].map((i) => ({
+          companyId: company!.id,
+          source: "greenhouse" as const,
+          externalId: `job-${i}`,
+          title: `Software Engineer ${i}`,
+          applyUrl: `https://job-boards.greenhouse.io/acme/jobs/${i}`,
+          descriptionText: "Go on Kubernetes.",
+          skills: ["go"],
+          contentHash: `hash-${i}`,
+        })),
+      )
+      .returning({ id: db.jobs.id });
+    const statuses = [];
+    for (const jobId of [...jobIds, ...more.map((row) => row.id)]) {
+      statuses.push((await prepare.autoPrepare({ userId, jobId, score: 90 }, ai)).status);
+    }
+    expect(statuses).toEqual(["ready", "ready", "ready", "skipped"]);
+  });
+
+  it("stops at the plan's monthly allowance", async () => {
+    const database = db.getDb();
+    await database.update(db.profiles).set({ autoPrepareDailyLimit: 3 });
+    // Two days into the month, with the plan's 90 slots already used on its first day.
+    const now = new Date(db.startOfMonth().getTime() + 2 * 86_400_000);
+    const [company] = await database.select().from(db.companies);
+    const [job] = await database
+      .insert(db.jobs)
+      .values({
+        companyId: company!.id,
+        source: "greenhouse",
+        externalId: "job-used",
+        title: "Earlier job",
+        applyUrl: "https://job-boards.greenhouse.io/acme/jobs/used",
+        contentHash: "hash-used",
+      })
+      .returning();
+    const [earlier] = await database
+      .insert(db.applications)
+      .values({ userId, jobId: job!.id, companyName: "Acme", jobTitle: "Earlier job" })
+      .returning();
+    await database.insert(db.applicationEvents).values(
+      Array.from({ length: db.PLAN_LIMITS.pro.auto }, () => ({
+        applicationId: earlier!.id,
+        type: "auto_prepared" as const,
+        createdAt: db.startOfMonth(now),
+      })),
+    );
+    await expect(
+      prepare.autoPrepare({ userId, jobId: jobIds[0]!, score: 92 }, ai, now),
+    ).resolves.toEqual({ status: "skipped", reason: "monthly_limit" });
+    expect(ai.tailorCalls).toBe(0);
+  });
+
   it("takes one slot at a time when jobs run in parallel", async () => {
     const outcomes = await Promise.all(
       jobIds.map((jobId) => prepare.autoPrepare({ userId, jobId, score: 90 }, ai)),
@@ -222,12 +295,12 @@ describe.skipIf(!TEST_DATABASE_URL)("auto-prepare (Postgres integration)", () =>
     await expect(run()).resolves.toEqual({ status: "skipped", reason: "disabled" });
     await database.update(db.profiles).set({ autoPrepareEnabled: true });
 
-    // Free plan: $2 a month, and auto-prepare leaves the last 20% for the user.
+    // Auto-prepare leaves the last 20% of the plan's monthly budget for the user.
     await database.insert(db.aiUsage).values({
       userId,
       feature: "tailor",
       model: "mock",
-      costMicroUsd: 1_600_000,
+      costMicroUsd: db.MONTHLY_AI_BUDGET_USD.pro * 1_000_000 * db.AUTO_PREPARE_BUDGET_SHARE,
     });
     await expect(run()).resolves.toEqual({ status: "skipped", reason: "budget" });
     await database.delete(db.aiUsage);

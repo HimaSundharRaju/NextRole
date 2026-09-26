@@ -12,9 +12,10 @@ import { JobCard } from "@/components/jobs/job-card";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { EmptyState, PageHeader, ProgressBar, Stat } from "@/components/ui/misc";
-import { PLANS } from "@/lib/plans";
+import { UsageBars } from "@/components/usage/usage-bars";
+import { allowancesFor, PLANS, usageResetLabel } from "@/lib/plans";
 import { formatDate } from "@/lib/utils";
-import { monthlyAiSpendMicroUsd } from "@/server/ai";
+import { monthlyAiSpendMicroUsd, monthlyUsage } from "@/server/ai";
 import { followUpsDue, pipelineStats } from "@/server/data/applications";
 import { topMatches } from "@/server/data/jobs";
 import { getPrimaryResume } from "@/server/data/resumes";
@@ -34,13 +35,15 @@ const PIPELINE: Array<{ status: string; label: string }> = [
 
 export default async function DashboardPage() {
   const user = await requireOnboardedUser();
-  const [stats, matches, followUps, spend, primary] = await Promise.all([
+  const [stats, matches, followUps, spend, primary, usage] = await Promise.all([
     pipelineStats(user.id),
     topMatches(user.id, 5),
     followUpsDue(user.id),
     monthlyAiSpendMicroUsd(user.id),
     getPrimaryResume(user.id),
+    monthlyUsage(user.id),
   ]);
+  const allowances = allowancesFor(user.plan, usage);
   const budget = PLANS[user.plan].monthlyAiBudgetUsd * 1_000_000;
   const creditsUsed = Math.min(100, Math.round((spend / budget) * 100));
 
@@ -111,6 +114,28 @@ export default async function DashboardPage() {
         </Card>
 
         <div className="space-y-6">
+          <Card>
+            <CardHeader
+              title="This month"
+              description={`${PLANS[user.plan].name} plan · resets ${usageResetLabel()}`}
+              action={
+                <Link
+                  href="/settings#plan"
+                  className="inline-flex items-center gap-1 text-sm font-medium text-primary"
+                >
+                  Usage <ArrowRight className="h-4 w-4" aria-hidden />
+                </Link>
+              }
+            />
+            <CardBody className="space-y-3">
+              <UsageBars allowances={allowances} units={["tailor", "letter", "auto", "studio"]} />
+              {allowances.tailor.limit === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Tailored resumes and cover letters come with Plus; auto-prepare with Pro.
+                </p>
+              ) : null}
+            </CardBody>
+          </Card>
           <Card>
             <CardHeader
               title="Pipeline"

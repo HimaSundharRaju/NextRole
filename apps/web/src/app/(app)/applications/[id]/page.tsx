@@ -3,14 +3,20 @@ import { ArrowLeft, ExternalLink, FileText, Mail, Receipt } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { resumeHash } from "@gettargetrole/db";
+import { JobDescriptionForm } from "@/components/applications/job-description-form";
+import { ApplyKit } from "@/components/jobs/apply-kit";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { CopyButton } from "@/components/ui/copy-button";
+import { allowancesFor } from "@/lib/plans";
 import { STATUS_META } from "@/lib/statuses";
 import { formatDate, timeAgo } from "@/lib/utils";
 import { uuidSchema } from "@/lib/validation";
+import { monthlyUsage } from "@/server/ai";
 import { getApplicationDetail } from "@/server/data/applications";
+import { getPrimaryResume } from "@/server/data/resumes";
 import { requireOnboardedUser } from "@/server/session";
 import {
   DeleteApplicationButton,
@@ -48,6 +54,18 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
   const detail = await getApplicationDetail(user.id, id).catch(() => null);
   if (!detail) notFound();
   const { application, events, outreach, resume, job } = detail;
+  const [usage, primary] = await Promise.all([monthlyUsage(user.id), getPrimaryResume(user.id)]);
+  const allowances = allowancesFor(user.plan, usage);
+  // A job found elsewhere gets the full apply kit here once its description is pasted in.
+  const external = !application.jobId;
+  const hasDescription = Boolean(application.jobDescription.trim());
+  const mainHash = primary ? resumeHash(primary.content) : null;
+  const tailored = resume
+    ? {
+        notes: resume.tailorNotes,
+        stale: Boolean(resume.sourceHash && mainHash && resume.sourceHash !== mainHash),
+      }
+    : null;
 
   const prepEvent = events.find(
     (event) => event.type === "kit_generated" && event.data.part === "interview",
@@ -151,53 +169,103 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
             </Card>
           ) : null}
 
-          <Card>
-            <CardHeader
-              title="Apply kit"
-              description={
-                application.jobId ? "Edit or regenerate pieces from the job page." : undefined
-              }
-            />
-            <CardBody className="space-y-4 text-sm">
-              <div className="flex items-center justify-between gap-2">
-                <span className="inline-flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-primary" aria-hidden />
-                  {resume ? resume.title : "Using your main resume"}
-                </span>
-                {resume ? (
-                  <Link href={`/resumes/${resume.id}`} className="text-primary">
-                    Open
-                  </Link>
-                ) : null}
-              </div>
-              {application.coverLetter ? (
-                <div>
-                  <div className="flex items-center justify-between">
-                    <p className="font-medium">Cover letter</p>
-                    <CopyButton text={application.coverLetter} />
-                  </div>
-                  <p className="mt-1 whitespace-pre-wrap text-muted-foreground">
-                    {application.coverLetter}
-                  </p>
-                </div>
-              ) : null}
-              {application.answers.length ? (
-                <div>
-                  <p className="font-medium">Answers</p>
-                  <dl className="mt-1 space-y-2">
-                    {application.answers.map((item) => (
-                      <div key={item.question}>
-                        <dt>{item.question}</dt>
-                        <dd className="whitespace-pre-wrap text-muted-foreground">{item.answer}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-              ) : null}
-            </CardBody>
-          </Card>
+          {external && hasDescription ? (
+            <>
+              <ApplyKit
+                target={{ applicationId: application.id }}
+                applyUrl={application.jobUrl}
+                application={{
+                  id: application.id,
+                  status: application.status,
+                  resumeId: application.resumeId,
+                  coverLetter: application.coverLetter,
+                  answers: application.answers,
+                  appliedAt: application.appliedAt?.toISOString() ?? null,
+                }}
+                tailored={tailored}
+                allowances={allowances}
+                matchScore={null}
+              />
+              <Card>
+                <CardBody className="text-sm">
+                  <details>
+                    <summary className="cursor-pointer font-medium">Job description</summary>
+                    <p className="mt-2 whitespace-pre-wrap text-muted-foreground">
+                      {application.jobDescription}
+                    </p>
+                  </details>
+                </CardBody>
+              </Card>
+            </>
+          ) : null}
 
-          <InterviewPrepCard applicationId={application.id} initial={prep} />
+          {external && !hasDescription ? (
+            <Card>
+              <CardHeader
+                title="Tailor for this job"
+                description="Paste the job description to get a tailored resume, a cover letter and an outreach email."
+              />
+              <CardBody>
+                <JobDescriptionForm applicationId={application.id} />
+              </CardBody>
+            </Card>
+          ) : null}
+
+          {external && hasDescription ? null : (
+            <Card>
+              <CardHeader
+                title="Apply kit"
+                description={
+                  application.jobId ? "Edit or regenerate pieces from the job page." : undefined
+                }
+              />
+              <CardBody className="space-y-4 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-primary" aria-hidden />
+                    {resume ? resume.title : "Using your main resume"}
+                  </span>
+                  {resume ? (
+                    <Link href={`/resumes/${resume.id}`} className="text-primary">
+                      Open
+                    </Link>
+                  ) : null}
+                </div>
+                {application.coverLetter ? (
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">Cover letter</p>
+                      <CopyButton text={application.coverLetter} />
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap text-muted-foreground">
+                      {application.coverLetter}
+                    </p>
+                  </div>
+                ) : null}
+                {application.answers.length ? (
+                  <div>
+                    <p className="font-medium">Answers</p>
+                    <dl className="mt-1 space-y-2">
+                      {application.answers.map((item) => (
+                        <div key={item.question}>
+                          <dt>{item.question}</dt>
+                          <dd className="whitespace-pre-wrap text-muted-foreground">
+                            {item.answer}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ) : null}
+              </CardBody>
+            </Card>
+          )}
+
+          <InterviewPrepCard
+            applicationId={application.id}
+            initial={prep}
+            allowance={allowances.interview}
+          />
         </div>
 
         <div className="space-y-6">

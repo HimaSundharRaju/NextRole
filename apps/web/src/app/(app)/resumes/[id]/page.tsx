@@ -2,7 +2,9 @@ import { companies, getDb, jobs } from "@gettargetrole/db";
 import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { allowancesFor } from "@/lib/plans";
 import { uuidSchema } from "@/lib/validation";
+import { monthlyUsage } from "@/server/ai";
 import { getResume, listMessages, listRevisions, type ResumeRow } from "@/server/data/resumes";
 import { requireOnboardedUser } from "@/server/session";
 import { ResumeStudio } from "./studio";
@@ -37,10 +39,11 @@ export default async function ResumeStudioPage({ params }: { params: Promise<{ i
   } catch {
     notFound();
   }
-  const [messages, revisions, job] = await Promise.all([
+  const [messages, revisions, job, usage] = await Promise.all([
     listMessages(user.id, resume.id),
     listRevisions(user.id, resume.id),
     linkedJob(resume.jobId),
+    monthlyUsage(user.id),
   ]);
 
   return (
@@ -53,6 +56,7 @@ export default async function ResumeStudioPage({ params }: { params: Promise<{ i
       initialResume={resume.content}
       initialSettings={resume.settings}
       job={job}
+      studioAllowance={allowancesFor(user.plan, usage).studio}
       messages={messages.map((message) => ({
         id: message.id,
         role: message.role,

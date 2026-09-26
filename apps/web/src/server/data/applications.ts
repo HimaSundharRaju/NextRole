@@ -71,7 +71,12 @@ export async function getApplicationDetail(userId: string, applicationId: string
       .orderBy(desc(outreachMessages.createdAt)),
     application.resumeId
       ? db
-          .select({ id: resumes.id, title: resumes.title })
+          .select({
+            id: resumes.id,
+            title: resumes.title,
+            sourceHash: resumes.sourceHash,
+            tailorNotes: resumes.tailorNotes,
+          })
           .from(resumes)
           .where(and(eq(resumes.id, application.resumeId), eq(resumes.userId, userId)))
           .limit(1)
@@ -144,6 +149,7 @@ export async function createExternalApplication(
     location: string;
     status: ApplicationStatus;
     notes: string;
+    jobDescription?: string;
   },
   actorUserId: string,
 ): Promise<ApplicationRow> {
@@ -168,7 +174,13 @@ export async function updateApplication(
   update: Partial<
     Pick<
       ApplicationRow,
-      "notes" | "nextActionAt" | "coverLetter" | "answers" | "resumeId" | "status"
+      | "notes"
+      | "nextActionAt"
+      | "coverLetter"
+      | "answers"
+      | "resumeId"
+      | "status"
+      | "jobDescription"
     >
   >,
 ): Promise<ApplicationRow> {

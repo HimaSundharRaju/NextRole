@@ -4,8 +4,16 @@ import { PreferencesForm } from "@/components/profile/preferences-form";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { PageHeader, ProgressBar } from "@/components/ui/misc";
-import { PLANS } from "@/lib/plans";
-import { monthlyAiSpendMicroUsd } from "@/server/ai";
+import {
+  AUTO_PREPARE_DAILY_MAX,
+  PLAN_LIMITS,
+  PLAN_ORDER,
+  USAGE_UNITS,
+} from "@gettargetrole/db/plans";
+import { UsageBars } from "@/components/usage/usage-bars";
+import { allowancesFor, PLANS, USAGE_UNIT_LABEL, usageResetLabel } from "@/lib/plans";
+import { cn } from "@/lib/utils";
+import { monthlyAiSpendMicroUsd, monthlyUsage } from "@/server/ai";
 import { getProfile } from "@/server/data/profile";
 import { getPrimaryResume } from "@/server/data/resumes";
 import { requireOnboardedUser } from "@/server/session";
@@ -15,11 +23,13 @@ export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
   const user = await requireOnboardedUser();
-  const [profile, spend, primary] = await Promise.all([
+  const [profile, spend, primary, usage] = await Promise.all([
     getProfile(user.id),
     monthlyAiSpendMicroUsd(user.id),
     getPrimaryResume(user.id),
+    monthlyUsage(user.id),
   ]);
+  const allowances = allowancesFor(user.plan, usage);
   const plan = PLANS[user.plan];
   const used = Math.min(100, Math.round((spend / (plan.monthlyAiBudgetUsd * 1_000_000)) * 100));
 
@@ -63,6 +73,7 @@ export default async function SettingsPage() {
               autoPrepareDailyLimit: profile.autoPrepareDailyLimit,
             }}
             hasResume={Boolean(primary)}
+            planDailyMax={AUTO_PREPARE_DAILY_MAX[user.plan]}
           />
         </CardBody>
       </Card>
@@ -86,12 +97,13 @@ export default async function SettingsPage() {
         </CardBody>
       </Card>
 
-      <Card>
-        <CardHeader title="Plan & usage" />
-        <CardBody className="space-y-3 text-sm">
-          <p>
-            You&apos;re on the <span className="font-semibold">{plan.name}</span> plan.
-          </p>
+      <Card id="plan" className="scroll-mt-20">
+        <CardHeader
+          title="Plan & usage"
+          description={`You're on the ${plan.name} plan. Allowances reset ${usageResetLabel()}.`}
+        />
+        <CardBody className="space-y-5 text-sm">
+          <UsageBars allowances={allowances} units={USAGE_UNITS} />
           <div>
             <div className="flex justify-between text-xs text-muted-foreground">
               <span>AI credits this month</span>
@@ -99,8 +111,52 @@ export default async function SettingsPage() {
             </div>
             <ProgressBar value={used} className="mt-1" />
           </div>
+          <div className="-mx-1 overflow-x-auto">
+            <table className="w-full min-w-[32rem] text-left text-xs">
+              <caption className="sr-only">What each plan includes per month</caption>
+              <thead>
+                <tr className="border-b border-border">
+                  <th scope="col" className="px-1 py-2 font-medium text-muted-foreground">
+                    Per month
+                  </th>
+                  {PLAN_ORDER.map((id) => (
+                    <th
+                      key={id}
+                      scope="col"
+                      className={cn("px-1 py-2 font-semibold", id === user.plan && "text-primary")}
+                    >
+                      {PLANS[id].name}
+                      <span className="block font-normal text-muted-foreground">
+                        {PLANS[id].priceUsd === 0 ? "Free" : `$${PLANS[id].priceUsd}`}
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {USAGE_UNITS.map((unit) => (
+                  <tr key={unit} className="border-b border-border last:border-b-0">
+                    <th scope="row" className="px-1 py-1.5 font-normal text-muted-foreground">
+                      {USAGE_UNIT_LABEL[unit]}
+                    </th>
+                    {PLAN_ORDER.map((id) => (
+                      <td
+                        key={id}
+                        className={cn(
+                          "px-1 py-1.5 tabular-nums",
+                          id === user.plan && "font-semibold",
+                        )}
+                      >
+                        {PLAN_LIMITS[id][unit] || "—"}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <p className="text-muted-foreground">
-            Need more? Contact support to upgrade — self-serve billing is coming soon.
+            Need more? Contact support to change plans — self-serve billing is coming soon.
           </p>
         </CardBody>
       </Card>
