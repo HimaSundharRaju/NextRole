@@ -20,6 +20,8 @@ export const RATE_LIMIT_POLICIES = {
   mutation: { points: 300, duration: 60 },
   /** Admin-triggered job board syncs. */
   adminSync: { points: 30, duration: 60 * 10 },
+  /** Companies a user asks us to add; each one makes the worker probe several sites. */
+  companyRequest: { points: 10, duration: 24 * 60 * 60 },
 } as const;
 
 export type RateLimitPolicy = keyof typeof RATE_LIMIT_POLICIES;

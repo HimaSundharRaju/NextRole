@@ -12,12 +12,15 @@ import {
   specialistAssignments,
   users,
 } from "@gettargetrole/db";
+import { trackBoard } from "@gettargetrole/jobs/companies";
+import { boardFetch } from "@gettargetrole/jobs/connectors";
+import { discoverBoard } from "@gettargetrole/jobs/discovery";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { authedAction } from "@/server/action";
 import { recordAudit } from "@/server/audit";
-import { enqueueCompanySync } from "@/server/queue";
+import { enqueueCompanyRequests, enqueueCompanySync } from "@/server/queue";
 
 const adminOnly = { roles: ["admin" as const] };
 
@@ -29,8 +32,8 @@ export const addCompany = authedAction(
       .string()
       .trim()
       .min(1)
-      .max(120)
-      .regex(/^[A-Za-z0-9_.-]+$/, "Use the board's identifier from its careers URL"),
+      .max(200)
+      .regex(/^[A-Za-z0-9_.,|-]+$/, "Use the board's identifier from its careers URL"),
     website: z.union([z.literal(""), z.url({ protocol: /^https$/ })]),
   }),
   async (input, user) => {
@@ -56,6 +59,57 @@ export const addCompany = authedAction(
     return null;
   },
   adminOnly,
+);
+
+/**
+ * Adds a company from a link: an ATS-hosted board, a careers page that links to or embeds one,
+ * or the company's website. The board is found and checked before it's added.
+ */
+export const addCompanyByUrl = authedAction(
+  z.object({
+    name: z.string().trim().max(120),
+    url: z.url({ protocol: /^https?$/ }),
+  }),
+  async (input, user) => {
+    const board = await discoverBoard(input, { fetch: boardFetch });
+    if (!board) {
+      throw new ValidationError(
+        "No job board we can read was found there. Try the link to the list of open jobs.",
+      );
+    }
+    const company = await trackBoard({
+      name: input.name || board.suggestedName,
+      provider: board.provider,
+      token: board.token,
+      website: new URL(input.url).origin,
+    });
+    if (!company.created) throw new ConflictError("That job board is already tracked.");
+    await enqueueCompanySync(company.id).catch(() => undefined);
+    await recordAudit({
+      actorUserId: user.id,
+      action: "admin.company.add",
+      targetType: "company",
+      targetId: company.id,
+      metadata: { ...input, provider: board.provider, boardToken: board.token },
+    });
+    revalidatePath("/admin");
+    return {
+      name: input.name || board.suggestedName,
+      provider: board.provider,
+      openJobs: board.openJobs,
+    };
+  },
+  { ...adminOnly, rateLimit: "adminSync" },
+);
+
+/** Looks up pending company requests now instead of at the next scheduled run. */
+export const lookUpCompanyRequests = authedAction(
+  z.object({}),
+  async () => {
+    await enqueueCompanyRequests();
+    return null;
+  },
+  { ...adminOnly, rateLimit: "adminSync" },
 );
 
 export const setCompanyActive = authedAction(

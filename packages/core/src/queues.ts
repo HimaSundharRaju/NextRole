@@ -11,6 +11,12 @@ export const JOB_NAMES = {
   /** Scheduled: finds companies whose boards are due and enqueues a sync for each. */
   enqueueDueSyncs: "enqueue-due-syncs",
   syncCompany: "sync-company",
+  /** Scheduled, and after a user asks for a company: looks up pending company requests. */
+  resolveCompanyRequests: "resolve-company-requests",
+  /** Scheduled weekly: queues YC's hiring companies that aren't tracked yet. */
+  importYcCompanies: "import-yc-companies",
+  /** Scheduled daily: deletes jobs closed long ago that no application points to. */
+  pruneClosedJobs: "prune-closed-jobs",
   createJobAlerts: "create-job-alerts",
   /** Scheduled: reminds users about applications whose follow-up date has arrived. */
   followUpReminders: "follow-up-reminders",
@@ -41,6 +47,9 @@ export interface AutoPrepareJob {
 export function syncDeduplicationId(companyId: string): string {
   return `sync:${companyId}`;
 }
+
+/** One lookup of pending company requests at a time; a request made meanwhile joins it. */
+export const RESOLVE_REQUESTS_DEDUPLICATION_ID = "resolve-company-requests";
 
 export function autoPrepareDeduplicationId(userId: string, jobId: string): string {
   return `prep:${userId}:${jobId}`;

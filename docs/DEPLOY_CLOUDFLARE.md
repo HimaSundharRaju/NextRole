@@ -17,7 +17,7 @@ flowchart LR
   web -->|AI requests| anthropic[Anthropic API]
   jobs -->|auto-prepare| anthropic
   web -->|SMTP| mail[Resend]
-  jobs -->|public job boards| boards[Greenhouse · Lever · Ashby · SmartRecruiters]
+  jobs -->|public job boards| boards[Greenhouse · Lever · Ashby · SmartRecruiters · Workday · Oracle · Eightfold · Amazon]
 ```
 
 - **Worker** (`apps/edge`): receives every request, redirects HTTP to HTTPS, passes the visitor's

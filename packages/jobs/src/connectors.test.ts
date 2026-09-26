@@ -18,7 +18,8 @@ describe("greenhouse connector", () => {
     const fetch = fakeFetch({
       "https://boards-api.greenhouse.io/v1/boards/acme/jobs": greenhouseResponse,
     });
-    const jobs = await greenhouse.listJobs("acme", { fetch });
+    const { jobs, complete } = await greenhouse.listJobs("acme", { fetch });
+    expect(complete).toBe(true);
     expect(fetch.calls[0]).toContain("content=true");
     expect(jobs).toHaveLength(2);
 
@@ -47,7 +48,9 @@ describe("greenhouse connector", () => {
 describe("lever connector", () => {
   it("combines description sections and maps categories", async () => {
     const fetch = fakeFetch({ "https://api.lever.co/v0/postings/acme": leverResponse });
-    const [job] = await lever.listJobs("acme", { fetch });
+    const {
+      jobs: [job],
+    } = await lever.listJobs("acme", { fetch });
     expect(job).toMatchObject({
       externalId: "5f1c-lever-1",
       title: "Frontend Engineer",
@@ -67,7 +70,7 @@ describe("ashby connector", () => {
     const fetch = fakeFetch({
       "https://api.ashbyhq.com/posting-api/job-board/acme": ashbyResponse,
     });
-    const jobs = await ashby.listJobs("acme", { fetch });
+    const { jobs } = await ashby.listJobs("acme", { fetch });
     expect(jobs).toHaveLength(1);
     expect(jobs[0]).toMatchObject({
       externalId: "ashby-uuid-1",
@@ -87,7 +90,11 @@ describe("smartrecruiters connector", () => {
       "https://api.smartrecruiters.com/v1/companies/Acme/postings/744000012345":
         smartRecruitersDetail,
     });
-    const [listed] = await smartrecruiters.listJobs("Acme", { fetch });
+    const {
+      jobs: [listed],
+      complete,
+    } = await smartrecruiters.listJobs("Acme", { fetch });
+    expect(complete).toBe(true);
     expect(listed).toMatchObject({
       title: "Product Designer",
       needsHydration: true,

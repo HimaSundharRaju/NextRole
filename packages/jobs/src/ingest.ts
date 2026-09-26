@@ -1,9 +1,16 @@
 import { createHash } from "node:crypto";
 import { createLogger } from "@gettargetrole/core/logger";
-import { companies, getDb, jobs, type Database } from "@gettargetrole/db";
+import {
+  applications,
+  companies,
+  getDb,
+  jobs,
+  type AtsProvider,
+  type Database,
+} from "@gettargetrole/db";
 import { findSkills } from "@gettargetrole/resume/skills";
 import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
-import { getConnector } from "./connectors";
+import { boardFetch, getConnector } from "./connectors";
 import type { Fetcher, NormalizedJob } from "./connectors/types";
 import { parseEmploymentTypes } from "./employment";
 import { parseLocations } from "./locations";
@@ -13,8 +20,38 @@ import { parseVisaSignals } from "./visa";
 const log = createLogger("ingest");
 
 const UPSERT_BATCH = 100;
+const SEEN_BATCH = 1000;
 const MAX_HYDRATIONS_PER_SYNC = 60;
 const HYDRATION_CONCURRENCY = 4;
+
+/**
+ * A board that suddenly lists this small a share of its open jobs is more likely broken (an
+ * outage, a changed site) than emptied, so nothing is closed and the sync is flagged. A drop
+ * that lasts this many syncs in a row is real (a hiring freeze) and is accepted.
+ */
+const SUSPICIOUS_DROP_SHARE = 0.2;
+const SUSPICIOUS_DROP_MIN_OPEN = 20;
+const ACCEPT_DROP_AFTER = 3;
+
+/**
+ * A board that can't list everything never proves a job is gone, so its jobs close once they
+ * haven't been seen for this long instead.
+ */
+const UNSEEN_CLOSE_DAYS = 14;
+
+/**
+ * Minutes between syncs for boards that list thousands of jobs over many requests; other boards
+ * use the worker's interval. `companies.sync_interval_minutes` overrides both.
+ */
+export const PROVIDER_SYNC_MINUTES: Partial<Record<AtsProvider, number>> = {
+  workday: 180,
+  oracle: 180,
+  eightfold: 180,
+  amazon: 360,
+};
+
+/** The longest a failing board waits between tries. */
+const MAX_BACKOFF_MINUTES = 24 * 60;
 
 export interface SyncResult {
   companyId: string;
@@ -22,6 +59,8 @@ export interface SyncResult {
   newJobIds: string[];
   updated: number;
   closed: number;
+  /** False when missing postings weren't closed: the listing was partial or looked broken. */
+  closedMissing: boolean;
 }
 
 export interface SyncOptions {
@@ -74,8 +113,9 @@ async function mapWithConcurrency<T, R>(
 }
 
 /**
- * Pulls one company's public job board and reconciles it with the database:
- * new postings are inserted, changed ones updated, and postings that disappeared are closed.
+ * Pulls one company's public job board and reconciles it with the database: new postings are
+ * inserted, changed ones updated, and postings that disappeared are closed — only when the board
+ * listed everything and the listing doesn't look broken.
  */
 export async function syncCompany(
   companyId: string,
@@ -83,7 +123,7 @@ export async function syncCompany(
 ): Promise<SyncResult> {
   const db = options.db ?? getDb();
   const now = options.now ?? (() => new Date());
-  const fetcher = options.fetch ?? fetch;
+  const fetcher = options.fetch ?? boardFetch;
 
   const [company] = await db.select().from(companies).where(eq(companies.id, companyId)).limit(1);
   if (!company) throw new Error(`Company ${companyId} not found`);
@@ -93,46 +133,48 @@ export async function syncCompany(
   const context = { fetch: fetcher, signal: options.signal };
 
   try {
-    let listed = await connector.listJobs(company.boardToken, context);
+    const listing = await connector.listJobs(company.boardToken, context);
+    const listed = listing.jobs;
+    const known = new Set<string>();
+    const hydrated = new Map<string, NormalizedJob>();
 
     // Only hydrate postings we haven't stored yet; existing ones keep their description.
     if (connector.hydrate && listed.some((job) => job.needsHydration)) {
-      const known = new Set(
-        (
-          await db
-            .select({ externalId: jobs.externalId })
-            .from(jobs)
-            .where(eq(jobs.companyId, company.id))
-        ).map((row) => row.externalId),
-      );
+      for (const row of await db
+        .select({ externalId: jobs.externalId })
+        .from(jobs)
+        .where(eq(jobs.companyId, company.id))) {
+        known.add(row.externalId);
+      }
       const toHydrate = listed
         .filter((job) => job.needsHydration && !known.has(job.externalId))
-        .slice(0, MAX_HYDRATIONS_PER_SYNC);
-      const hydrated = new Map(
-        (
-          await mapWithConcurrency(toHydrate, HYDRATION_CONCURRENCY, async (job) => {
-            try {
-              return await connector.hydrate!(company.boardToken, job, context);
-            } catch (error) {
-              log.warn({ err: error, externalId: job.externalId }, "hydration failed");
-              return job;
-            }
-          })
-        ).map((job) => [job.externalId, job]),
-      );
-      listed = listed
-        .filter(
-          (job) => !job.needsHydration || hydrated.has(job.externalId) || known.has(job.externalId),
-        )
-        .map((job) => hydrated.get(job.externalId) ?? job);
+        .slice(0, connector.hydrationsPerSync ?? MAX_HYDRATIONS_PER_SYNC);
+      await mapWithConcurrency(toHydrate, HYDRATION_CONCURRENCY, async (job) => {
+        try {
+          hydrated.set(job.externalId, await connector.hydrate!(company.boardToken, job, context));
+        } catch (error) {
+          log.warn({ err: error, externalId: job.externalId }, "hydration failed");
+        }
+      });
+    }
+
+    // A known posting the listing can't describe (its details come from `hydrate`) is only
+    // marked as still open, so the listing's partial fields never overwrite the stored ones.
+    // A new posting still waiting for its details is left for the next sync.
+    const described: NormalizedJob[] = [];
+    const stillOpen: string[] = [];
+    for (const job of listed) {
+      const full = hydrated.get(job.externalId) ?? job;
+      if (!full.needsHydration) described.push(full);
+      else if (known.has(job.externalId)) stillOpen.push(job.externalId);
     }
 
     const newJobIds: string[] = [];
     let updated = 0;
-    const seen = new Map(listed.map((job) => [job.externalId, job]));
+    const toUpsert = [...new Map(described.map((job) => [job.externalId, job])).values()];
 
-    for (let offset = 0; offset < seen.size; offset += UPSERT_BATCH) {
-      const batch = [...seen.values()].slice(offset, offset + UPSERT_BATCH);
+    for (let offset = 0; offset < toUpsert.length; offset += UPSERT_BATCH) {
+      const batch = toUpsert.slice(offset, offset + UPSERT_BATCH);
       const rows = batch.map((job) => {
         const descriptionHtml = sanitizeJobHtml(job.descriptionHtml);
         const descriptionText = htmlToText(descriptionHtml);
@@ -211,59 +253,149 @@ export async function syncCompany(
       }
     }
 
-    const closedRows = await db
-      .update(jobs)
-      .set({ closedAt: startedAt })
-      .where(
-        and(eq(jobs.companyId, company.id), isNull(jobs.closedAt), lt(jobs.lastSeenAt, startedAt)),
-      )
-      .returning({ id: jobs.id });
+    for (let offset = 0; offset < stillOpen.length; offset += SEEN_BATCH) {
+      await db
+        .update(jobs)
+        .set({ lastSeenAt: startedAt, closedAt: null })
+        .where(
+          and(
+            eq(jobs.companyId, company.id),
+            inArray(jobs.externalId, stillOpen.slice(offset, offset + SEEN_BATCH)),
+          ),
+        );
+    }
+
+    const listedCount = new Set(listed.map((job) => job.externalId)).size;
+    const suspicious =
+      company.openJobCount >= SUSPICIOUS_DROP_MIN_OPEN &&
+      listedCount < company.openJobCount * SUSPICIOUS_DROP_SHARE &&
+      company.syncFailures < ACCEPT_DROP_AFTER - 1;
+    const closeMissing = listing.complete && !suspicious;
+    // A partial listing closes only jobs it hasn't seen for a while; a broken one closes none.
+    const seenBefore = closeMissing
+      ? startedAt
+      : suspicious
+        ? null
+        : new Date(startedAt.getTime() - UNSEEN_CLOSE_DAYS * 86_400_000);
+    const closedRows = seenBefore
+      ? await db
+          .update(jobs)
+          .set({ closedAt: startedAt })
+          .where(
+            and(
+              eq(jobs.companyId, company.id),
+              isNull(jobs.closedAt),
+              lt(jobs.lastSeenAt, seenBefore),
+            ),
+          )
+          .returning({ id: jobs.id })
+      : [];
 
     await db
       .update(companies)
-      .set({
-        lastSyncedAt: now(),
-        lastSyncStatus: "ok",
-        lastSyncError: null,
-        openJobCount: seen.size,
-      })
+      .set(
+        suspicious
+          ? {
+              // The count it dropped from stays, so the next sync is checked against it too.
+              lastSyncedAt: now(),
+              lastSyncStatus: "error",
+              lastSyncError: `Listed ${listedCount} jobs, down from ${company.openJobCount}; none were closed`,
+              syncFailures: sql`${companies.syncFailures} + 1`,
+            }
+          : {
+              lastSyncedAt: now(),
+              lastSyncStatus: "ok",
+              lastSyncError: null,
+              syncFailures: 0,
+              // A partial listing isn't the board's size, so the last full count stands.
+              openJobCount: listing.complete
+                ? listedCount
+                : Math.max(listedCount, company.openJobCount),
+            },
+      )
       .where(eq(companies.id, company.id));
 
     const result: SyncResult = {
       companyId: company.id,
-      fetched: seen.size,
+      fetched: listedCount,
       newJobIds,
       updated,
       closed: closedRows.length,
+      closedMissing: closeMissing,
     };
+    if (suspicious) log.warn({ company: company.slug, listedCount }, "board listed far fewer jobs");
     log.info({ company: company.slug, ...result, newJobIds: newJobIds.length }, "company synced");
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await db
       .update(companies)
-      .set({ lastSyncedAt: now(), lastSyncStatus: "error", lastSyncError: message.slice(0, 500) })
+      .set({
+        lastSyncedAt: now(),
+        lastSyncStatus: "error",
+        lastSyncError: message.slice(0, 500),
+        syncFailures: sql`${companies.syncFailures} + 1`,
+      })
       .where(eq(companies.id, company.id));
     throw error;
   }
 }
 
-/** Active companies that are due for a sync (never synced or older than `staleAfterMs`). */
+/**
+ * Active companies due for a sync: never synced, or last synced longer ago than their interval
+ * (`staleAfterMs` unless the company or its provider sets one), doubled for each failure in a
+ * row up to a day.
+ */
 export async function companiesDueForSync(
   staleAfterMs: number,
   db: Database = getDb(),
 ): Promise<string[]> {
-  const cutoff = new Date(Date.now() - staleAfterMs);
+  const byProvider = Object.entries(PROVIDER_SYNC_MINUTES).map(
+    ([provider, minutes]) => sql`when ${provider} then ${minutes}::int`,
+  );
+  const interval = sql`coalesce(${companies.syncIntervalMinutes}, case ${companies.ats} ${sql.join(byProvider, sql` `)} else ${Math.round(staleAfterMs / 60_000)}::int end)`;
+  const wait = sql`least(${interval} * power(2, least(${companies.syncFailures}, 10)), ${MAX_BACKOFF_MINUTES}::int)`;
   const rows = await db
     .select({ id: companies.id })
     .from(companies)
     .where(
       and(
         eq(companies.active, true),
-        sql`(${companies.lastSyncedAt} is null or ${companies.lastSyncedAt} < ${cutoff})`,
+        sql`(${companies.lastSyncedAt} is null or ${companies.lastSyncedAt} < now() - ${wait} * interval '1 minute')`,
       ),
     );
   return rows.map((row) => row.id);
+}
+
+/** How long a closed job is kept: long enough for "recently closed" to mean something. */
+export const CLOSED_JOB_RETENTION_DAYS = 60;
+const PRUNE_BATCH = 5000;
+
+/**
+ * Deletes jobs closed longer than the retention period, except those a user's application
+ * points to (its job page stays readable). Large boards close thousands of jobs a month, so
+ * without this the table only grows. Works in batches to keep each delete short.
+ */
+export async function pruneClosedJobs(
+  db: Database = getDb(),
+  retentionDays = CLOSED_JOB_RETENTION_DAYS,
+): Promise<number> {
+  let deleted = 0;
+  for (;;) {
+    const rows = await db.execute<{ id: string }>(sql`
+      delete from ${jobs}
+      where id in (
+        select j.id from ${jobs} j
+        where j.closed_at < now() - make_interval(days => ${retentionDays})
+          and not exists (select 1 from ${applications} a where a.job_id = j.id)
+        limit ${PRUNE_BATCH}
+      )
+      returning id`);
+    deleted += rows.rows.length;
+    if (rows.rows.length < PRUNE_BATCH) break;
+  }
+  if (deleted > 0) log.info({ deleted }, "old closed jobs deleted");
+  return deleted;
 }
 
 export async function jobsByIds(ids: string[], db: Database = getDb()) {

@@ -24,6 +24,17 @@ export interface NormalizedJob {
   placeHints?: PlaceHint[];
   /** True when the listing endpoint omits the description and `hydrate` must be called. */
   needsHydration?: boolean;
+  /** Where `hydrate` finds the posting's details, when the id alone isn't enough. */
+  ref?: string;
+}
+
+/**
+ * A board's open postings. `complete` is false when the board couldn't list everything (it caps
+ * searches, or a page failed), so postings missing from it must not be closed.
+ */
+export interface BoardListing {
+  jobs: NormalizedJob[];
+  complete: boolean;
 }
 
 export type Fetcher = typeof fetch;
@@ -37,7 +48,14 @@ export interface BoardConnector {
   provider: AtsProvider;
   /** Public careers page for a board, used for links in the admin console. */
   boardUrl(boardToken: string): string;
-  listJobs(boardToken: string, context: ConnectorContext): Promise<NormalizedJob[]>;
+  listJobs(boardToken: string, context: ConnectorContext): Promise<BoardListing>;
+  /** New postings one sync may hydrate; boards that list thousands of jobs get more. */
+  hydrationsPerSync?: number;
+  /**
+   * How many jobs the board has open, in a request or two: for checking a board found by
+   * discovery without reading all of it. Boards read in one request just list their jobs.
+   */
+  countJobs?(boardToken: string, context: ConnectorContext): Promise<number>;
   /** Fetches full details for postings whose listing lacks a description. */
   hydrate?(
     boardToken: string,
