@@ -67,3 +67,21 @@ export async function signUpAndOnboard(page: Page, name: string, email: string):
   await page.getByRole("button", { name: "Finish setup" }).click();
   await page.waitForURL("**/dashboard");
 }
+
+/** Puts a test account on a plan (plans are assigned by admins; there's no billing yet). */
+export async function setPlan(email: string, plan: "free" | "plus" | "pro" | "concierge") {
+  await sql("update users set plan = $1 where email = $2", [plan, email]);
+}
+
+/**
+ * Clicks an AI button. Jobs below a 70% match ask for confirmation first, so this confirms when
+ * the prompt appears.
+ */
+export async function clickAiButton(page: Page, name: string, confirm: string): Promise<void> {
+  await page.getByRole("button", { name }).click();
+  const confirmButton = page.getByRole("button", { name: confirm });
+  await confirmButton
+    .waitFor({ state: "visible", timeout: 1_000 })
+    .then(() => confirmButton.click())
+    .catch(() => undefined);
+}

@@ -78,7 +78,7 @@ describe.skipIf(!TEST_DATABASE_URL)("tailored resumes and metering (Postgres int
     const save = (sourceHash: string, title: string) =>
       db.saveTailoredResume({
         userId,
-        jobId,
+        target: { jobId },
         title,
         content: stored!.content,
         settings: stored!.settings,
@@ -90,10 +90,31 @@ describe.skipIf(!TEST_DATABASE_URL)("tailored resumes and metering (Postgres int
     const newest = await save(hash, "Second");
     await save("older-main-resume", "From an older main resume");
 
-    const found = await db.findTailoredResume(userId, jobId, hash);
+    const found = await db.findTailoredResume(userId, { jobId }, hash);
     expect(found).toMatchObject({ id: newest.id, kind: "tailored", tailorNotes: notes });
-    expect(await db.findTailoredResume(userId, jobId, "unknown")).toBeNull();
-    expect(await db.findTailoredResume("someone-else", jobId, hash)).toBeNull();
+    expect(await db.findTailoredResume(userId, { jobId }, "unknown")).toBeNull();
+    expect(await db.findTailoredResume("someone-else", { jobId }, hash)).toBeNull();
+
+    // A resume tailored to a pasted job description belongs to its application, not a job.
+    const [application] = await database
+      .insert(db.applications)
+      .values({ userId, companyName: "Initech", jobTitle: "Engineer", jobDescription: "Go" })
+      .returning();
+    const pasted = await db.saveTailoredResume({
+      userId,
+      target: { applicationId: application!.id },
+      title: "Initech — Engineer",
+      content: stored!.content,
+      settings: stored!.settings,
+      sourceHash: hash,
+      notes,
+      note: "Tailored",
+    });
+    expect(pasted).toMatchObject({ jobId: null, applicationId: application!.id });
+    expect(
+      await db.findTailoredResume(userId, { applicationId: application!.id }, hash),
+    ).toMatchObject({ id: pasted.id });
+    expect((await db.findTailoredResume(userId, { jobId }, hash))?.id).toBe(newest.id);
 
     const revisions = await database
       .select()
@@ -107,13 +128,31 @@ describe.skipIf(!TEST_DATABASE_URL)("tailored resumes and metering (Postgres int
     const lastMonth = new Date(db.startOfMonth().getTime() - 86_400_000);
     await database.insert(db.aiUsage).values([
       { userId, feature: "tailor", model: "m", costMicroUsd: 1_500_000, createdAt: lastMonth },
-      { userId, feature: "tailor", model: "m", costMicroUsd: 1_500_000 },
+      { userId, feature: "tailor", model: "m", costMicroUsd: 300_000 },
     ]);
-    expect(await db.monthlyAiSpendMicroUsd(userId)).toBe(1_500_000);
+    expect(await db.monthlyAiSpendMicroUsd(userId)).toBe(300_000);
     expect(await db.hasAiBudget(userId, "free")).toBe(true);
 
-    await db.recordAiUsage(userId, { feature: "studio", model: "m", costMicroUsd: 500_000 });
+    // Free's cap is $0.50.
+    await db.recordAiUsage(userId, { feature: "studio", model: "m", costMicroUsd: 300_000 });
     expect(await db.hasAiBudget(userId, "free")).toBe(false);
-    expect(await db.hasAiBudget(userId, "pro")).toBe(true);
+    expect(await db.hasAiBudget(userId, "plus")).toBe(true);
+  });
+
+  it("counts this month's usage units per kind", async () => {
+    const database = db.getDb();
+    const lastMonth = new Date(db.startOfMonth().getTime() - 86_400_000);
+    await database.insert(db.usageEvents).values([
+      { userId, unit: "tailor", createdAt: lastMonth },
+      { userId, unit: "tailor" },
+      { userId, unit: "letter" },
+    ]);
+    await db.recordUsageEvent(userId, "tailor", "job-1");
+
+    const usage = await db.monthlyUsage(userId);
+    expect(usage).toMatchObject({ tailor: 2, letter: 1, studio: 0, auto: 0 });
+    expect(Object.keys(usage)).toEqual([...db.USAGE_UNITS]);
+    expect(await db.monthlyUnits(userId, "tailor")).toBe(2);
+    expect(await db.monthlyUnits("someone-else", "tailor")).toBe(0);
   });
 });

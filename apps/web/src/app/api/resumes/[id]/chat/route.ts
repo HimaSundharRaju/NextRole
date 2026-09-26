@@ -56,18 +56,18 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       throw new ValidationError("Write a message first (up to 4,000 characters).");
     await enforceRateLimit("aiChat", user.id);
     const resume = await getResume(user.id, id);
-    const [{ ai, ctx }, history, job, profile] = await Promise.all([
-      aiFor(user),
+    const [{ ai, ctx, charge }, history, job, profile] = await Promise.all([
+      aiFor(user, "studio"),
       oldestFirstMessages(resume.id),
       jobContextFor(resume.jobId),
       candidateProfile(user.id),
     ]);
-    prepared = { resume, ai, ctx, history, job, profile, message: parsed.data.message };
+    prepared = { resume, ai, ctx, charge, history, job, profile, message: parsed.data.message };
   } catch (error) {
     return errorResponse(error);
   }
 
-  const { resume, ai, ctx, history, job, profile, message } = prepared;
+  const { resume, ai, ctx, charge, history, job, profile, message } = prepared;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream<Uint8Array>({
@@ -98,6 +98,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
               { role: "user", content: message },
               { role: "assistant", content: event.reply, revisionId: lastRevisionId },
             ]);
+            await charge(resume.id);
           }
           send(event);
         }

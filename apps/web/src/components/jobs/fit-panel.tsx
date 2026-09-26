@@ -9,6 +9,11 @@ import { Badge, MatchBadge, scoreTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Alert } from "@/components/ui/misc";
+import { AllowanceNote } from "@/components/usage/usage-bars";
+import type { UnitAllowance } from "@/lib/plans";
+
+/** Jobs below this match ask before spending an AI analysis (MIN_AI_MATCH in the plans). */
+const LOW_MATCH = 70;
 
 interface AiMatch {
   score: number;
@@ -23,20 +28,24 @@ export function FitPanel({
   quick,
   aiMatch,
   stale = false,
+  allowance,
 }: {
   jobId: string;
   quick: { score: number; matchedSkills: string[]; missingSkills: string[]; reasons: string[] };
   aiMatch: AiMatch | null;
   /** The AI assessment was made from an earlier version of the main resume. */
   stale?: boolean;
+  allowance: UnitAllowance;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AiMatch | null>(aiMatch);
   const [outdated, setOutdated] = useState(stale);
+  const [confirmLowMatch, setConfirmLowMatch] = useState(false);
 
   function run() {
+    setConfirmLowMatch(false);
     setError(null);
     startTransition(async () => {
       const result = await analyzeFit({ jobId });
@@ -115,10 +124,36 @@ export function FitPanel({
           </div>
         )}
         {error ? <Alert>{error}</Alert> : null}
-        <Button variant="secondary" className="w-full" onClick={run} loading={pending}>
-          <Sparkles className="h-4 w-4" aria-hidden />{" "}
-          {analysis ? "Re-analyze with AI" : "Analyze my fit with AI"}
-        </Button>
+        {confirmLowMatch ? (
+          <div className="space-y-2 rounded-lg border border-warning/40 bg-warning-soft p-3 text-xs">
+            <p>
+              This job is a {quick.score}% match on skills, title and location. Use 1 of your{" "}
+              {allowance.left} AI analyses anyway?
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={run}>
+                Analyze anyway
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmLowMatch(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            variant="secondary"
+            className="w-full"
+            onClick={() =>
+              !analysis && quick.score < LOW_MATCH ? setConfirmLowMatch(true) : run()
+            }
+            loading={pending}
+            disabled={allowance.left === 0}
+          >
+            <Sparkles className="h-4 w-4" aria-hidden />{" "}
+            {analysis ? "Re-analyze with AI" : "Analyze my fit with AI"}
+          </Button>
+        )}
+        <AllowanceNote allowance={allowance} />
       </CardBody>
     </Card>
   );

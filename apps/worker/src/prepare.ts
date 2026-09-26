@@ -5,6 +5,7 @@ import {
   applicationEvents,
   applications,
   AUTO_PREPARE_BUDGET_SHARE,
+  AUTO_PREPARE_DAILY_MAX,
   companies,
   findTailoredResume,
   getDb,
@@ -12,11 +13,14 @@ import {
   MONTHLY_AI_BUDGET_USD,
   monthlyAiSpendMicroUsd,
   notifications,
+  PLAN_LIMITS,
   profiles,
   recordAiUsage,
+  recordUsageEvent,
   resumeHash,
   resumes,
   saveTailoredResume,
+  startOfMonth,
   users,
   type ApplicationStatus,
   type Database,
@@ -32,6 +36,8 @@ const PREPARABLE: ApplicationStatus[] = ["saved", "preparing"];
 
 export type SkipReason =
   | "disabled"
+  | "plan"
+  | "monthly_limit"
   | "budget"
   | "no_resume"
   | "job_closed"
@@ -73,6 +79,7 @@ async function takeSlot(
   input: {
     userId: string;
     dailyLimit: number;
+    monthlyLimit: number;
     job: { id: string; title: string; location: string; applyUrl: string };
     companyName: string;
     score: number;
@@ -96,18 +103,24 @@ async function takeSlot(
       return "already_handled";
     }
 
-    const [used] = await tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(applicationEvents)
-      .innerJoin(applications, eq(applicationEvents.applicationId, applications.id))
-      .where(
-        and(
-          eq(applications.userId, userId),
-          eq(applicationEvents.type, "auto_prepared"),
-          gte(applicationEvents.createdAt, new Date(input.now.getTime() - DAY_MS)),
-        ),
-      );
-    if ((used?.count ?? 0) >= input.dailyLimit) return "daily_limit";
+    const slotsSince = async (since: Date) => {
+      const [row] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(applicationEvents)
+        .innerJoin(applications, eq(applicationEvents.applicationId, applications.id))
+        .where(
+          and(
+            eq(applications.userId, userId),
+            eq(applicationEvents.type, "auto_prepared"),
+            gte(applicationEvents.createdAt, since),
+          ),
+        );
+      return row?.count ?? 0;
+    };
+    if ((await slotsSince(startOfMonth(input.now))) >= input.monthlyLimit) return "monthly_limit";
+    if ((await slotsSince(new Date(input.now.getTime() - DAY_MS))) >= input.dailyLimit) {
+      return "daily_limit";
+    }
 
     let application = existing;
     if (!application) {
@@ -183,6 +196,9 @@ export async function autoPrepare(
     .where(eq(users.id, userId))
     .limit(1);
   if (!owner?.profile.autoPrepareEnabled) return skip("disabled");
+  // Plans without auto-prepare keep the setting but don't run it.
+  const planDailyMax = AUTO_PREPARE_DAILY_MAX[owner.plan];
+  if (planDailyMax === 0) return skip("plan");
 
   const budget = MONTHLY_AI_BUDGET_USD[owner.plan] * 1_000_000 * AUTO_PREPARE_BUDGET_SHARE;
   if ((await monthlyAiSpendMicroUsd(userId)) >= budget) return skip("budget");
@@ -205,7 +221,8 @@ export async function autoPrepare(
 
   const slot = await takeSlot(db, {
     userId,
-    dailyLimit: owner.profile.autoPrepareDailyLimit,
+    dailyLimit: Math.min(owner.profile.autoPrepareDailyLimit, planDailyMax),
+    monthlyLimit: PLAN_LIMITS[owner.plan].auto,
     job,
     companyName,
     score,
@@ -231,13 +248,13 @@ export async function autoPrepare(
           .limit(1)
       : [];
     const sourceHash = resumeHash(primary.content);
-    let resume = attached ?? (await findTailoredResume(userId, jobId, sourceHash));
+    let resume = attached ?? (await findTailoredResume(userId, { jobId }, sourceHash));
     const tailored = !resume;
     if (!resume) {
       const result = await ai.tailorResume({ resume: primary.content, job: jobContext }, ctx);
       resume = await saveTailoredResume({
         userId,
-        jobId,
+        target: { jobId },
         title: `${companyName} — ${job.title}`,
         content: result.resume,
         settings: primary.settings,
@@ -276,6 +293,7 @@ export async function autoPrepare(
       .update(applications)
       .set({ resumeId: resume.id, coverLetter, status: "ready" })
       .where(and(eq(applications.id, applicationId), inArray(applications.status, PREPARABLE)));
+    await recordUsageEvent(userId, "auto", applicationId);
     await db
       .insert(notifications)
       .values({

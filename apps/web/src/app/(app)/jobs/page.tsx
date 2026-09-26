@@ -1,7 +1,8 @@
-import { Briefcase, ChevronLeft, ChevronRight } from "lucide-react";
+import { Briefcase, ChevronLeft, ChevronRight, FileText } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ApplyModeBar } from "@/components/jobs/apply-mode-bar";
+import { AUTO_PREPARE_DAILY_MAX } from "@gettargetrole/db/plans";
 import { JobCard } from "@/components/jobs/job-card";
 import { JobFilters } from "@/components/jobs/job-filters";
 import { buttonVariants } from "@/components/ui/button";
@@ -65,12 +66,18 @@ export default async function JobsPage({
       <PageHeader
         title="Jobs"
         description="Live roles pulled straight from company career pages, ranked against your resume."
+        actions={
+          <Link href="/applications/new" className={buttonVariants({ variant: "secondary" })}>
+            <FileText className="h-4 w-4" aria-hidden /> Tailor to a job description
+          </Link>
+        }
       />
       <ApplyModeBar
         autoPrepare={{
+          included: AUTO_PREPARE_DAILY_MAX[user.plan] > 0,
           enabled: profile.autoPrepareEnabled,
           minScore: profile.autoPrepareMinScore,
-          dailyLimit: profile.autoPrepareDailyLimit,
+          dailyLimit: Math.min(profile.autoPrepareDailyLimit, AUTO_PREPARE_DAILY_MAX[user.plan]),
         }}
         readyCount={readyCount}
       />

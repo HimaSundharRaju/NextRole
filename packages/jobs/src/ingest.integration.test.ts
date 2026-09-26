@@ -196,9 +196,11 @@ describe.skipIf(!TEST_DATABASE_URL)("job ingestion (Postgres integration)", () =
   it("picks auto-prepare candidates at or above each user's minimum match", async () => {
     const database = db.getDb();
     await database.insert(db.users).values([
-      { id: "user-on", name: "Asha", email: "asha@example.com" },
-      { id: "user-off", name: "Ben", email: "ben@example.com" },
-      { id: "user-partial", name: "Cyd", email: "cyd@example.com" },
+      { id: "user-on", name: "Asha", email: "asha@example.com", plan: "pro" },
+      { id: "user-off", name: "Ben", email: "ben@example.com", plan: "pro" },
+      { id: "user-partial", name: "Cyd", email: "cyd@example.com", plan: "pro" },
+      // Auto-prepare switched on, but the Plus plan doesn't include it.
+      { id: "user-plus", name: "Dev", email: "dev@example.com", plan: "plus" },
     ]);
     const shared = { targetTitles: ["Software Engineer"], remotePreference: "any" as const };
     await database.insert(db.profiles).values([
@@ -211,6 +213,12 @@ describe.skipIf(!TEST_DATABASE_URL)("job ingestion (Postgres integration)", () =
       { userId: "user-off", ...shared, skills: ["go", "kubernetes", "postgresql"] },
       // One of three skills: well under the default 80% minimum.
       { userId: "user-partial", ...shared, skills: ["go"], autoPrepareEnabled: true },
+      {
+        userId: "user-plus",
+        ...shared,
+        skills: ["go", "kubernetes", "postgresql"],
+        autoPrepareEnabled: true,
+      },
     ]);
 
     const { newJobIds } = await ingest.syncCompany(companyId, {

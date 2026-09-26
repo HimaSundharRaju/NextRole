@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       throw new ValidationError("Upload a file or paste at least a few lines of your resume.");
     }
 
-    const { ai, ctx } = await aiFor(user);
+    const { ai, ctx, charge } = await aiFor(user, "import");
     const result = await ai.importResume(source, ctx);
     const title = result.resume.basics.name
       ? `${result.resume.basics.name} — resume`
@@ -67,6 +67,7 @@ export async function POST(request: Request) {
       sourceFileName: fileName,
       makePrimary,
     });
+    await charge(resume.id);
     await recordAudit({
       actorUserId: user.id,
       action: "resume.import",

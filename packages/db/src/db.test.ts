@@ -1,6 +1,14 @@
 import { emptyResume } from "@gettargetrole/resume/schema";
 import { describe, expect, it } from "vitest";
 import { connectionConfig } from "./client";
+import {
+  AUTO_PREPARE_DAILY_MAX,
+  MONTHLY_AI_BUDGET_USD,
+  nextPlanWithMore,
+  PLAN_LIMITS,
+  PLAN_ORDER,
+  USAGE_UNITS,
+} from "./plans";
 import { DEFAULT_COMPANIES } from "./seed-lib";
 import { slugify } from "./slug";
 import { resumeHash } from "./tailored";
@@ -58,5 +66,36 @@ describe("resumeHash", () => {
     expect(resumeHash({ ...resume, summary: "Builds search systems." })).not.toBe(
       resumeHash(resume),
     );
+  });
+});
+
+describe("plan limits", () => {
+  it("never give a higher plan less of anything than a lower one", () => {
+    for (const unit of USAGE_UNITS) {
+      const limits = PLAN_ORDER.map((plan) => PLAN_LIMITS[plan][unit]);
+      expect(limits, unit).toEqual([...limits].sort((a, b) => a - b));
+    }
+    const budgets = PLAN_ORDER.map((plan) => MONTHLY_AI_BUDGET_USD[plan]);
+    expect(budgets).toEqual([...budgets].sort((a, b) => a - b));
+  });
+
+  it("keeps the free plan to the job board, imports and a few Studio edits", () => {
+    const paid = USAGE_UNITS.filter((unit) => PLAN_LIMITS.free[unit] > 0);
+    expect(paid).toEqual(["import", "studio"]);
+    expect(AUTO_PREPARE_DAILY_MAX.free).toBe(0);
+    expect(AUTO_PREPARE_DAILY_MAX.plus).toBe(0);
+  });
+
+  it("gives auto-prepare a monthly allowance that covers the daily maximum", () => {
+    for (const plan of PLAN_ORDER) {
+      expect(PLAN_LIMITS[plan].auto).toBeGreaterThanOrEqual(AUTO_PREPARE_DAILY_MAX[plan] * 30);
+    }
+  });
+
+  it("suggests the cheapest plan with more of a unit", () => {
+    expect(nextPlanWithMore("free", "tailor")).toBe("plus");
+    expect(nextPlanWithMore("plus", "auto")).toBe("pro");
+    expect(nextPlanWithMore("pro", "tailor")).toBe("concierge");
+    expect(nextPlanWithMore("concierge", "tailor")).toBeNull();
   });
 });

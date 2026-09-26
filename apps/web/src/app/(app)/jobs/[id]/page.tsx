@@ -9,8 +9,10 @@ import { SaveJobButton } from "@/components/jobs/save-job-button";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
+import { allowancesFor } from "@/lib/plans";
 import { formatSalary, timeAgo } from "@/lib/utils";
 import { uuidSchema } from "@/lib/validation";
+import { monthlyUsage } from "@/server/ai";
 import { getJobDetail } from "@/server/data/jobs";
 import { requireOnboardedUser } from "@/server/session";
 
@@ -37,6 +39,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function JobPage({ params }: Props) {
   const { id } = await params;
   const { job, company, match, aiMatch, aiMatchStale, application, tailored } = await load(id);
+  const user = await requireOnboardedUser();
+  const allowances = allowancesFor(user.plan, await monthlyUsage(user.id));
+  const matchScore = aiMatch?.score ?? match.score;
   const salary = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency, job.salaryPeriod);
 
   return (
@@ -107,9 +112,15 @@ export default async function JobPage({ params }: Props) {
         </Card>
 
         <div className="space-y-6 lg:sticky lg:top-20 lg:self-start">
-          <FitPanel jobId={job.id} quick={match} aiMatch={aiMatch} stale={aiMatchStale} />
-          <ApplyKit
+          <FitPanel
             jobId={job.id}
+            quick={match}
+            aiMatch={aiMatch}
+            stale={aiMatchStale}
+            allowance={allowances.fit}
+          />
+          <ApplyKit
+            target={{ jobId: job.id }}
             applyUrl={job.applyUrl}
             application={
               application
@@ -124,6 +135,8 @@ export default async function JobPage({ params }: Props) {
                 : null
             }
             tailored={tailored}
+            allowances={allowances}
+            matchScore={matchScore}
           />
         </div>
       </div>
