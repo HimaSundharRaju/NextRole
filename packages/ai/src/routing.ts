@@ -1,7 +1,7 @@
 import { AiRefusalError, ExternalServiceError } from "@gettargetrole/core/errors";
 import { createLogger } from "@gettargetrole/core/logger";
 import { AnthropicProvider } from "./anthropic-provider";
-import { DEFAULT_MODEL, type AiFeature, type AiVendor } from "./config";
+import type { AiFeature, AiVendor } from "./config";
 import { OpenAIProvider } from "./openai-provider";
 import type { AiCallContext, AiProvider, StudioEvent } from "./types";
 
@@ -12,40 +12,43 @@ export interface Route {
   model: string;
 }
 
+/** The quality check's reference: the bar every cheaper model had to match. */
+const REFERENCE_MODEL = "claude-sonnet-5";
+
 /**
  * Which model handles each feature by default: the cheapest model that matched the reference
  * (Claude Sonnet 5) in the quality check, `packages/ai/eval` (results in docs/ARCHITECTURE.md).
- * Features the check hasn't cleared for a cheaper model stay on the default Claude model.
+ * Where no cheaper model matched it, the feature runs on the reference itself.
  */
 export const DEFAULT_ROUTES: Record<AiFeature, Route> = {
   // Tied the reference on every import (PDF and text) at about 1/30 of the cost.
   import: { vendor: "openai", model: "gpt-4o-mini" },
-  generate: { vendor: "anthropic", model: DEFAULT_MODEL },
-  // Every cheaper model added skills the candidate doesn't have far more often.
-  tailor: { vendor: "anthropic", model: DEFAULT_MODEL },
   // Judged as good as or better than the reference in most comparisons, at about 1/30 of the cost.
   match: { vendor: "openai", model: "gpt-4o-mini" },
-  // Both judges preferred Claude's letters, answers and interview prep.
-  cover_letter: { vendor: "anthropic", model: DEFAULT_MODEL },
-  answers: { vendor: "anthropic", model: DEFAULT_MODEL },
-  interview: { vendor: "anthropic", model: DEFAULT_MODEL },
-  // Not yet judged.
-  outreach: { vendor: "anthropic", model: DEFAULT_MODEL },
-  studio: { vendor: "anthropic", model: DEFAULT_MODEL },
+  // Every cheaper model added skills the candidate doesn't have far more often.
+  tailor: { vendor: "anthropic", model: REFERENCE_MODEL },
+  // Both judges preferred the reference's letters, answers and interview prep.
+  cover_letter: { vendor: "anthropic", model: REFERENCE_MODEL },
+  answers: { vendor: "anthropic", model: REFERENCE_MODEL },
+  interview: { vendor: "anthropic", model: REFERENCE_MODEL },
+  // Not judged yet, so they stay on the reference.
+  generate: { vendor: "anthropic", model: REFERENCE_MODEL },
+  outreach: { vendor: "anthropic", model: REFERENCE_MODEL },
+  studio: { vendor: "anthropic", model: REFERENCE_MODEL },
 };
 
 /** The Claude model a feature uses when its OpenAI route fails or OpenAI isn't configured. */
 export const CLAUDE_FALLBACK: Record<AiFeature, string> = {
   // Claude Haiku 4.5 also matched the reference on these two.
   import: "claude-haiku-4-5",
-  generate: DEFAULT_MODEL,
-  tailor: DEFAULT_MODEL,
   match: "claude-haiku-4-5",
-  cover_letter: DEFAULT_MODEL,
-  answers: DEFAULT_MODEL,
-  outreach: DEFAULT_MODEL,
-  interview: DEFAULT_MODEL,
-  studio: DEFAULT_MODEL,
+  tailor: REFERENCE_MODEL,
+  cover_letter: REFERENCE_MODEL,
+  answers: REFERENCE_MODEL,
+  interview: REFERENCE_MODEL,
+  generate: REFERENCE_MODEL,
+  outreach: REFERENCE_MODEL,
+  studio: REFERENCE_MODEL,
 };
 
 /** Parses an override like `openai:gpt-5-mini`, `anthropic:claude-sonnet-5` or `claude-sonnet-5`. */

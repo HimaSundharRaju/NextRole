@@ -178,13 +178,13 @@ seconds on average.
 
 Results from September 2026:
 
-| Feature                                | Route         | Evidence                                                                                                                                               |
-| -------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Resume import                          | `gpt-4o-mini` | Tied the reference on all 8 imports with both judges; $0.0005 against $0.015                                                                           |
-| Fit analysis                           | `gpt-4o-mini` | Won or tied 7 of 8 comparisons (Claude judge) and 6 of 8 (GPT judge); $0.0004 against $0.012                                                           |
-| Tailoring                              | Claude        | Cheaper models added technical skills the candidate doesn't have far more often: Sonnet 5 was clean on 15 of 20, Haiku 4.5 on 6, the GPT models on 0–2 |
-| Cover letters, answers, interview prep | Claude        | Both judges preferred Claude; the GPT models won or tied 0–38% of comparisons                                                                          |
-| Outreach, Studio, generation           | Claude        | Not judged yet                                                                                                                                         |
+| Feature                                | Route             | Evidence                                                                                                                                               |
+| -------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Resume import                          | `gpt-4o-mini`     | Tied the reference on all 8 imports with both judges; $0.0005 against $0.015                                                                           |
+| Fit analysis                           | `gpt-4o-mini`     | Won or tied 7 of 8 comparisons (Claude judge) and 6 of 8 (GPT judge); $0.0004 against $0.012                                                           |
+| Tailoring                              | `claude-sonnet-5` | Cheaper models added technical skills the candidate doesn't have far more often: Sonnet 5 was clean on 15 of 20, Haiku 4.5 on 6, the GPT models on 0–2 |
+| Cover letters, answers, interview prep | `claude-sonnet-5` | Both judges preferred Claude; the GPT models won or tied 0–38% of comparisons                                                                          |
+| Outreach, Studio, generation           | `claude-sonnet-5` | Not judged yet, so they run on the reference                                                                                                           |
 
 Run it with
 `NODE_USE_ENV_PROXY=1 node --env-file=../../.env --import tsx eval/run.mts` from `packages/ai`
