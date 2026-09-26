@@ -5,6 +5,14 @@ import { getJson } from "./http";
 import type { BoardConnector, NormalizedJob, NormalizedSalary } from "./types";
 
 // https://developers.ashbyhq.com/docs/public-job-posting-api
+interface AshbyAddress {
+  postalAddress?: {
+    addressCountry?: string | null;
+    addressRegion?: string | null;
+    addressLocality?: string | null;
+  } | null;
+}
+
 interface AshbyJob {
   id: string;
   title: string;
@@ -12,7 +20,8 @@ interface AshbyJob {
   team?: string | null;
   employmentType?: string | null;
   location?: string | null;
-  secondaryLocations?: Array<{ location?: string | null }>;
+  address?: AshbyAddress | null;
+  secondaryLocations?: Array<{ location?: string | null; address?: AshbyAddress | null }>;
   publishedAt?: string | null;
   isListed?: boolean;
   isRemote?: boolean | null;
@@ -85,6 +94,13 @@ export function mapAshbyJob(job: AshbyJob): NormalizedJob {
     applyUrl: job.applyUrl ?? job.jobUrl,
     postedAt: job.publishedAt ? new Date(job.publishedAt) : null,
     salary: salaryFrom(job, text),
+    placeHints: [job.address, ...(job.secondaryLocations ?? []).map((item) => item.address)].map(
+      (address) => ({
+        country: address?.postalAddress?.addressCountry,
+        region: address?.postalAddress?.addressRegion,
+        city: address?.postalAddress?.addressLocality,
+      }),
+    ),
   };
 }
 

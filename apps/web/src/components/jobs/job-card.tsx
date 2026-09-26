@@ -2,9 +2,34 @@ import { skillLabel } from "@gettargetrole/resume/skills";
 import { Building2, Clock, MapPin } from "lucide-react";
 import Link from "next/link";
 import { Badge, MatchBadge } from "@/components/ui/badge";
+import { EMPLOYMENT_TYPE_LABEL } from "@/lib/job-labels";
 import { formatSalary, timeAgo } from "@/lib/utils";
 import type { JobListItem } from "@/server/data/jobs";
 import { SaveJobButton } from "./save-job-button";
+
+/** Visa and arrangement badges. Lists leave out full-time, the norm, unless asked. */
+export function JobTermsBadges({
+  job,
+  showFullTime = false,
+}: {
+  job: Pick<JobListItem, "employmentTypes" | "visaSponsorship" | "citizenshipRequired">;
+  showFullTime?: boolean;
+}) {
+  return (
+    <>
+      {job.employmentTypes
+        .filter((type) => showFullTime || type !== "full_time")
+        .map((type) => (
+          <Badge key={type} tone="outline">
+            {EMPLOYMENT_TYPE_LABEL[type]}
+          </Badge>
+        ))}
+      {job.visaSponsorship === "yes" ? <Badge tone="success">Sponsors visas</Badge> : null}
+      {job.visaSponsorship === "no" ? <Badge tone="warning">No visa sponsorship</Badge> : null}
+      {job.citizenshipRequired ? <Badge tone="warning">Citizens / clearance only</Badge> : null}
+    </>
+  );
+}
 
 const WORKPLACE_LABEL: Record<string, string> = {
   remote: "Remote",
@@ -70,6 +95,7 @@ export function JobCard({ job, compact = false }: { job: JobListItem; compact?: 
           <Badge tone="outline">{WORKPLACE_LABEL[job.workplaceType]}</Badge>
         ) : null}
         {salary ? <Badge tone="outline">{salary}</Badge> : null}
+        <JobTermsBadges job={job} />
         {job.applicationStatus ? (
           <Badge tone="primary">
             {STATUS_LABEL[job.applicationStatus] ?? job.applicationStatus}

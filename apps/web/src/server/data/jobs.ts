@@ -4,15 +4,37 @@ import { NotFoundError } from "@gettargetrole/core/errors";
 import {
   applications,
   companies,
+  EMPLOYMENT_TYPES,
   getDb,
   jobMatches,
   jobs,
+  type EmploymentType,
+  type VisaSponsorship,
   type WorkplaceType,
 } from "@gettargetrole/db";
 import { quickMatch, type QuickMatch } from "@gettargetrole/jobs/match";
-import { and, desc, eq, gte, isNull, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  arrayContains,
+  arrayOverlaps,
+  desc,
+  eq,
+  gte,
+  isNull,
+  lte,
+  ne,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { z } from "zod";
-import { candidateSignals } from "./profile";
+import { SALARY_CURRENCIES, VISA_FILTERS, type VisaFilter } from "@/lib/job-labels";
+import { candidateSignals, getProfile } from "./profile";
+
+const blankToUndefined = (value: unknown) => (value === "" ? undefined : value);
+const yearlyAmount = z.preprocess(
+  blankToUndefined,
+  z.coerce.number().int().min(1).max(100_000_000).optional().catch(undefined),
+);
 
 export const jobFiltersSchema = z.object({
   q: z.string().trim().max(200).optional().catch(undefined),
@@ -21,6 +43,43 @@ export const jobFiltersSchema = z.object({
   sort: z.enum(["match", "newest"]).optional().catch(undefined),
   company: z.string().trim().max(100).optional().catch(undefined),
   page: z.coerce.number().int().min(1).max(100).optional().catch(undefined),
+  /** ISO country code, e.g. "US". */
+  country: z.preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .regex(/^[A-Z]{2}$/)
+      .optional()
+      .catch(undefined),
+  ),
+  /** ISO state/province code, e.g. "US-CA". */
+  region: z.preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .regex(/^[A-Z]{2}-[A-Z0-9]{1,3}$/)
+      .optional()
+      .catch(undefined),
+  ),
+  /** Employment types; a job matches if it has any of them. */
+  type: z.preprocess(
+    (value) => (value === undefined ? undefined : [value].flat()),
+    z
+      .array(z.string())
+      .transform((values) =>
+        values.filter((value): value is EmploymentType =>
+          (EMPLOYMENT_TYPES as readonly string[]).includes(value),
+        ),
+      )
+      .optional()
+      .catch(undefined),
+  ),
+  /** Yearly pay range; jobs without a salary in this currency are left out when set. */
+  salaryMin: yearlyAmount,
+  salaryMax: yearlyAmount,
+  currency: z.enum(SALARY_CURRENCIES).optional().catch(undefined),
+  /** Unset means the user's profile decides: people who need sponsorship get "open". */
+  visa: z.enum(VISA_FILTERS).optional().catch(undefined),
 });
 export type JobFilters = z.infer<typeof jobFiltersSchema>;
 
@@ -42,6 +101,9 @@ const listColumns = {
   postedAt: jobs.postedAt,
   firstSeenAt: jobs.firstSeenAt,
   applyUrl: jobs.applyUrl,
+  employmentTypes: jobs.employmentTypes,
+  visaSponsorship: jobs.visaSponsorship,
+  citizenshipRequired: jobs.citizenshipRequired,
   companyName: companies.name,
   companySlug: companies.slug,
 };
@@ -60,6 +122,9 @@ export interface JobListItem {
   postedAt: Date | null;
   firstSeenAt: Date;
   applyUrl: string;
+  employmentTypes: EmploymentType[];
+  visaSponsorship: VisaSponsorship;
+  citizenshipRequired: boolean;
   companyName: string;
   companySlug: string;
   applicationStatus: string | null;
@@ -74,6 +139,8 @@ export interface JobSearchResult {
   page: number;
   pageCount: number;
   capped: boolean;
+  /** The visa filter applied, after the profile default. */
+  visa: VisaFilter;
 }
 
 function whereFor(filters: JobFilters): SQL[] {
@@ -87,16 +154,43 @@ function whereFor(filters: JobFilters): SQL[] {
   const days = filters.posted ? POSTED_WINDOWS[filters.posted] : undefined;
   if (days) conditions.push(gte(jobs.firstSeenAt, new Date(Date.now() - days * 86_400_000)));
   if (filters.company) conditions.push(eq(companies.slug, filters.company));
+  if (filters.country) conditions.push(arrayContains(jobs.countries, [filters.country]));
+  if (filters.region) conditions.push(arrayContains(jobs.regions, [filters.region]));
+  if (filters.type?.length) conditions.push(arrayOverlaps(jobs.employmentTypes, filters.type));
+  if (filters.salaryMin || filters.salaryMax) {
+    conditions.push(eq(jobs.salaryCurrency, filters.currency ?? "USD"));
+    // A range such as 140-180k matches a floor of 150k: it can reach it.
+    const top = sql`coalesce(${jobs.salaryAnnualMax}, ${jobs.salaryAnnualMin})`;
+    const bottom = sql`coalesce(${jobs.salaryAnnualMin}, ${jobs.salaryAnnualMax})`;
+    if (filters.salaryMin) conditions.push(gte(top, filters.salaryMin));
+    if (filters.salaryMax) conditions.push(lte(bottom, filters.salaryMax));
+  }
+  if (filters.visa === "open") {
+    // Posts that don't mention sponsorship stay visible.
+    conditions.push(ne(jobs.visaSponsorship, "no"), eq(jobs.citizenshipRequired, false));
+  } else if (filters.visa === "offers") {
+    conditions.push(eq(jobs.visaSponsorship, "yes"));
+  }
   return conditions;
+}
+
+/** The visa filter to apply: the one chosen, else "open" for people who need sponsorship. */
+async function visaFilterFor(userId: string, chosen: VisaFilter | undefined): Promise<VisaFilter> {
+  if (chosen) return chosen;
+  return (await getProfile(userId)).needsSponsorship ? "open" : "any";
 }
 
 /**
  * Open jobs matching the filters. "Best match" ranks the most recent candidates with the
  * deterministic scorer; "Newest" pages straight from the database.
  */
-export async function searchJobs(userId: string, filters: JobFilters): Promise<JobSearchResult> {
+export async function searchJobs(userId: string, chosen: JobFilters): Promise<JobSearchResult> {
   const db = getDb();
-  const signals = await candidateSignals(userId);
+  const [signals, visa] = await Promise.all([
+    candidateSignals(userId),
+    visaFilterFor(userId, chosen.visa),
+  ]);
+  const filters = { ...chosen, visa };
   const conditions = and(...whereFor(filters));
   const page = filters.page ?? 1;
   const sort = filters.sort ?? "match";
@@ -133,6 +227,7 @@ export async function searchJobs(userId: string, filters: JobFilters): Promise<J
       page,
       pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)),
       capped: false,
+      visa,
     };
   }
 
@@ -148,6 +243,7 @@ export async function searchJobs(userId: string, filters: JobFilters): Promise<J
     page,
     pageCount: Math.max(1, Math.ceil(considered / PAGE_SIZE)),
     capped: total > considered,
+    visa,
   };
 }
 
@@ -204,6 +300,30 @@ export function jobContextOf(
     location: job.location,
     description: job.descriptionText,
   };
+}
+
+export interface Facet {
+  code: string;
+  count: number;
+}
+
+/** Countries with open jobs and, for a chosen country, its states or provinces. */
+export async function locationFacets(
+  country?: string,
+): Promise<{ countries: Facet[]; regions: Facet[] }> {
+  const db = getDb();
+  const open = sql`${jobs.closedAt} is null`;
+  const countries = await db.execute<{ code: string; count: number }>(
+    sql`select code, count(*)::int as count from ${jobs}, unnest(${jobs.countries}) as code
+        where ${open} group by code order by count desc`,
+  );
+  const regions = country
+    ? await db.execute<{ code: string; count: number }>(
+        sql`select code, count(*)::int as count from ${jobs}, unnest(${jobs.regions}) as code
+            where ${open} and code like ${`${country}-%`} group by code order by count desc`,
+      )
+    : { rows: [] };
+  return { countries: countries.rows, regions: regions.rows };
 }
 
 export async function listCompaniesForFilter() {

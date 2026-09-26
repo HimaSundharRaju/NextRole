@@ -108,7 +108,54 @@ describe.skipIf(!TEST_DATABASE_URL)("job ingestion (Postgres integration)", () =
       .select()
       .from(db.jobs)
       .where(drizzle.eq(db.jobs.companyId, company!.id));
-    expect(job).toMatchObject({ salaryMin: 61, salaryMax: 108, salaryPeriod: "hour" });
+    expect(job).toMatchObject({
+      salaryMin: 61,
+      salaryMax: 108,
+      salaryPeriod: "hour",
+      salaryAnnualMin: 61 * 2080,
+      salaryAnnualMax: 108 * 2080,
+    });
+  });
+
+  it("records where a job is, how it's offered and what it says about visas", async () => {
+    const database = db.getDb();
+    const [company] = await database
+      .insert(db.companies)
+      .values({ name: "Acme Labs", slug: "acme-labs", ats: "ashby", boardToken: "acme-labs" })
+      .returning();
+    const [listed] = ashbyResponse.jobs;
+    const board = {
+      jobs: [
+        {
+          ...listed,
+          employmentType: "Contract",
+          address: {
+            postalAddress: {
+              addressCountry: "United States",
+              addressRegion: "Washington",
+              addressLocality: "Seattle",
+            },
+          },
+          descriptionHtml:
+            "<p>Open to W2 or C2C.</p><p>We are unable to sponsor visas for this role.</p>",
+        },
+      ],
+    };
+
+    await ingest.syncCompany(company!.id, {
+      fetch: fakeFetch({ "https://api.ashbyhq.com/posting-api/job-board/acme-labs": board }),
+    });
+    const [job] = await database
+      .select()
+      .from(db.jobs)
+      .where(drizzle.eq(db.jobs.companyId, company!.id));
+    expect(job).toMatchObject({
+      countries: ["US"],
+      regions: ["US-WA"],
+      employmentTypes: ["contract", "w2", "c2c"],
+      visaSponsorship: "no",
+      citizenshipRequired: false,
+    });
   });
 
   it("records a failed sync on the company", async () => {

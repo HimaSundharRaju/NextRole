@@ -1,4 +1,5 @@
 import type { AtsProvider, WorkplaceType } from "@gettargetrole/db/schema";
+import type { PlaceHint } from "../locations";
 
 export interface NormalizedSalary {
   min: number | null;
@@ -19,6 +20,8 @@ export interface NormalizedJob {
   applyUrl: string;
   postedAt: Date | null;
   salary: NormalizedSalary | null;
+  /** Structured country/state/city from the board, which beats parsing `location`. */
+  placeHints?: PlaceHint[];
   /** True when the listing endpoint omits the description and `hydrate` must be called. */
   needsHydration?: boolean;
 }

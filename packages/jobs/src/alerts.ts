@@ -21,6 +21,8 @@ export async function createJobAlerts(jobIds: string[], db: Database = getDb()):
       workplaceType: jobs.workplaceType,
       salaryMax: jobs.salaryMax,
       salaryPeriod: jobs.salaryPeriod,
+      visaSponsorship: jobs.visaSponsorship,
+      citizenshipRequired: jobs.citizenshipRequired,
     })
     .from(jobs)
     .where(and(inArray(jobs.id, jobIds), isNull(jobs.closedAt)));
@@ -38,6 +40,7 @@ export async function createJobAlerts(jobIds: string[], db: Database = getDb()):
         seniority: profiles.seniority,
         minSalary: profiles.minSalary,
         alertMinScore: profiles.alertMinScore,
+        needsSponsorship: profiles.needsSponsorship,
       })
       .from(profiles)
       .where(
@@ -47,7 +50,9 @@ export async function createJobAlerts(jobIds: string[], db: Database = getDb()):
         ),
       );
 
+    const rulesOutSponsorship = job.visaSponsorship === "no" || job.citizenshipRequired;
     const rows = candidates.flatMap((candidate) => {
+      if (candidate.needsSponsorship && rulesOutSponsorship) return [];
       const match = quickMatch(candidate, job);
       if (match.score < candidate.alertMinScore) return [];
       return [

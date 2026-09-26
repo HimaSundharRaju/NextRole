@@ -1,20 +1,54 @@
 "use client";
 
+import { countryLabel, regionLabel } from "@gettargetrole/jobs/locations";
 import { Search } from "lucide-react";
 import Form from "next/form";
 import type { ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/form";
+import {
+  EMPLOYMENT_TYPE_LABEL,
+  EMPLOYMENT_TYPE_OPTIONS,
+  SALARY_CURRENCIES,
+  VISA_FILTER_LABEL,
+  VISA_FILTERS,
+  type VisaFilter,
+} from "@/lib/job-labels";
+
+interface Facet {
+  code: string;
+  count: number;
+}
 
 export function JobFilters({
   filters,
+  visa,
   companies,
+  countries,
+  regions,
 }: {
-  filters: { q?: string; workplace?: string; posted?: string; sort?: string; company?: string };
+  filters: {
+    q?: string;
+    workplace?: string;
+    posted?: string;
+    sort?: string;
+    company?: string;
+    country?: string;
+    region?: string;
+    type?: string[];
+    salaryMin?: number;
+    salaryMax?: number;
+    currency?: string;
+  };
+  /** The visa filter in effect, including the default from the profile. */
+  visa: VisaFilter;
   companies: Array<{ slug: string; name: string; openJobCount: number }>;
+  countries: Facet[];
+  regions: Facet[];
 }) {
-  const submitOnChange = (event: ChangeEvent<HTMLSelectElement>) =>
+  const submitOnChange = (event: ChangeEvent<HTMLSelectElement | HTMLInputElement>) =>
     event.currentTarget.form?.requestSubmit();
+  const types = new Set(filters.type ?? []);
 
   return (
     <Form
@@ -86,6 +120,97 @@ export function JobFilters({
           <option value="newest">Newest</option>
         </Select>
       </div>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <Select
+          name="country"
+          defaultValue={filters.country ?? ""}
+          onChange={submitOnChange}
+          aria-label="Country"
+        >
+          <option value="">Any country</option>
+          {countries.map((country) => (
+            <option key={country.code} value={country.code}>
+              {countryLabel(country.code)} ({country.count})
+            </option>
+          ))}
+        </Select>
+        <Select
+          name="region"
+          defaultValue={filters.region ?? ""}
+          onChange={submitOnChange}
+          disabled={!filters.country || regions.length === 0}
+          aria-label="State or province"
+        >
+          <option value="">{filters.country ? "Any state" : "Pick a country first"}</option>
+          {regions.map((region) => (
+            <option key={region.code} value={region.code}>
+              {regionLabel(region.code)} ({region.count})
+            </option>
+          ))}
+        </Select>
+        <Select name="visa" defaultValue={visa} onChange={submitOnChange} aria-label="Visa">
+          {VISA_FILTERS.map((option) => (
+            <option key={option} value={option}>
+              {VISA_FILTER_LABEL[option]}
+            </option>
+          ))}
+        </Select>
+        <div className="flex gap-1">
+          <Input
+            name="salaryMin"
+            type="number"
+            min={0}
+            step={1000}
+            defaultValue={filters.salaryMin ?? ""}
+            placeholder="Min / year"
+            aria-label="Minimum yearly pay"
+          />
+          <Input
+            name="salaryMax"
+            type="number"
+            min={0}
+            step={1000}
+            defaultValue={filters.salaryMax ?? ""}
+            placeholder="Max / year"
+            aria-label="Maximum yearly pay"
+          />
+          <Select
+            name="currency"
+            defaultValue={filters.currency ?? "USD"}
+            onChange={submitOnChange}
+            aria-label="Currency"
+            className="w-20 shrink-0"
+          >
+            {SALARY_CURRENCIES.map((currency) => (
+              <option key={currency} value={currency}>
+                {currency}
+              </option>
+            ))}
+          </Select>
+        </div>
+      </div>
+      <fieldset className="flex flex-wrap items-center gap-1.5">
+        <legend className="sr-only">Employment type</legend>
+        {EMPLOYMENT_TYPE_OPTIONS.map((type) => (
+          <label
+            key={type}
+            className="cursor-pointer rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary-soft has-[:checked]:text-primary has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-primary"
+          >
+            <input
+              type="checkbox"
+              name="type"
+              value={type}
+              defaultChecked={types.has(type)}
+              onChange={submitOnChange}
+              className="sr-only"
+            />
+            {EMPLOYMENT_TYPE_LABEL[type]}
+          </label>
+        ))}
+        <span className="text-xs text-muted-foreground">
+          W-2, C2C and 1099 show up when a post says so.
+        </span>
+      </fieldset>
     </Form>
   );
 }
