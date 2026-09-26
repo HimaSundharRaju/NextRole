@@ -3,7 +3,7 @@
 import { ValidationError } from "@gettargetrole/core/errors";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { aboutSchema, preferencesSchema } from "@/lib/validation";
+import { aboutSchema, autoPrepareSchema, preferencesSchema } from "@/lib/validation";
 import { authedAction } from "@/server/action";
 import { recordAudit } from "@/server/audit";
 import { deleteUserAccount } from "@/server/data/account";
@@ -18,6 +18,12 @@ export const savePreferences = authedAction(preferencesSchema, async (input, use
 });
 
 export const saveAbout = authedAction(aboutSchema, async (input, user) => {
+  await updateProfile(user.id, input);
+  revalidatePath("/settings");
+  return null;
+});
+
+export const saveAutoPrepare = authedAction(autoPrepareSchema, async (input, user) => {
   await updateProfile(user.id, input);
   revalidatePath("/settings");
   return null;

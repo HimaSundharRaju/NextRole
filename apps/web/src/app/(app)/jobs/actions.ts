@@ -1,7 +1,14 @@
 "use server";
 
 import { ValidationError } from "@gettargetrole/core/errors";
-import { getDb, jobMatches } from "@gettargetrole/db";
+import {
+  findTailoredResume,
+  getDb,
+  jobMatches,
+  resumeHash,
+  saveTailoredResume,
+  type TailorNotes,
+} from "@gettargetrole/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { authedAction } from "@/server/action";
@@ -17,7 +24,7 @@ import {
 import { getJobDetail, jobContextOf } from "@/server/data/jobs";
 import { createOutreach } from "@/server/data/outreach";
 import { candidateProfile } from "@/server/data/profile";
-import { createResume, getPrimaryResume, getResume } from "@/server/data/resumes";
+import { getPrimaryResume, getResume } from "@/server/data/resumes";
 import type { SessionUser } from "@/server/session";
 
 const jobIdSchema = z.object({ jobId: z.uuid() });
@@ -87,6 +94,7 @@ export const analyzeFit = authedAction(
       userId: user.id,
       jobId,
       resumeId: primary.id,
+      sourceHash: resumeHash(primary.content),
       score: result.score,
       verdict: result.verdict,
       summary: `${result.summary} ${result.recommendation}`.trim(),
@@ -108,37 +116,56 @@ export const analyzeFit = authedAction(
 );
 
 export const tailorResumeForJob = authedAction(
-  z.object({ jobId: z.uuid(), instructions: z.string().trim().max(1000).optional() }),
-  async ({ jobId, instructions }, user) => {
+  z.object({
+    jobId: z.uuid(),
+    instructions: z.string().trim().max(1000).optional(),
+    /** Make a new version even when one from the current main resume exists. */
+    force: z.boolean().optional(),
+  }),
+  async ({ jobId, instructions, force }, user) => {
     const primary = await primaryResumeOrThrow(user.id);
     const { detail, application, job } = await loadJobAndApplication(user, jobId);
-    const { ai, ctx } = await aiFor(user);
-    const result = await ai.tailorResume({ resume: primary.content, job, instructions }, ctx);
-    const resume = await createResume(user.id, {
-      title: `${detail.company.name} — ${detail.job.title}`,
-      content: result.resume,
-      kind: "tailored",
-      jobId,
-      settings: primary.settings,
-      source: "ai_tailor",
-      note: `Tailored for ${detail.job.title} at ${detail.company.name}`,
-    });
+    const sourceHash = resumeHash(primary.content);
+    // A version made from this exact main resume is reused, which costs no tokens.
+    const existing =
+      force || instructions ? null : await findTailoredResume(user.id, jobId, sourceHash);
+    let resumeId = existing?.id;
+    let notes: TailorNotes | null = existing?.tailorNotes ?? null;
+    if (!resumeId) {
+      const { ai, ctx } = await aiFor(user);
+      const result = await ai.tailorResume({ resume: primary.content, job, instructions }, ctx);
+      notes = {
+        summaryOfChanges: result.summaryOfChanges,
+        addedKeywords: result.addedKeywords,
+        missingKeywords: result.missingKeywords,
+        suggestions: result.suggestions,
+      };
+      const created = await saveTailoredResume({
+        userId: user.id,
+        jobId,
+        title: `${detail.company.name} — ${detail.job.title}`,
+        content: result.resume,
+        settings: primary.settings,
+        sourceHash,
+        notes,
+        note: `Tailored for ${detail.job.title} at ${detail.company.name}`,
+      });
+      resumeId = created.id;
+      await addEvent(application.id, user.id, "kit_generated", { part: "resume", resumeId });
+    }
     await updateApplication(user.id, application.id, {
-      resumeId: resume.id,
+      resumeId,
       ...(application.status === "saved" ? { status: "preparing" as const } : {}),
-    });
-    await addEvent(application.id, user.id, "kit_generated", {
-      part: "resume",
-      resumeId: resume.id,
     });
     refresh(jobId, application.id);
     return {
-      resumeId: resume.id,
+      resumeId,
       applicationId: application.id,
-      summaryOfChanges: result.summaryOfChanges,
-      addedKeywords: result.addedKeywords,
-      missingKeywords: result.missingKeywords,
-      suggestions: result.suggestions,
+      reused: Boolean(existing),
+      summaryOfChanges: notes?.summaryOfChanges ?? [],
+      addedKeywords: notes?.addedKeywords ?? [],
+      missingKeywords: notes?.missingKeywords ?? [],
+      suggestions: notes?.suggestions ?? [],
     };
   },
   { rateLimit: "aiHeavy" },

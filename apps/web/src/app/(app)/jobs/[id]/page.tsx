@@ -36,7 +36,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function JobPage({ params }: Props) {
   const { id } = await params;
-  const { job, company, match, aiMatch, application } = await load(id);
+  const { job, company, match, aiMatch, aiMatchStale, application, tailored } = await load(id);
   const salary = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency, job.salaryPeriod);
 
   return (
@@ -107,7 +107,7 @@ export default async function JobPage({ params }: Props) {
         </Card>
 
         <div className="space-y-6 lg:sticky lg:top-20 lg:self-start">
-          <FitPanel jobId={job.id} quick={match} aiMatch={aiMatch} />
+          <FitPanel jobId={job.id} quick={match} aiMatch={aiMatch} stale={aiMatchStale} />
           <ApplyKit
             jobId={job.id}
             applyUrl={job.applyUrl}
@@ -123,6 +123,7 @@ export default async function JobPage({ params }: Props) {
                   }
                 : null
             }
+            tailored={tailored}
           />
         </div>
       </div>

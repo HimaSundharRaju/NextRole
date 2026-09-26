@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Briefcase, CalendarClock, Info, LogOut } from "lucide-react";
+import { Bell, Briefcase, CalendarClock, FileCheck2, Info, LogOut } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
@@ -92,7 +92,9 @@ export function NotificationsBell({ unread }: { unread: number }) {
                     ? Briefcase
                     : item.type === "follow_up"
                       ? CalendarClock
-                      : Info;
+                      : item.type === "application_ready"
+                        ? FileCheck2
+                        : Info;
                 const content = (
                   <div
                     className={cn(

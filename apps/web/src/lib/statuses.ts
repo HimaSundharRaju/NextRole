@@ -6,6 +6,7 @@ export const STATUS_META: Record<
 > = {
   saved: { label: "Saved", tone: "neutral" },
   preparing: { label: "Preparing", tone: "neutral" },
+  ready: { label: "Ready to apply", tone: "primary" },
   applied: { label: "Applied", tone: "primary" },
   screening: { label: "Screening", tone: "warning" },
   interviewing: { label: "Interviewing", tone: "warning" },
@@ -17,6 +18,7 @@ export const STATUS_META: Record<
 export const BOARD_COLUMNS: ApplicationStatus[] = [
   "saved",
   "preparing",
+  "ready",
   "applied",
   "screening",
   "interviewing",
