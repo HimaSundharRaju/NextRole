@@ -30,7 +30,10 @@ export default async function NewFromJobDescriptionPage() {
         <div className="mb-4">
           <Alert tone="warning">
             Tailored resumes and cover letters come with Plus. You can still save the job to your
-            tracker. <Link href="/settings#plan">Compare plans</Link>
+            tracker.{" "}
+            <Link href="/settings#plan" className="font-medium underline">
+              Compare plans
+            </Link>
           </Alert>
         </div>
       ) : null}

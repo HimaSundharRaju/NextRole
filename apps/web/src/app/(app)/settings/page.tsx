@@ -127,7 +127,7 @@ export default async function SettingsPage() {
                     >
                       {PLANS[id].name}
                       <span className="block font-normal text-muted-foreground">
-                        {PLANS[id].priceUsd === 0 ? "Free" : `$${PLANS[id].priceUsd}`}
+                        ${PLANS[id].priceUsd}/mo
                       </span>
                     </th>
                   ))}
@@ -147,7 +147,9 @@ export default async function SettingsPage() {
                           id === user.plan && "font-semibold",
                         )}
                       >
-                        {PLAN_LIMITS[id][unit] || "—"}
+                        {PLAN_LIMITS[id][unit]
+                          ? PLAN_LIMITS[id][unit].toLocaleString("en-US")
+                          : "—"}
                       </td>
                     ))}
                   </tr>
