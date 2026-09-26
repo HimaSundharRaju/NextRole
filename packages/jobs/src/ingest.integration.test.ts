@@ -192,4 +192,33 @@ describe.skipIf(!TEST_DATABASE_URL)("job ingestion (Postgres integration)", () =
     expect(notification).toMatchObject({ userId: "user-1", type: "job_match" });
     expect(notification?.title).toContain("Senior Software Engineer, Payments");
   });
+
+  it("picks auto-prepare candidates at or above each user's minimum match", async () => {
+    const database = db.getDb();
+    await database.insert(db.users).values([
+      { id: "user-on", name: "Asha", email: "asha@example.com" },
+      { id: "user-off", name: "Ben", email: "ben@example.com" },
+      { id: "user-partial", name: "Cyd", email: "cyd@example.com" },
+    ]);
+    const shared = { targetTitles: ["Software Engineer"], remotePreference: "any" as const };
+    await database.insert(db.profiles).values([
+      {
+        userId: "user-on",
+        ...shared,
+        skills: ["go", "kubernetes", "postgresql"],
+        autoPrepareEnabled: true,
+      },
+      { userId: "user-off", ...shared, skills: ["go", "kubernetes", "postgresql"] },
+      // One of three skills: well under the default 80% minimum.
+      { userId: "user-partial", ...shared, skills: ["go"], autoPrepareEnabled: true },
+    ]);
+
+    const { newJobIds } = await ingest.syncCompany(companyId, {
+      fetch: fakeFetch({ [board]: greenhouseResponse }),
+    });
+    const candidates = await alerts.autoPrepareCandidates(newJobIds);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.userId).toBe("user-on");
+    expect(candidates[0]?.score).toBeGreaterThanOrEqual(80);
+  });
 });

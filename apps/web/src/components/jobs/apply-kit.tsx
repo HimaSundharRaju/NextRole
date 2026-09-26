@@ -41,6 +41,18 @@ interface KitApplication {
   appliedAt: string | null;
 }
 
+interface TailorNotes {
+  summaryOfChanges: string[];
+  missingKeywords: string[];
+  suggestions: string[];
+}
+
+/** The tailored resume's saved notes, and whether it was made from an older main resume. */
+interface KitTailored {
+  notes: TailorNotes | null;
+  stale: boolean;
+}
+
 function Step({
   done,
   icon: Icon,
@@ -77,10 +89,12 @@ export function ApplyKit({
   jobId,
   applyUrl,
   application,
+  tailored,
 }: {
   jobId: string;
   applyUrl: string;
   application: KitApplication | null;
+  tailored: KitTailored | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -88,11 +102,8 @@ export function ApplyKit({
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  const [tailorNotes, setTailorNotes] = useState<{
-    changes: string[];
-    missing: string[];
-    suggestions: string[];
-  } | null>(null);
+  const [tailorNotes, setTailorNotes] = useState<TailorNotes | null>(tailored?.notes ?? null);
+  const [tailorStale, setTailorStale] = useState(tailored?.stale ?? false);
   const [coverLetter, setCoverLetter] = useState(application?.coverLetter ?? "");
   const [answers, setAnswers] = useState(application?.answers ?? []);
   const [questions, setQuestions] = useState("");
@@ -124,14 +135,41 @@ export function ApplyKit({
   }
 
   const applied = Boolean(application?.appliedAt);
+  const ready = !applied && application?.status === "ready";
+
+  function tailor(force: boolean) {
+    run(
+      "tailor",
+      () => tailorResumeForJob({ jobId, force }),
+      (data) => {
+        setTailorNotes(data);
+        setTailorStale(false);
+        toast.success(
+          data.reused ? "Opened your tailored resume for this role." : "Tailored resume ready.",
+        );
+      },
+    );
+  }
 
   return (
     <Card>
       <CardHeader
         title="Apply kit"
         description="The AI prepares everything; you review and submit."
-        action={applied ? <Badge tone="success">Applied</Badge> : null}
+        action={
+          applied ? (
+            <Badge tone="success">Applied</Badge>
+          ) : ready ? (
+            <Badge tone="primary">Ready to apply</Badge>
+          ) : null
+        }
       />
+      {ready ? (
+        <p className="border-b border-border bg-muted/50 px-5 py-3 text-sm">
+          Auto-prepare made your tailored resume and cover letter. Review them, then submit on the
+          company&apos;s site.
+        </p>
+      ) : null}
       <div>
         <Step done={Boolean(application?.resumeId)} icon={FileText} title="Tailored resume">
           {application?.resumeId ? (
@@ -160,18 +198,24 @@ export function ApplyKit({
               A copy of your main resume, rewritten for this role. Your original stays untouched.
             </p>
           )}
+          {tailorStale ? (
+            <p className="text-xs text-warning">
+              Made from an earlier version of your main resume. Tailor again to pick up your
+              changes.
+            </p>
+          ) : null}
           {tailorNotes ? (
             <div className="rounded-lg bg-muted p-3 text-xs">
               <p className="font-medium">What changed</p>
               <ul className="mt-1 list-disc space-y-0.5 pl-4">
-                {tailorNotes.changes.map((item) => (
+                {tailorNotes.summaryOfChanges.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
               </ul>
-              {tailorNotes.missing.length ? (
+              {tailorNotes.missingKeywords.length ? (
                 <p className="mt-2">
                   <span className="font-medium">Not on your resume: </span>
-                  {tailorNotes.missing.join(", ")} — add them only if you truly have them.
+                  {tailorNotes.missingKeywords.join(", ")} — add them only if you truly have them.
                 </p>
               ) : null}
               {tailorNotes.suggestions.length ? (
@@ -188,20 +232,7 @@ export function ApplyKit({
             variant={application?.resumeId ? "ghost" : "primary"}
             loading={busy === "tailor"}
             disabled={busy !== null}
-            onClick={() =>
-              run(
-                "tailor",
-                () => tailorResumeForJob({ jobId }),
-                (data) => {
-                  setTailorNotes({
-                    changes: data.summaryOfChanges,
-                    missing: data.missingKeywords,
-                    suggestions: data.suggestions,
-                  });
-                  toast.success("Tailored resume ready.");
-                },
-              )
-            }
+            onClick={() => tailor(Boolean(application?.resumeId))}
           >
             {busy === "tailor"
               ? "Tailoring… (about 30s)"

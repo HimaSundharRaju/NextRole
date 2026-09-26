@@ -15,7 +15,8 @@ it yourself**. Nothing is auto-submitted on your behalf.
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Job discovery**     | Openings ingested from public Greenhouse, Lever, Ashby and SmartRecruiters boards every 10 minutes, full-text search; filters for country, state, salary range, employment type (full-time, intern, contract, W-2, C2C, 1099) and visa sponsorship; match scores against your resume; job alerts. |
 | **Resume Studio**     | Import a PDF, Word file or pasted text into a structured resume. Chat with the AI to rewrite, quantify or tighten it with a live preview. Every change is a restorable version. ATS readiness check, three templates, PDF and Word export.                                                        |
-| **Apply kit**         | Per job: a fit analysis, a tailored resume with a summary of what changed, a cover letter, answers to application questions, and a recruiter email plus LinkedIn note. "I've applied" saves a receipt of exactly what you sent.                                                                   |
+| **Apply kit**         | Per job: a fit analysis, a tailored resume made from your main resume with a summary of what changed, a cover letter, answers to application questions, and a recruiter email plus LinkedIn note. Apply manually from any job; "I've applied" saves a receipt of exactly what you sent.           |
+| **Auto-prepare**      | Optional: strong new matches get a tailored resume and cover letter in the background, within a daily limit and your AI budget, and show up as "Ready to apply". You review and submit on the employer's site.                                                                                    |
 | **Tracker**           | Kanban board from saved to offer, notes, follow-up reminders and interview prep sheets.                                                                                                                                                                                                           |
 | **Concierge**         | Specialists see and work on the job searches of the clients assigned to them.                                                                                                                                                                                                                     |
 | **Admin console**     | Users, roles, plans and bans; job boards and sync status; specialist assignments; audit log.                                                                                                                                                                                                      |
@@ -40,17 +41,17 @@ The web app and the worker are stateless and scale horizontally: sessions live i
 rate limits and queues live in Redis. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the
 data model, the AI integration and the security model.
 
-| Path              | Contents                                                                                                   |
-| ----------------- | ---------------------------------------------------------------------------------------------------------- |
-| `apps/web`        | Next.js 16 app (App Router, React 19, Tailwind CSS 4): pages, server actions, API routes, auth             |
-| `apps/worker`     | BullMQ worker: job-board ingestion, job alerts, follow-up reminders; also applies migrations in production |
-| `apps/edge`       | Cloudflare Worker that routes traffic to the web containers and keeps the background worker running        |
-| `packages/ai`     | AI integration: prompts, structured outputs, the Studio editing tool, usage metering, a mock for tests     |
-| `packages/resume` | Resume schema, skills taxonomy, ATS checks, PDF and Word rendering                                         |
-| `packages/jobs`   | Job-board connectors, HTML sanitizing, normalization, matching, ingestion, alerts                          |
-| `packages/db`     | Drizzle ORM schema, SQL migrations, seed data                                                              |
-| `packages/core`   | Environment validation, logging, encryption, Redis, rate limiting, email, queue contracts                  |
-| `infra`           | Docker Compose for local Postgres, Redis and Mailpit, and for the full stack                               |
+| Path              | Contents                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------ |
+| `apps/web`        | Next.js 16 app (App Router, React 19, Tailwind CSS 4): pages, server actions, API routes, auth         |
+| `apps/worker`     | BullMQ worker: job-board ingestion, job alerts, auto-prepare, follow-up reminders; applies migrations  |
+| `apps/edge`       | Cloudflare Worker that routes traffic to the web containers and keeps the background worker running    |
+| `packages/ai`     | AI integration: prompts, structured outputs, the Studio editing tool, usage metering, a mock for tests |
+| `packages/resume` | Resume schema, skills taxonomy, ATS checks, PDF and Word rendering                                     |
+| `packages/jobs`   | Job-board connectors, HTML sanitizing, normalization, matching, ingestion, alerts                      |
+| `packages/db`     | Drizzle ORM schema, SQL migrations, seed data                                                          |
+| `packages/core`   | Environment validation, logging, encryption, Redis, rate limiting, email, queue contracts              |
+| `infra`           | Docker Compose for local Postgres, Redis and Mailpit, and for the full stack                           |
 
 **Stack:** TypeScript 5.9, Next.js 16, React 19, Tailwind CSS 4, Better Auth, PostgreSQL 16 with
 Drizzle ORM, Redis with BullMQ, the Anthropic TypeScript SDK, Zod, Pino,

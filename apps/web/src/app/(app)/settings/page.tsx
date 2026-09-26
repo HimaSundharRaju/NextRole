@@ -7,16 +7,18 @@ import { PageHeader, ProgressBar } from "@/components/ui/misc";
 import { PLANS } from "@/lib/plans";
 import { monthlyAiSpendMicroUsd } from "@/server/ai";
 import { getProfile } from "@/server/data/profile";
+import { getPrimaryResume } from "@/server/data/resumes";
 import { requireOnboardedUser } from "@/server/session";
-import { AboutForm, DangerZone, PasswordForm } from "./settings-forms";
+import { AboutForm, AutoPrepareForm, DangerZone, PasswordForm } from "./settings-forms";
 
 export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
   const user = await requireOnboardedUser();
-  const [profile, spend] = await Promise.all([
+  const [profile, spend, primary] = await Promise.all([
     getProfile(user.id),
     monthlyAiSpendMicroUsd(user.id),
+    getPrimaryResume(user.id),
   ]);
   const plan = PLANS[user.plan];
   const used = Math.min(100, Math.round((spend / (plan.monthlyAiBudgetUsd * 1_000_000)) * 100));
@@ -44,6 +46,23 @@ export default async function SettingsPage() {
               alertsEnabled: profile.alertsEnabled,
               alertMinScore: profile.alertMinScore,
             }}
+          />
+        </CardBody>
+      </Card>
+
+      <Card id="auto-prepare" className="scroll-mt-20">
+        <CardHeader
+          title="Auto-prepare applications"
+          description="When a new job matches you well, we tailor your main resume and write a cover letter for it, then mark it Ready to apply. You review and submit on the company's site."
+        />
+        <CardBody>
+          <AutoPrepareForm
+            initial={{
+              autoPrepareEnabled: profile.autoPrepareEnabled,
+              autoPrepareMinScore: profile.autoPrepareMinScore,
+              autoPrepareDailyLimit: profile.autoPrepareDailyLimit,
+            }}
+            hasResume={Boolean(primary)}
           />
         </CardBody>
       </Card>

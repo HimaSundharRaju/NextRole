@@ -1,3 +1,4 @@
+import { MONTHLY_AI_BUDGET_USD } from "@gettargetrole/db/plans";
 import type { Plan } from "@gettargetrole/db/schema";
 
 export interface PlanDefinition {
@@ -16,7 +17,7 @@ export const PLANS: Record<Plan, PlanDefinition> = {
     name: "Starter",
     priceUsd: 0,
     tagline: "Everything you need to start a focused search.",
-    monthlyAiBudgetUsd: 2,
+    monthlyAiBudgetUsd: MONTHLY_AI_BUDGET_USD.free,
     features: [
       "Real-time job feed with match scores",
       "AI resume studio",
@@ -29,7 +30,7 @@ export const PLANS: Record<Plan, PlanDefinition> = {
     name: "Pro",
     priceUsd: 29,
     tagline: "For an active search with dozens of tailored applications.",
-    monthlyAiBudgetUsd: 30,
+    monthlyAiBudgetUsd: MONTHLY_AI_BUDGET_USD.pro,
     features: [
       "Everything in Starter",
       "~150 tailored applications a month",
@@ -42,7 +43,7 @@ export const PLANS: Record<Plan, PlanDefinition> = {
     name: "Concierge",
     priceUsd: 299,
     tagline: "A dedicated specialist applies alongside you.",
-    monthlyAiBudgetUsd: 120,
+    monthlyAiBudgetUsd: MONTHLY_AI_BUDGET_USD.concierge,
     features: [
       "Everything in Pro",
       "Dedicated application specialist",

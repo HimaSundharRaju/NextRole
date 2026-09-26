@@ -36,6 +36,11 @@ export const JOBS_ENV_KEYS = [
   "REDIS_URL",
   "INGEST_INTERVAL_MINUTES",
   "INGEST_CONCURRENCY",
+  // Auto-prepare tailors resumes and writes cover letters in the background.
+  "AI_PROVIDER",
+  "AI_MODEL",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_BASE_URL",
 ] as const;
 
 /** Copies the listed variables that are set, so each container only receives what it uses. */

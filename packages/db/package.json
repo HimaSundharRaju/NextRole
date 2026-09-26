@@ -8,7 +8,8 @@
     "./schema": "./src/schema/index.ts",
     "./client": "./src/client.ts",
     "./migrate": "./src/migrate-lib.ts",
-    "./seed": "./src/seed-lib.ts"
+    "./seed": "./src/seed-lib.ts",
+    "./plans": "./src/plans.ts"
   },
   "scripts": {
     "lint": "eslint src",

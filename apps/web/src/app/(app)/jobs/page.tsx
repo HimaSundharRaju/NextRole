@@ -1,11 +1,13 @@
 import { Briefcase, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ApplyModeBar } from "@/components/jobs/apply-mode-bar";
 import { JobCard } from "@/components/jobs/job-card";
 import { JobFilters } from "@/components/jobs/job-filters";
 import { buttonVariants } from "@/components/ui/button";
 import { EmptyState, PageHeader } from "@/components/ui/misc";
 import { cn, plural } from "@/lib/utils";
+import { readyToApplyCount } from "@/server/data/applications";
 import {
   jobFiltersSchema,
   listCompaniesForFilter,
@@ -13,6 +15,7 @@ import {
   searchJobs,
   type JobFilters as Filters,
 } from "@/server/data/jobs";
+import { getProfile } from "@/server/data/profile";
 import { requireOnboardedUser } from "@/server/session";
 
 export const metadata: Metadata = { title: "Jobs" };
@@ -48,10 +51,12 @@ export default async function JobsPage({
     parsed.region && !parsed.region.startsWith(`${parsed.country}-`)
       ? { ...parsed, region: undefined }
       : parsed;
-  const [result, companies, facets] = await Promise.all([
+  const [result, companies, facets, profile, readyCount] = await Promise.all([
     searchJobs(user.id, filters),
     listCompaniesForFilter(),
     locationFacets(filters.country),
+    getProfile(user.id),
+    readyToApplyCount(user.id),
   ]);
   const page = result.page;
 
@@ -60,6 +65,14 @@ export default async function JobsPage({
       <PageHeader
         title="Jobs"
         description="Live roles pulled straight from company career pages, ranked against your resume."
+      />
+      <ApplyModeBar
+        autoPrepare={{
+          enabled: profile.autoPrepareEnabled,
+          minScore: profile.autoPrepareMinScore,
+          dailyLimit: profile.autoPrepareDailyLimit,
+        }}
+        readyCount={readyCount}
       />
       <JobFilters
         filters={filters}

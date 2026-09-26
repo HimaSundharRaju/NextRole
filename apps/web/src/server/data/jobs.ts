@@ -8,6 +8,8 @@ import {
   getDb,
   jobMatches,
   jobs,
+  resumeHash,
+  resumes,
   type EmploymentType,
   type VisaSponsorship,
   type WorkplaceType,
@@ -29,6 +31,7 @@ import {
 import { z } from "zod";
 import { SALARY_CURRENCIES, VISA_FILTERS, type VisaFilter } from "@/lib/job-labels";
 import { candidateSignals, getProfile } from "./profile";
+import { getPrimaryResume } from "./resumes";
 
 const blankToUndefined = (value: unknown) => (value === "" ? undefined : value);
 const yearlyAmount = z.preprocess(
@@ -267,7 +270,7 @@ export async function getJobDetail(userId: string, jobId: string) {
     .limit(1);
   if (!row) throw new NotFoundError("Job");
 
-  const [signals, [aiMatch], [application]] = await Promise.all([
+  const [signals, [aiMatch], [application], primary] = await Promise.all([
     candidateSignals(userId),
     db
       .select()
@@ -279,14 +282,30 @@ export async function getJobDetail(userId: string, jobId: string) {
       .from(applications)
       .where(and(eq(applications.userId, userId), eq(applications.jobId, jobId)))
       .limit(1),
+    getPrimaryResume(userId),
   ]);
+  const [tailored] = application?.resumeId
+    ? await db
+        .select({ sourceHash: resumes.sourceHash, notes: resumes.tailorNotes })
+        .from(resumes)
+        .where(and(eq(resumes.id, application.resumeId), eq(resumes.userId, userId)))
+        .limit(1)
+    : [];
+  // Known to be made from an older main resume; resumes from before hashes existed aren't flagged.
+  const mainHash = primary ? resumeHash(primary.content) : null;
+  const madeFromOlder = (hash: string | null | undefined) =>
+    Boolean(hash && mainHash && hash !== mainHash);
 
   return {
     job: row.job,
     company: { name: row.companyName, slug: row.companySlug, website: row.companyWebsite },
     match: quickMatch(signals, row.job),
     aiMatch: aiMatch ?? null,
+    aiMatchStale: madeFromOlder(aiMatch?.sourceHash),
     application: application ?? null,
+    tailored: tailored
+      ? { notes: tailored.notes, stale: madeFromOlder(tailored.sourceHash) }
+      : null,
   };
 }
 

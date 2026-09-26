@@ -84,6 +84,10 @@ export const profiles = pgTable(
     portfolioUrl: text("portfolio_url").notNull().default(""),
     alertsEnabled: boolean("alerts_enabled").notNull().default(true),
     alertMinScore: integer("alert_min_score").notNull().default(70),
+    /** Prepare a tailored resume and cover letter for strong new matches in the background. */
+    autoPrepareEnabled: boolean("auto_prepare_enabled").notNull().default(false),
+    autoPrepareMinScore: integer("auto_prepare_min_score").notNull().default(80),
+    autoPrepareDailyLimit: integer("auto_prepare_daily_limit").notNull().default(3),
     createdAt,
     updatedAt,
   },
@@ -228,6 +232,8 @@ export const jobMatches = pgTable(
     strengths: jsonb("strengths").$type<string[]>().notNull().default([]),
     gaps: jsonb("gaps").$type<string[]>().notNull().default([]),
     model: text("model").notNull(),
+    /** Hash of the main resume the analysis read, so a changed resume shows it as stale. */
+    sourceHash: text("source_hash"),
     createdAt,
   },
   (table) => [primaryKey({ columns: [table.userId, table.jobId] })],
@@ -238,6 +244,13 @@ export const jobMatches = pgTable(
 /* ------------------------------------------------------------------------------------------ */
 
 export const RESUME_KINDS = ["master", "tailored"] as const;
+
+export interface TailorNotes {
+  summaryOfChanges: string[];
+  addedKeywords: string[];
+  missingKeywords: string[];
+  suggestions: string[];
+}
 
 export const resumes = pgTable(
   "resumes",
@@ -251,6 +264,10 @@ export const resumes = pgTable(
     settings: jsonb("settings").$type<ResumeSettings>().notNull(),
     isPrimary: boolean("is_primary").notNull().default(false),
     sourceFileName: text("source_file_name"),
+    /** For tailored resumes: hash of the main resume they were made from, to spot stale ones. */
+    sourceHash: text("source_hash"),
+    /** For tailored resumes: what changed and what's missing, shown in the apply kit. */
+    tailorNotes: jsonb("tailor_notes").$type<TailorNotes>(),
     createdAt,
     updatedAt,
   },
@@ -311,6 +328,7 @@ export const resumeMessages = pgTable(
 export const APPLICATION_STATUSES = [
   "saved",
   "preparing",
+  "ready",
   "applied",
   "screening",
   "interviewing",
@@ -373,6 +391,7 @@ export const APPLICATION_EVENT_TYPES = [
   "kit_generated",
   "outreach_drafted",
   "submitted",
+  "auto_prepared",
 ] as const;
 
 export const applicationEvents = pgTable(
@@ -417,7 +436,12 @@ export const outreachMessages = pgTable(
   (table) => [index("outreach_user_idx").on(table.userId, table.createdAt.desc())],
 ).enableRLS();
 
-export const NOTIFICATION_TYPES = ["job_match", "follow_up", "system"] as const;
+export const NOTIFICATION_TYPES = [
+  "job_match",
+  "follow_up",
+  "application_ready",
+  "system",
+] as const;
 
 export const notifications = pgTable(
   "notifications",
