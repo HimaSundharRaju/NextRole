@@ -23,7 +23,8 @@ export async function hasAiBudget(userId: string, plan: Plan): Promise<boolean> 
   return (await monthlyAiSpendMicroUsd(userId)) < MONTHLY_AI_BUDGET_USD[plan] * 1_000_000;
 }
 
-export async function recordAiUsage(userId: string, record: AiUsageRow): Promise<void> {
+/** Records a call's usage; `userId` is null for background work no user asked for. */
+export async function recordAiUsage(userId: string | null, record: AiUsageRow): Promise<void> {
   await getDb()
     .insert(aiUsage)
     .values({ userId, ...record });

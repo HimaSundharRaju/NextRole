@@ -22,6 +22,9 @@ export interface JobSignals {
   workplaceType: WorkplaceType;
   salaryMax: number | null;
   salaryPeriod: "year" | "month" | "hour" | null;
+  /** The level and years the post asks for, when job enrichment has read them. */
+  seniority?: Seniority | null;
+  yearsMin?: number | null;
 }
 
 export interface QuickMatch {
@@ -101,20 +104,35 @@ export function titleSimilarity(jobTitle: string, targetTitle: string): number {
 const SENIOR_TITLE = /\b(senior|sr\.?|staff|principal|lead|head|director|vp|chief)\b/i;
 const JUNIOR_TITLE = /\b(junior|jr\.?|intern|internship|entry|new grad|graduate|associate)\b/i;
 
-function seniorityPenalty(seniority: Seniority | null, jobTitle: string): number {
-  if (!seniority) return 0;
-  const juniorCandidate = seniority === "intern" || seniority === "entry";
-  const seniorCandidate = [
-    "senior",
-    "staff",
-    "principal",
-    "manager",
-    "director",
-    "executive",
-  ].includes(seniority);
-  if (juniorCandidate && SENIOR_TITLE.test(jobTitle)) return 20;
-  if (seniorCandidate && JUNIOR_TITLE.test(jobTitle)) return 15;
-  return 0;
+const JUNIOR_LEVELS = new Set<Seniority>(["intern", "entry"]);
+const SENIOR_LEVELS = new Set<Seniority>([
+  "senior",
+  "staff",
+  "principal",
+  "manager",
+  "director",
+  "executive",
+]);
+
+/**
+ * Points off for a level mismatch: a junior candidate and a senior role (or one asking for five
+ * or more years), or a senior candidate and an entry-level role. The post's level, when
+ * enrichment has read it, beats guessing from the title.
+ */
+function seniorityPenalty(
+  seniority: Seniority | null,
+  job: JobSignals,
+): { points: number; reason?: string } {
+  if (!seniority) return { points: 0 };
+  const jobSenior = job.seniority ? SENIOR_LEVELS.has(job.seniority) : SENIOR_TITLE.test(job.title);
+  const jobJunior = job.seniority ? JUNIOR_LEVELS.has(job.seniority) : JUNIOR_TITLE.test(job.title);
+  const years = job.yearsMin ?? 0;
+  if (JUNIOR_LEVELS.has(seniority) && (jobSenior || years >= 5)) {
+    return { points: 20, reason: years >= 5 ? `Asks for ${years}+ years` : undefined };
+  }
+  if (seniority === "mid" && years >= 8) return { points: 10, reason: `Asks for ${years}+ years` };
+  if (SENIOR_LEVELS.has(seniority) && jobJunior) return { points: 15 };
+  return { points: 0 };
 }
 
 function locationMatches(jobLocation: string, targets: string[]): boolean {
@@ -166,7 +184,9 @@ export function quickMatch(candidate: CandidateSignals, job: JobSignals): QuickM
   if (location.reason) reasons.push(location.reason);
 
   let score = skillFit * 50 + titleFit * 30 + location.fit * 20;
-  score -= seniorityPenalty(candidate.seniority, job.title);
+  const level = seniorityPenalty(candidate.seniority, job);
+  score -= level.points;
+  if (level.reason) reasons.push(level.reason);
 
   const annualMax = annualize(job.salaryMax, job.salaryPeriod);
   if (candidate.minSalary && annualMax !== null) {

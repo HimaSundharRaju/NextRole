@@ -116,6 +116,7 @@ const FEATURE_LABEL: Record<string, string> = {
   outreach: "Outreach",
   interview: "Interview prep",
   studio: "Studio",
+  enrich: "Job enrichment",
 };
 
 const VENDOR_LABEL = { anthropic: "Anthropic", openai: "OpenAI" } as const;
@@ -144,7 +145,7 @@ async function AiUsage() {
   const report = await aiUsageReport();
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Stat
           label="AI spend this month"
           value={money(report.spendUsd)}
@@ -159,6 +160,15 @@ async function AiUsage() {
           label="Input read from cache"
           value={percent(report.cacheReadShare)}
           hint="Billed at a tenth of the input price or less"
+        />
+        <Stat
+          label="Posts enriched"
+          value={
+            report.enrichment.open > 0
+              ? percent(report.enrichment.enriched / report.enrichment.open)
+              : "—"
+          }
+          hint={`${report.enrichment.waiting.toLocaleString()} waiting · ${money(report.enrichment.spentTodayUsd)} in the last day`}
         />
         <Stat
           label="Saved with batches"

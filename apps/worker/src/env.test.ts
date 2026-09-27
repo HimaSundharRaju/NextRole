@@ -14,6 +14,16 @@ describe("worker env", () => {
     expect(() => loadWorkerEnv({ ...base, AI_PROVIDER: "other" })).toThrow("AI_PROVIDER");
   });
 
+  it("caps job enrichment at $2 a day unless told otherwise", () => {
+    expect(loadWorkerEnv(base).ENRICH_DAILY_BUDGET_USD).toBe(2);
+    expect(loadWorkerEnv({ ...base, ENRICH_DAILY_BUDGET_USD: "5.5" }).ENRICH_DAILY_BUDGET_USD).toBe(
+      5.5,
+    );
+    expect(() => loadWorkerEnv({ ...base, ENRICH_DAILY_BUDGET_USD: "-1" })).toThrow(
+      "ENRICH_DAILY_BUDGET_USD",
+    );
+  });
+
   it("batches auto-prepare's AI work unless AI_BATCH is off", () => {
     expect(loadWorkerEnv(base).AI_BATCH).toBe("on");
     expect(loadWorkerEnv({ ...base, AI_BATCH: "off" }).AI_BATCH).toBe("off");

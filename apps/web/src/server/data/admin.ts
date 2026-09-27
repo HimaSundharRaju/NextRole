@@ -161,47 +161,65 @@ export async function aiUsageReport(now = new Date()) {
   const thisMonth = gte(aiUsage.createdAt, startOfMonth(now));
   const cost = sql<string>`coalesce(sum(${aiUsage.costMicroUsd}), 0)`;
   const calls = sql<number>`count(*)::int`;
-  const [features, models, spenders, plans, [waiting]] = await Promise.all([
-    db
-      .select({
-        feature: aiUsage.feature,
-        calls,
-        cost,
-        batchCalls: sql<number>`(count(*) filter (where ${aiUsage.batch}))::int`,
-      })
-      .from(aiUsage)
-      .where(thisMonth)
-      .groupBy(aiUsage.feature)
-      .orderBy(desc(cost)),
-    db
-      .select({
-        model: aiUsage.model,
-        calls,
-        cost,
-        batchCost: sql<string>`coalesce(sum(${aiUsage.costMicroUsd}) filter (where ${aiUsage.batch}), 0)`,
-        inputTokens: sql<string>`coalesce(sum(${aiUsage.inputTokens}), 0)`,
-        outputTokens: sql<string>`coalesce(sum(${aiUsage.outputTokens}), 0)`,
-        cacheReadTokens: sql<string>`coalesce(sum(${aiUsage.cacheReadTokens}), 0)`,
-        cacheWriteTokens: sql<string>`coalesce(sum(${aiUsage.cacheWriteTokens}), 0)`,
-      })
-      .from(aiUsage)
-      .where(thisMonth)
-      .groupBy(aiUsage.model)
-      .orderBy(desc(cost)),
-    db
-      .select({ id: users.id, name: users.name, email: users.email, plan: users.plan, cost })
-      .from(aiUsage)
-      .innerJoin(users, eq(aiUsage.userId, users.id))
-      .where(thisMonth)
-      .groupBy(users.id)
-      .orderBy(desc(cost))
-      .limit(10),
-    db.select({ plan: users.plan, count: calls }).from(users).groupBy(users.plan),
-    db
-      .select({ count: calls })
-      .from(aiBatchRequests)
-      .where(sql`${aiBatchRequests.status} in ('queued', 'submitted')`),
-  ]);
+  const [features, models, spenders, plans, [waiting], [enrichment], [enrichSpend]] =
+    await Promise.all([
+      db
+        .select({
+          feature: aiUsage.feature,
+          calls,
+          cost,
+          batchCalls: sql<number>`(count(*) filter (where ${aiUsage.batch}))::int`,
+        })
+        .from(aiUsage)
+        .where(thisMonth)
+        .groupBy(aiUsage.feature)
+        .orderBy(desc(cost)),
+      db
+        .select({
+          model: aiUsage.model,
+          calls,
+          cost,
+          batchCost: sql<string>`coalesce(sum(${aiUsage.costMicroUsd}) filter (where ${aiUsage.batch}), 0)`,
+          inputTokens: sql<string>`coalesce(sum(${aiUsage.inputTokens}), 0)`,
+          outputTokens: sql<string>`coalesce(sum(${aiUsage.outputTokens}), 0)`,
+          cacheReadTokens: sql<string>`coalesce(sum(${aiUsage.cacheReadTokens}), 0)`,
+          cacheWriteTokens: sql<string>`coalesce(sum(${aiUsage.cacheWriteTokens}), 0)`,
+        })
+        .from(aiUsage)
+        .where(thisMonth)
+        .groupBy(aiUsage.model)
+        .orderBy(desc(cost)),
+      db
+        .select({ id: users.id, name: users.name, email: users.email, plan: users.plan, cost })
+        .from(aiUsage)
+        .innerJoin(users, eq(aiUsage.userId, users.id))
+        .where(thisMonth)
+        .groupBy(users.id)
+        .orderBy(desc(cost))
+        .limit(10),
+      db.select({ plan: users.plan, count: calls }).from(users).groupBy(users.plan),
+      db
+        .select({ count: calls })
+        .from(aiBatchRequests)
+        .where(sql`${aiBatchRequests.status} in ('queued', 'submitted')`),
+      db
+        .select({
+          open: calls,
+          enriched: sql<number>`(count(*) filter (where ${jobs.enrichedHash} = ${jobs.contentHash}))::int`,
+          waiting: sql<number>`(count(*) filter (where ${jobs.enrichmentBatchId} is not null))::int`,
+        })
+        .from(jobs)
+        .where(isNull(jobs.closedAt)),
+      db
+        .select({ total: cost })
+        .from(aiUsage)
+        .where(
+          and(
+            eq(aiUsage.feature, "enrich"),
+            gte(aiUsage.createdAt, new Date(now.getTime() - 86_400_000)),
+          ),
+        ),
+    ]);
 
   const byModel = models.map((row) => {
     const input =
@@ -235,6 +253,13 @@ export async function aiUsageReport(now = new Date()) {
     batchSavingsUsd: batchSpendUsd,
     batchShare: spendUsd > 0 ? batchSpendUsd / spendUsd : 0,
     waitingInBatches: waiting?.count ?? 0,
+    /** Open posts job enrichment has read as they are, and its spend in the last day. */
+    enrichment: {
+      open: enrichment?.open ?? 0,
+      enriched: enrichment?.enriched ?? 0,
+      waiting: enrichment?.waiting ?? 0,
+      spentTodayUsd: usd(enrichSpend?.total),
+    },
     planRevenueUsd,
     byFeature: features.map((row) => ({
       feature: row.feature,

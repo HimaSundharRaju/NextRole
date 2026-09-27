@@ -7,7 +7,9 @@ export type AiFeature =
   | "answers"
   | "outreach"
   | "interview"
-  | "studio";
+  | "studio"
+  /** Background: facts for the job board's filters, read from postings (no user attached). */
+  | "enrich";
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -25,6 +27,7 @@ export const FEATURE_EFFORT: Record<AiFeature, Effort> = {
   outreach: "medium",
   interview: "medium",
   studio: "medium",
+  enrich: "low",
 };
 
 export const DEFAULT_MODEL = "claude-opus-5";

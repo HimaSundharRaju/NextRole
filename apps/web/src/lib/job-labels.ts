@@ -1,4 +1,4 @@
-import type { EmploymentType } from "@gettargetrole/db/schema";
+import type { EmploymentType, Seniority } from "@gettargetrole/db/schema";
 
 export const EMPLOYMENT_TYPE_LABEL: Record<EmploymentType, string> = {
   full_time: "Full-time",
@@ -24,3 +24,29 @@ export const VISA_FILTER_LABEL: Record<VisaFilter, string> = {
 };
 
 export const SALARY_CURRENCIES = ["USD", "EUR", "GBP", "CAD", "INR", "AUD", "SGD"] as const;
+
+export const SENIORITY_LABEL: Record<Seniority, string> = {
+  intern: "Internship level",
+  entry: "Entry level",
+  mid: "Mid level",
+  senior: "Senior level",
+  staff: "Staff level",
+  principal: "Principal level",
+  manager: "Manager",
+  director: "Director",
+  executive: "Executive",
+};
+
+export const EDUCATION_LABEL: Record<string, string> = {
+  none: "No degree required",
+  bachelors: "Bachelor's degree",
+  masters: "Master's degree",
+  phd: "PhD",
+};
+
+/** What job enrichment stored for a post, as far as the job page shows it. */
+export interface JobEnrichmentView {
+  summary?: string;
+  education?: string | null;
+  quotes?: Partial<Record<string, string>>;
+}

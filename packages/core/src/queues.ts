@@ -17,6 +17,10 @@ export const JOB_NAMES = {
   importYcCompanies: "import-yc-companies",
   /** Scheduled daily: deletes jobs closed long ago that no application points to. */
   pruneClosedJobs: "prune-closed-jobs",
+  /** Scheduled: sends posts that need enrichment to a batch API. */
+  submitEnrichment: "submit-enrichment",
+  /** Scheduled: reads finished enrichment batches into their posts. */
+  pollEnrichment: "poll-enrichment",
   createJobAlerts: "create-job-alerts",
   /** Scheduled: reminds users about applications whose follow-up date has arrived. */
   followUpReminders: "follow-up-reminders",

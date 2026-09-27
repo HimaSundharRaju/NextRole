@@ -35,6 +35,9 @@ export const DEFAULT_ROUTES: Record<AiFeature, Route> = {
   generate: { vendor: "anthropic", model: REFERENCE_MODEL },
   outreach: { vendor: "anthropic", model: REFERENCE_MODEL },
   studio: { vendor: "anthropic", model: REFERENCE_MODEL },
+  // Bulk extraction across every post: on 50 real posts it kept the most facts, and every fact
+  // that passed the quote check matched GPT-4.1 (packages/ai/eval/enrich.mts).
+  enrich: { vendor: "openai", model: "gpt-4o-mini" },
 };
 
 /** The Claude model a feature uses when its OpenAI route fails or OpenAI isn't configured. */
@@ -49,6 +52,7 @@ export const CLAUDE_FALLBACK: Record<AiFeature, string> = {
   generate: REFERENCE_MODEL,
   outreach: REFERENCE_MODEL,
   studio: REFERENCE_MODEL,
+  enrich: "claude-haiku-4-5",
 };
 
 /** Parses an override like `openai:gpt-5-mini`, `anthropic:claude-sonnet-5` or `claude-sonnet-5`. */

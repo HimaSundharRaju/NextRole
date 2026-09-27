@@ -9,6 +9,7 @@ import { SaveJobButton } from "@/components/jobs/save-job-button";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
+import { EDUCATION_LABEL, SENIORITY_LABEL, type JobEnrichmentView } from "@/lib/job-labels";
 import { allowancesFor } from "@/lib/plans";
 import { formatSalary, timeAgo } from "@/lib/utils";
 import { uuidSchema } from "@/lib/validation";
@@ -43,6 +44,12 @@ export default async function JobPage({ params }: Props) {
   const allowances = allowancesFor(user.plan, await monthlyUsage(user.id));
   const matchScore = aiMatch?.score ?? match.score;
   const salary = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency, job.salaryPeriod);
+  const enrichment = job.enrichment as JobEnrichmentView | null;
+  // Hovering a fact job enrichment read shows the post's own words for it.
+  const evidence = (field: string) => {
+    const quote = enrichment?.quotes?.[field];
+    return quote ? `"${quote}"` : undefined;
+  };
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -56,6 +63,9 @@ export default async function JobPage({ params }: Props) {
       <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">{job.title}</h1>
+          {enrichment?.summary ? (
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{enrichment.summary}</p>
+          ) : null}
           <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-1">
               <Building2 className="h-4 w-4" aria-hidden /> {company.name}
@@ -78,6 +88,17 @@ export default async function JobPage({ params }: Props) {
             ) : null}
             <JobTermsBadges job={job} showFullTime />
             {salary ? <Badge tone="outline">{salary}</Badge> : null}
+            {job.seniority ? <Badge tone="outline">{SENIORITY_LABEL[job.seniority]}</Badge> : null}
+            {job.yearsMin !== null ? (
+              <Badge tone="outline" title={evidence("years")}>
+                {job.yearsMin === 0 ? "No experience required" : `${job.yearsMin}+ years`}
+              </Badge>
+            ) : null}
+            {enrichment?.education ? (
+              <Badge tone="outline" title={evidence("education")}>
+                {EDUCATION_LABEL[enrichment.education] ?? enrichment.education}
+              </Badge>
+            ) : null}
             {job.department ? <Badge tone="outline">{job.department}</Badge> : null}
           </div>
         </div>

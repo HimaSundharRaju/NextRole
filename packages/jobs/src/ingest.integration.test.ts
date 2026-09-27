@@ -370,6 +370,46 @@ describe.skipIf(!TEST_DATABASE_URL)("job ingestion (Postgres integration)", () =
     expect(left.sort()).toEqual([kept!.id, recent!.id].sort());
   });
 
+  it("keeps what enrichment filled in until the post changes", async () => {
+    const database = db.getDb();
+    await ingest.syncCompany(companyId, { fetch: fakeFetch({ [board]: greenhouseResponse }) });
+    const [stored] = await database
+      .select()
+      .from(db.jobs)
+      .where(drizzle.eq(db.jobs.externalId, "4012346"));
+    expect(stored).toMatchObject({ employmentTypes: ["full_time"], visaSponsorship: "unknown" });
+    // What an enrichment batch would have written for this exact content.
+    await database
+      .update(db.jobs)
+      .set({
+        employmentTypes: ["contract", "w2"],
+        visaSponsorship: "no",
+        workplaceType: "hybrid",
+        enrichedHash: stored!.contentHash,
+      })
+      .where(drizzle.eq(db.jobs.id, stored!.id));
+
+    await ingest.syncCompany(companyId, { fetch: fakeFetch({ [board]: greenhouseResponse }) });
+    const [kept] = await database.select().from(db.jobs).where(drizzle.eq(db.jobs.id, stored!.id));
+    expect(kept).toMatchObject({
+      employmentTypes: ["contract", "w2"],
+      visaSponsorship: "no",
+      workplaceType: "hybrid",
+    });
+
+    // A changed post goes back to what the parsers read, until it's enriched again.
+    const changed = structuredClone(greenhouseResponse);
+    changed.jobs[1]!.title = "Senior Data Analyst";
+    await ingest.syncCompany(companyId, { fetch: fakeFetch({ [board]: changed }) });
+    const [reset] = await database.select().from(db.jobs).where(drizzle.eq(db.jobs.id, stored!.id));
+    expect(reset).toMatchObject({
+      employmentTypes: ["full_time"],
+      visaSponsorship: "unknown",
+      workplaceType: "unknown",
+    });
+    expect(reset!.enrichedHash).not.toBe(reset!.contentHash);
+  });
+
   it("records a failed sync on the company", async () => {
     await expect(ingest.syncCompany(companyId, { fetch: fakeFetch({}) })).rejects.toThrow();
     const [company] = await db

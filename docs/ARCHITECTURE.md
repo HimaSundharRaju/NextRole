@@ -69,9 +69,19 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    when the board listed everything: a listing that is partial (a capped search, a page that
    failed) closes nothing, and neither does one with under a fifth of the board's usual jobs,
    which is flagged on the company until the drop has lasted three syncs.
-5. **Alert.** New jobs are scored against each candidate's profile, and strong matches create
+5. **Enrich.** Every 15 minutes the worker sends open posts that aren't enriched (or changed
+   since) to GPT-4o-mini in a half-price batch, newest first, within `ENRICH_DAILY_BUDGET_USD`
+   (default $2, about 7,000 posts). The model reads the facts the parsers miss: required years,
+   level, education, pay written without a currency symbol, W-2/C2C/1099 terms, workplace,
+   sponsorship and clearance statements, and whether the post is an evergreen talent pool. Each
+   fact must come with the post's own words, and a fact whose quote isn't in the post word for
+   word (or whose number isn't in its quote) is dropped. The board's data and the parsers win;
+   enrichment only fills what they left unknown, and keeps its additions until the post
+   changes. The job board filters on required years, and the match score uses the post's level
+   and years instead of guessing from the title.
+6. **Alert.** New jobs are scored against each candidate's profile, and strong matches create
    notifications. Candidates who need sponsorship aren't alerted about posts that rule it out.
-6. **Auto-prepare.** For users who turned it on, new jobs at or above their minimum match are
+7. **Auto-prepare.** For users who turned it on, new jobs at or above their minimum match are
    queued on the `auto-prepare` queue, strongest matches first (see below).
 
 **Finding more companies** (`discovery.ts`, `companies.ts`). Users ask for a missing company
@@ -184,11 +194,12 @@ prep and the Studio chat.
   1,024 on `claude-sonnet-5`, 4,096 on `claude-haiku-4-5`). Tailor returns only the sections it
   rewrites and copies the rest, and job posts go to the model without their legal notices
   (equal-opportunity, accommodation, privacy and background-check text).
-- **Batches.** Background work goes through the Message Batches API at half price
-  (`ClaudeBatches` in `batch.ts`). Batch entries are built by the same code as live calls and
-  their results read by the same code, so a batched tailored resume is identical in kind to a
-  live one; only refusal fallbacks are left out, since their beta header would apply to the
-  whole batch.
+- **Batches.** Background work goes through a batch API at half price (`batch.ts`): Claude's
+  Message Batches for auto-prepare, OpenAI's Batch API (a JSONL file in, one out) for job
+  enrichment. `RequestBatches` takes any feature request: entries are built by the same code as
+  live calls and their results read by the same code, so a batched tailored resume is identical
+  in kind to a live one. Only refusal fallbacks are left out, since their beta header would
+  apply to the whole batch.
 - **Reuse.** A tailored resume stores a hash of the main resume it came from (`resumes.source_hash`),
   as does a fit analysis. Opening Tailor again for a job reuses the existing version when the main
   resume hasn't changed, at no cost; when it has, the job page marks the tailored resume and the
@@ -224,13 +235,17 @@ seconds on average.
 
 Results from September 2026:
 
-| Feature                                | Route             | Evidence                                                                                                                                               |
-| -------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Resume import                          | `gpt-4o-mini`     | Tied the reference on all 8 imports with both judges; $0.0005 against $0.015                                                                           |
-| Fit analysis                           | `gpt-4o-mini`     | Won or tied 7 of 8 comparisons (Claude judge) and 6 of 8 (GPT judge); $0.0004 against $0.012                                                           |
-| Tailoring                              | `claude-sonnet-5` | Cheaper models added technical skills the candidate doesn't have far more often: Sonnet 5 was clean on 15 of 20, Haiku 4.5 on 6, the GPT models on 0–2 |
-| Cover letters, answers, interview prep | `claude-sonnet-5` | Both judges preferred Claude; the GPT models won or tied 0–38% of comparisons                                                                          |
-| Outreach, Studio, generation           | `claude-sonnet-5` | Not judged yet, so they run on the reference                                                                                                           |
+| Feature                                | Route             | Evidence                                                                                                                                                                                                                                                                      |
+| -------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resume import                          | `gpt-4o-mini`     | Tied the reference on all 8 imports with both judges; $0.0005 against $0.015                                                                                                                                                                                                  |
+| Fit analysis                           | `gpt-4o-mini`     | Won or tied 7 of 8 comparisons (Claude judge) and 6 of 8 (GPT judge); $0.0004 against $0.012                                                                                                                                                                                  |
+| Tailoring                              | `claude-sonnet-5` | Cheaper models added technical skills the candidate doesn't have far more often: Sonnet 5 was clean on 15 of 20, Haiku 4.5 on 6, the GPT models on 0–2                                                                                                                        |
+| Cover letters, answers, interview prep | `claude-sonnet-5` | Both judges preferred Claude; the GPT models won or tied 0–38% of comparisons                                                                                                                                                                                                 |
+| Outreach, Studio, generation           | `claude-sonnet-5` | Not judged yet, so they run on the reference                                                                                                                                                                                                                                  |
+| Job enrichment                         | `gpt-4o-mini`     | On 50 real posts it kept the most facts (3.3 a post against 2.1 for GPT-4.1), every quote-checked fact matched GPT-4.1, and 9 of 11 levels fell in the same junior/mid/senior band; $0.0002 a post in batches. GPT-5-nano costs a third as much but found a third fewer facts |
+
+Job enrichment has its own check (`eval/enrich.mts`): each model reads the same real posts,
+the quote check runs on every answer, and the facts that survive are compared with GPT-4.1's.
 
 Run it with
 `NODE_USE_ENV_PROXY=1 node --env-file=../../.env --import tsx eval/run.mts` from `packages/ai`
