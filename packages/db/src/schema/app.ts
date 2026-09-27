@@ -109,6 +109,7 @@ export const ATS_PROVIDERS = [
   "oracle",
   "eightfold",
   "amazon",
+  "bullhorn",
 ] as const;
 export type AtsProvider = (typeof ATS_PROVIDERS)[number];
 
@@ -134,6 +135,11 @@ export const companies = pgTable(
     syncIntervalMinutes: integer("sync_interval_minutes"),
     /** Failed syncs in a row; each one doubles the wait before the next, up to a day. */
     syncFailures: integer("sync_failures").notNull().default(0),
+    /**
+     * A staffing or recruiting firm: its jobs are roles at its clients, often contracts (W-2,
+     * C2C). The board labels them and can leave them out.
+     */
+    isStaffingAgency: boolean("is_staffing_agency").notNull().default(false),
     createdAt,
     updatedAt,
   },

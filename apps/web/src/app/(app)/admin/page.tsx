@@ -342,7 +342,10 @@ async function Companies() {
               <tbody className="divide-y divide-border">
                 {rows.map((company) => (
                   <tr key={company.id} className={company.active ? undefined : "opacity-60"}>
-                    <td className="py-2 pr-3 font-medium">{company.name}</td>
+                    <td className="py-2 pr-3 font-medium">
+                      {company.name}{" "}
+                      {company.isStaffingAgency ? <Badge tone="outline">Agency</Badge> : null}
+                    </td>
                     <td className="py-2 pr-3 text-muted-foreground">
                       <span className="capitalize">{company.ats}</span> ·{" "}
                       <span className="break-all">{company.boardToken}</span>
@@ -362,7 +365,11 @@ async function Companies() {
                       )}
                     </td>
                     <td className="py-2">
-                      <CompanyActions companyId={company.id} active={company.active} />
+                      <CompanyActions
+                        companyId={company.id}
+                        active={company.active}
+                        isStaffingAgency={company.isStaffingAgency}
+                      />
                     </td>
                   </tr>
                 ))}

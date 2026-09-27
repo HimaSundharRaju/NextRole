@@ -231,10 +231,17 @@ const robotsCache = new Map<string, { text: string; at: number }>();
 const ROBOTS_TTL_MS = 24 * 3600_000;
 const MAX_PAGE_BYTES = 2_000_000;
 
-/** A page's HTML, if robots.txt allows it and it is HTML; null otherwise. */
-async function fetchPage(url: string, context: ConnectorContext): Promise<string | null> {
+/**
+ * A page's text and where it ended up after redirects, if robots.txt allows it and it is of the
+ * expected type (HTML, or JSON with `json`); null otherwise.
+ */
+async function fetchPage(
+  url: string,
+  context: ConnectorContext,
+  { json = false }: { json?: boolean } = {},
+): Promise<{ text: string; url: string } | null> {
   const target = new URL(url);
-  const headers = { "user-agent": USER_AGENT, accept: "text/html" };
+  const headers = { "user-agent": USER_AGENT, accept: json ? "application/json" : "text/html" };
   const signal = () =>
     context.signal
       ? AbortSignal.any([context.signal, AbortSignal.timeout(15_000)])
@@ -252,9 +259,38 @@ async function fetchPage(url: string, context: ConnectorContext): Promise<string
     }
     if (!robotsAllows(robots.text, target.pathname + target.search)) return null;
     const response = await context.fetch(url, { headers, signal: signal() });
-    if (!response.ok || !/html/i.test(response.headers.get("content-type") ?? "")) return null;
-    const html = await response.text();
-    return html.length > MAX_PAGE_BYTES ? html.slice(0, MAX_PAGE_BYTES) : html;
+    const type = response.headers.get("content-type") ?? "";
+    if (!response.ok || !(json ? /json/i : /html/i).test(type)) return null;
+    const text = await response.text();
+    return {
+      text: text.length > MAX_PAGE_BYTES ? text.slice(0, MAX_PAGE_BYTES) : text,
+      url: response.url || url,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Staffing firms' career portals built on Bullhorn's open-source portal keep their settings,
+ * including the Bullhorn cluster and corp token, in an app.json next to the page.
+ */
+async function bullhornPortal(
+  page: { text: string; url: string },
+  context: ConnectorContext,
+): Promise<DetectedBoard | null> {
+  if (!/<app-root|career-portal/i.test(page.text)) return null;
+  const directory = page.url.endsWith("/") ? page.url : `${page.url}/`;
+  const base = new URL(/<base\s+href="([^"]*)"/i.exec(page.text)?.[1] ?? "./", directory);
+  const settings = await fetchPage(new URL("app.json", base).href, context, { json: true });
+  if (!settings) return null;
+  try {
+    const service = (JSON.parse(settings.text) as { service?: Record<string, unknown> }).service;
+    const cluster = String(service?.swimlane ?? "");
+    const corpToken = String(service?.corpToken ?? "");
+    if (!/^\d+$/.test(cluster) || !/^[A-Za-z0-9]+$/.test(corpToken)) return null;
+    const portal = `${base.host}${base.pathname}`.replace(/\/+$/, "");
+    return { provider: "bullhorn", token: `${cluster}|${corpToken}|${portal}` };
   } catch {
     return null;
   }
@@ -281,6 +317,13 @@ const titleCase = (value: string) =>
 
 function nameFromBoard(board: DetectedBoard): string {
   if (board.provider === "amazon") return "Amazon";
+  if (board.provider === "bullhorn") {
+    // The portal's host names the firm: jobs.prestigestaffing.com is Prestigestaffing.
+    const host = board.token.split("|")[2]?.split("/")[0] ?? "";
+    return titleCase(
+      host.split(".").find((label) => !/^(www|jobs|careers|apply|portal)$/.test(label)) ?? host,
+    );
+  }
   const [first = ""] = board.token.split("|");
   const part =
     board.provider === "workday" || board.provider === "oracle" || board.provider === "eightfold"
@@ -322,16 +365,21 @@ export async function discoverBoard(
     }
     const pages = [request.url];
     for (let index = 0; index < pages.length && index < 3; index++) {
-      const html = await fetchPage(pages[index]!, context);
-      if (!html) continue;
+      const page = await fetchPage(pages[index]!, context);
+      if (!page) continue;
       for (const board of [
-        ...findBoardLinks(html, pages[index]!),
-        ...eightfoldCandidates(html, pages[index]!),
+        ...findBoardLinks(page.text, page.url),
+        ...eightfoldCandidates(page.text, page.url),
       ]) {
         const result = await found(board, board.provider === "eightfold");
         if (result) return result;
       }
-      if (index === 0) pages.push(...findCareersLinks(html, pages[0]!));
+      const portal = await bullhornPortal(page, context);
+      if (portal) {
+        const result = await found(portal, false);
+        if (result) return result;
+      }
+      if (index === 0) pages.push(...findCareersLinks(page.text, page.url));
     }
   }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { amazon, mapAmazonJob } from "./connectors/amazon";
+import { bullhorn } from "./connectors/bullhorn";
 import { eightfold } from "./connectors/eightfold";
 import { oracle } from "./connectors/oracle";
 import { politeFetch } from "./connectors/polite";
@@ -7,6 +8,8 @@ import { isPrivateAddress, publicOnly } from "./connectors/public-only";
 import { parsePostedOn, workday } from "./connectors/workday";
 import { parseLocations } from "./locations";
 import {
+  bullhornContract,
+  bullhornDirectHire,
   eightfoldDetail,
   eightfoldList,
   fakeFetch,
@@ -389,6 +392,79 @@ describe("amazon connector", () => {
     const listing = await amazon.listJobs("IND", { fetch });
     expect(listing.jobs).toHaveLength(120);
     expect(listing.complete).toBe(true);
+  });
+});
+
+describe("bullhorn connector", () => {
+  const CEI = "30|3vcpe1|cei.ai/jobs";
+
+  it("maps staffing firms' roles with their pay, years and sponsorship", async () => {
+    const fetch = recordingFetch(() => ({
+      total: 2,
+      start: 0,
+      count: 2,
+      data: [bullhornContract, bullhornDirectHire],
+    }));
+    const listing = await bullhorn.listJobs(CEI, { fetch });
+    expect(fetch.sent[0]?.url).toBe(
+      "https://public-rest30.bullhornstaffing.com/rest-services/3vcpe1/search/JobOrder?query=(isOpen:1)&fields=*&count=200&start=0&sort=-dateLastPublished",
+    );
+    expect(listing.complete).toBe(true);
+    const [contract, direct] = listing.jobs;
+    expect(contract).toMatchObject({
+      externalId: "32799",
+      title: "Cyber Security Analyst II",
+      department: "Infrastructure & Security",
+      location: "Akron, Ohio",
+      workplaceType: "onsite",
+      employmentType: "Contract",
+      applyUrl: "https://cei.ai/jobs/#/jobs/32799",
+      // The contractor's hourly rate.
+      salary: { min: 62.5, max: 62.5, currency: "USD", period: "hour" },
+      yearsMin: 3,
+    });
+    // Unticked isn't a statement.
+    expect(contract).not.toHaveProperty("sponsorship");
+    expect(parseLocations([contract!.location], contract!.placeHints)).toEqual({
+      countries: ["US"],
+      regions: ["US-OH"],
+    });
+    expect(direct).toMatchObject({
+      // The range in the description beats the single figure in the record.
+      salary: { min: 125000, max: 150000, currency: "USD", period: "year" },
+      workplaceType: "remote",
+      yearsMin: null,
+      sponsorship: "yes",
+    });
+    expect(direct?.postedAt?.toISOString()).toBe(new Date(1784747240107).toISOString());
+  });
+
+  it("pages through a big feed and counts it in one request", async () => {
+    const fetch = recordingFetch(({ url }) => {
+      const start = Number(new URL(url).searchParams.get("start"));
+      const count = Number(new URL(url).searchParams.get("count"));
+      const size = Math.max(0, Math.min(count, 450 - start));
+      return {
+        total: 450,
+        data: Array.from({ length: size }, (_, i) => ({ ...bullhornContract, id: start + i })),
+      };
+    });
+    const listing = await bullhorn.listJobs(CEI, { fetch });
+    expect(listing.jobs).toHaveLength(450);
+    expect(listing.complete).toBe(true);
+    expect(fetch.sent).toHaveLength(3);
+    expect(await bullhorn.countJobs!(CEI, { fetch })).toBe(450);
+  });
+
+  it("calls VMS roles contracts and rejects a token without a portal", async () => {
+    const fetch = recordingFetch(() => ({
+      total: 1,
+      data: [{ ...bullhornContract, employmentType: "VMS" }],
+    }));
+    expect((await bullhorn.listJobs(CEI, { fetch })).jobs[0]?.employmentType).toBe("Contract");
+    await expect(bullhorn.listJobs("30|3vcpe1", { fetch })).rejects.toThrow(
+      "cluster|corpToken|portal",
+    );
   });
 });
 

@@ -49,8 +49,12 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    id per company means a board is never synced twice at once, and admins can trigger a sync
    manually.
 2. **Fetch.** Connectors call each board's public API with timeouts and typed errors:
-   Greenhouse, Lever, Ashby and SmartRecruiters for most companies, and Workday, Oracle
-   Recruiting Cloud, Eightfold (both of its APIs) and amazon.jobs for large employers. Every
+   Greenhouse, Lever, Ashby and SmartRecruiters for most companies; Workday, Oracle
+   Recruiting Cloud, Eightfold (both of its APIs) and amazon.jobs for large employers; and
+   Bullhorn's public jobs API for staffing firms, whose roles at their clients are often
+   contracts (W-2, C2C) with an hourly rate, required years and a sponsorship flag. Boards
+   that state years or sponsorship outright have those stored ahead of anything read from
+   the text. Every
    request goes through one per-host limiter (at most 2 at a time and 60 a minute, paused after a 429) and identifies itself as `GetTargetRoleBot`; the endpoints used are ones the sites'
    robots.txt allows. Some boards cap a search (Workday at 2,000 results, Amazon at 10,000), so
    their connectors read one job family, country or category at a time. Boards that list jobs
@@ -83,6 +87,13 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    notifications. Candidates who need sponsorship aren't alerted about posts that rule it out.
 7. **Auto-prepare.** For users who turned it on, new jobs at or above their minimum match are
    queued on the `auto-prepare` queue, strongest matches first (see below).
+
+**Staffing agencies.** Companies can be marked as staffing agencies (Bullhorn boards always
+are); their jobs carry an agency label, the board can show employers only or agencies only,
+and a "Contract roles (W-2 / C2C)" shortcut filters to contract arrangements. Discovery finds
+staffing firms' Bullhorn career portals from the settings file (`app.json`) next to the page.
+Few staffing firms publish a public feed (most use systems such as JobDiva or iCIMS without
+one), so they can be added one by one as they turn up.
 
 **Finding more companies** (`discovery.ts`, `companies.ts`). Users ask for a missing company
 on the jobs page, by name or careers link; admins add one from any link to its board, careers

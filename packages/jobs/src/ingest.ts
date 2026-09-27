@@ -48,6 +48,8 @@ export const PROVIDER_SYNC_MINUTES: Partial<Record<AtsProvider, number>> = {
   oracle: 180,
   eightfold: 180,
   amazon: 360,
+  // Bullhorn's fair-use policy asks public API readers to stay unobtrusive: hourly at most.
+  bullhorn: 60,
 };
 
 /** The longest a failing board waits between tries. */
@@ -180,6 +182,8 @@ export async function syncCompany(
         const descriptionText = htmlToText(descriptionHtml);
         const places = parseLocations([job.location], job.placeHints);
         const visa = parseVisaSignals(descriptionText);
+        const sponsorship =
+          visa.sponsorship === "unknown" && job.sponsorship ? job.sponsorship : visa.sponsorship;
         return {
           companyId: company.id,
           source: company.ats,
@@ -200,8 +204,9 @@ export async function syncCompany(
           countries: places.countries,
           regions: places.regions,
           employmentTypes: parseEmploymentTypes(job.employmentType, job.title, descriptionText),
-          visaSponsorship: visa.sponsorship,
+          visaSponsorship: sponsorship,
           citizenshipRequired: visa.citizenshipRequired,
+          yearsMin: job.yearsMin && job.yearsMin > 0 ? Math.round(job.yearsMin) : null,
           postedAt: job.postedAt && !Number.isNaN(job.postedAt.getTime()) ? job.postedAt : null,
           firstSeenAt: startedAt,
           lastSeenAt: startedAt,
@@ -238,6 +243,8 @@ export async function syncCompany(
             employmentTypes: sql`case when excluded.description_text = '' or ${enriched} then ${jobs.employmentTypes} else excluded.employment_types end`,
             visaSponsorship: sql`case when excluded.description_text = '' or ${enriched} then ${jobs.visaSponsorship} else excluded.visa_sponsorship end`,
             citizenshipRequired: sql`case when excluded.description_text = '' or ${enriched} then ${jobs.citizenshipRequired} else excluded.citizenship_required end`,
+            // The board's figure wins; a changed post clears what enrichment read from the old one.
+            yearsMin: sql`case when excluded.years_min is not null then excluded.years_min when ${jobs.contentHash} is distinct from excluded.content_hash then null else ${jobs.yearsMin} end`,
             postedAt: sql`coalesce(${jobs.postedAt}, excluded.posted_at)`,
             lastSeenAt: sql`excluded.last_seen_at`,
             closedAt: sql`null`,

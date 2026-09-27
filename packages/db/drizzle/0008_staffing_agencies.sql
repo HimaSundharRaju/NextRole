@@ -1,0 +1,1 @@
+ALTER TABLE "companies" ADD COLUMN "is_staffing_agency" boolean DEFAULT false NOT NULL;

@@ -38,6 +38,7 @@ export function enrichedFields(
     | "visaSponsorship"
     | "citizenshipRequired"
     | "workplaceType"
+    | "yearsMin"
   >,
   enrichment: JobEnrichment,
 ) {
@@ -54,7 +55,8 @@ export function enrichedFields(
   return {
     enrichment: enrichment as unknown as Record<string, unknown>,
     enrichedHash: job.contentHash,
-    yearsMin: enrichment.yearsMin,
+    // A board's own figure stands; a changed post has had enrichment's old one cleared.
+    yearsMin: job.yearsMin ?? enrichment.yearsMin,
     seniority: enrichment.seniority,
     employmentTypes: EMPLOYMENT_TYPES.filter((type) => types.has(type)),
     visaSponsorship:

@@ -211,6 +211,7 @@ describe.skipIf(!TEST_DATABASE_URL)("job enrichment (Postgres integration)", () 
       salaryMax: 180000,
       salaryPeriod: "year",
       visaSponsorship: "yes",
+      yearsMin: 4,
     });
     await enrichment.submitEnrichmentBatch(options());
     batches.script.set(job.id, reading());
@@ -221,6 +222,7 @@ describe.skipIf(!TEST_DATABASE_URL)("job enrichment (Postgres integration)", () 
       salaryMin: 150000,
       salaryPeriod: "year",
       visaSponsorship: "yes",
+      yearsMin: 4,
     });
   });
 

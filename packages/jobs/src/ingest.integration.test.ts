@@ -5,6 +5,8 @@ import type * as AlertsModule from "./alerts";
 import type * as IngestModule from "./ingest";
 import {
   ashbyResponse,
+  bullhornContract,
+  bullhornDirectHire,
   fakeFetch,
   greenhouseResponse,
   smartRecruitersDetail,
@@ -408,6 +410,53 @@ describe.skipIf(!TEST_DATABASE_URL)("job ingestion (Postgres integration)", () =
       workplaceType: "unknown",
     });
     expect(reset!.enrichedHash).not.toBe(reset!.contentHash);
+  });
+
+  it("stores the years and sponsorship a staffing board states", async () => {
+    const database = db.getDb();
+    const [company] = await database
+      .insert(db.companies)
+      .values({ name: "CEI", slug: "cei", ats: "bullhorn", boardToken: "30|3vcpe1|cei.ai/jobs" })
+      .returning();
+    const feed = "https://public-rest30.bullhornstaffing.com/rest-services/3vcpe1/search/JobOrder";
+    // Only the board says this role can sponsor.
+    const direct = {
+      ...bullhornDirectHire,
+      publicDescription: "<p>Senior, customer-focused role.</p>",
+    };
+    const sync = (data: unknown[]) =>
+      ingest.syncCompany(company!.id, {
+        fetch: fakeFetch({ [feed]: { total: data.length, data } }),
+      });
+    await sync([bullhornContract, direct]);
+    const byId = async () =>
+      Object.fromEntries(
+        (
+          await database.select().from(db.jobs).where(drizzle.eq(db.jobs.companyId, company!.id))
+        ).map((job) => [job.externalId, job]),
+      );
+    let stored = await byId();
+    expect(stored["32799"]).toMatchObject({
+      yearsMin: 3,
+      employmentTypes: ["contract", "w2"],
+      salaryMin: 63,
+      salaryPeriod: "hour",
+    });
+    expect(stored["54384"]).toMatchObject({ yearsMin: null, visaSponsorship: "yes" });
+
+    // Years enrichment read for the post with none survive an unchanged resync...
+    await database
+      .update(db.jobs)
+      .set({ yearsMin: 6 })
+      .where(drizzle.eq(db.jobs.externalId, "54384"));
+    await sync([bullhornContract, direct]);
+    stored = await byId();
+    expect(stored["54384"]?.yearsMin).toBe(6);
+    // ...but not a change to the post; the board's own figure always stands.
+    await sync([bullhornContract, { ...direct, title: "Solutions Manager" }]);
+    stored = await byId();
+    expect(stored["54384"]?.yearsMin).toBeNull();
+    expect(stored["32799"]?.yearsMin).toBe(3);
   });
 
   it("records a failed sync on the company", async () => {

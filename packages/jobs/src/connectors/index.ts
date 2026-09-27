@@ -1,6 +1,7 @@
 import type { AtsProvider } from "@gettargetrole/db/schema";
 import { amazon } from "./amazon";
 import { ashby } from "./ashby";
+import { bullhorn } from "./bullhorn";
 import { eightfold } from "./eightfold";
 import { greenhouse } from "./greenhouse";
 import { lever } from "./lever";
@@ -18,6 +19,7 @@ export const CONNECTORS: Record<AtsProvider, BoardConnector> = {
   oracle,
   eightfold,
   amazon,
+  bullhorn,
 };
 
 export function getConnector(provider: AtsProvider): BoardConnector {
