@@ -5,6 +5,7 @@ import {
   applications,
   getDb,
   jobMatches,
+  jobReports,
   notifications,
   outreachMessages,
   profiles,
@@ -50,6 +51,7 @@ export async function exportUserData(userId: string) {
       : [],
     outreach: await db.select().from(outreachMessages).where(eq(outreachMessages.userId, userId)),
     jobMatches: await db.select().from(jobMatches).where(eq(jobMatches.userId, userId)),
+    jobReports: await db.select().from(jobReports).where(eq(jobReports.userId, userId)),
     notifications: await db.select().from(notifications).where(eq(notifications.userId, userId)),
     aiUsage: await db
       .select({ feature: aiUsage.feature, model: aiUsage.model, createdAt: aiUsage.createdAt })

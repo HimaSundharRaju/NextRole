@@ -32,6 +32,8 @@ export interface NormalizedJob {
   sponsorship?: "yes" | "no";
   /** The employer, for a feed of many employers' jobs. */
   employer?: string;
+  /** When applications close, for boards that say. */
+  expiresAt?: Date | null;
 }
 
 /**

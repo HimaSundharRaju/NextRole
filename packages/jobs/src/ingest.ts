@@ -15,6 +15,7 @@ import { boardFetch, getConnector } from "./connectors";
 import type { Fetcher, NormalizedJob } from "./connectors/types";
 import { parseEmploymentTypes } from "./employment";
 import { jobFingerprint } from "./fingerprint";
+import { markReposts, scoreGhostJobs } from "./ghosts";
 import { parseLocations } from "./locations";
 import { htmlToText, sanitizeJobHtml } from "./sanitize";
 import { parseVisaSignals } from "./visa";
@@ -96,6 +97,11 @@ function contentHash(job: NormalizedJob): string {
  * A salary as its integer column can hold it. Boards send decimals (hourly rates such as 60.58),
  * which Postgres rejects, failing the whole batch; amounts out of range are dropped.
  */
+/** A date a board sent, or null when it didn't parse. */
+function validDate(date: Date | null | undefined): Date | null {
+  return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+
 function wholeSalary(amount: number | null | undefined): number | null {
   if (amount == null || !Number.isFinite(amount)) return null;
   const rounded = Math.round(amount);
@@ -214,7 +220,10 @@ export async function syncCompany(
           visaSponsorship: sponsorship,
           citizenshipRequired: visa.citizenshipRequired,
           yearsMin: job.yearsMin && job.yearsMin > 0 ? Math.round(job.yearsMin) : null,
-          postedAt: job.postedAt && !Number.isNaN(job.postedAt.getTime()) ? job.postedAt : null,
+          postedAt: validDate(job.postedAt),
+          expiresAt: validDate(job.expiresAt),
+          // A job listed past its closing date is closed, not reopened.
+          closedAt: (validDate(job.expiresAt) ?? startedAt) < startedAt ? startedAt : null,
           firstSeenAt: startedAt,
           lastSeenAt: startedAt,
           contentHash: contentHash(job),
@@ -255,8 +264,10 @@ export async function syncCompany(
             // The board's figure wins; a changed post clears what enrichment read from the old one.
             yearsMin: sql`case when excluded.years_min is not null then excluded.years_min when ${jobs.contentHash} is distinct from excluded.content_hash then null else ${jobs.yearsMin} end`,
             postedAt: sql`coalesce(${jobs.postedAt}, excluded.posted_at)`,
+            expiresAt: sql`excluded.expires_at`,
             lastSeenAt: sql`excluded.last_seen_at`,
-            closedAt: sql`null`,
+            // Listed again reopens a job, unless its closing date has passed.
+            closedAt: sql`case when excluded.closed_at is null then null else coalesce(${jobs.closedAt}, excluded.closed_at) end`,
             contentHash: sql`excluded.content_hash`,
             updatedAt: sql`case when ${jobs.contentHash} is distinct from excluded.content_hash then now() else ${jobs.updatedAt} end`,
           },
@@ -312,6 +323,9 @@ export async function syncCompany(
           .returning({ id: jobs.id })
       : [];
     await linkDuplicates(db, company.id, startedAt);
+    await markReposts(db, company.id, startedAt);
+    // Scored before alerts go out for the new jobs, which skip likely ghost jobs.
+    await scoreGhostJobs(db, { companyId: company.id });
 
     await db
       .update(companies)

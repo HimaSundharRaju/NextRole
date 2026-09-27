@@ -1,10 +1,11 @@
-import { ArrowLeft, Building2, CalendarDays, ExternalLink, MapPin } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Building2, CalendarDays, ExternalLink, MapPin } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ApplyKit } from "@/components/jobs/apply-kit";
 import { FitPanel } from "@/components/jobs/fit-panel";
-import { JobTermsBadges } from "@/components/jobs/job-card";
+import { GhostBadges, JobTermsBadges } from "@/components/jobs/job-card";
+import { ReportJob } from "@/components/jobs/report-job";
 import { SaveJobButton } from "@/components/jobs/save-job-button";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -44,7 +45,18 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function JobPage({ params }: Props) {
   const { id } = await params;
-  const { job, company, match, aiMatch, aiMatchStale, application, tailored } = await load(id);
+  const {
+    job,
+    company,
+    match,
+    likelyGhost,
+    recentlyListed,
+    report,
+    aiMatch,
+    aiMatchStale,
+    application,
+    tailored,
+  } = await load(id);
   const user = await requireOnboardedUser();
   const allowances = allowancesFor(user.plan, await monthlyUsage(user.id));
   const matchScore = aiMatch?.score ?? match.score;
@@ -102,6 +114,18 @@ export default async function JobPage({ params }: Props) {
             <span className="inline-flex items-center gap-1">
               <CalendarDays className="h-4 w-4" aria-hidden /> Found {timeAgo(job.firstSeenAt)}
             </span>
+            {/* An employer's board or an official feed shows the job is open; another feed only
+                shows it's still listed there. */}
+            {recentlyListed ? (
+              <span
+                className="inline-flex items-center gap-1 text-success"
+                title="When this job last appeared on its board"
+              >
+                <BadgeCheck className="h-4 w-4" aria-hidden />
+                {credit && !credit.official ? `Listed on ${credit.site}` : "Verified open"} ·
+                checked {timeAgo(job.lastSeenAt)}
+              </span>
+            ) : null}
           </p>
           <div className="mt-3 flex flex-wrap gap-1.5">
             {job.closedAt ? <Badge tone="danger">No longer accepting applications</Badge> : null}
@@ -111,6 +135,7 @@ export default async function JobPage({ params }: Props) {
               </Badge>
             ) : null}
             <JobTermsBadges job={job} showFullTime />
+            <GhostBadges job={{ ...job, likelyGhost }} />
             {salary ? <Badge tone="outline">{salary}</Badge> : null}
             {job.seniority ? <Badge tone="outline">{SENIORITY_LABEL[job.seniority]}</Badge> : null}
             {job.yearsMin !== null ? (
@@ -199,6 +224,11 @@ export default async function JobPage({ params }: Props) {
             allowances={allowances}
             matchScore={matchScore}
           />
+          <Card>
+            <CardBody className="p-4">
+              <ReportJob jobId={job.id} reported={report} />
+            </CardBody>
+          </Card>
         </div>
       </div>
     </div>

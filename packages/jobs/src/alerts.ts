@@ -10,14 +10,15 @@ import {
   users,
   type Database,
 } from "@gettargetrole/db";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { LIKELY_GHOST_SCORE } from "./ghosts";
 import { quickMatch } from "./match";
 
 const log = createLogger("alerts");
 
 /**
- * The new jobs worth telling people about: open, and not a feed's copy of a job the employer
- * lists itself (the employer's listing was the news).
+ * The new jobs worth telling people about: open, not a feed's copy of a job the employer lists
+ * itself (the employer's listing was the news), and not a likely ghost job.
  */
 function openJobs(jobIds: string[], db: Database) {
   return db
@@ -36,7 +37,14 @@ function openJobs(jobIds: string[], db: Database) {
       yearsMin: jobs.yearsMin,
     })
     .from(jobs)
-    .where(and(inArray(jobs.id, jobIds), isNull(jobs.closedAt), isNull(jobs.duplicateOf)));
+    .where(
+      and(
+        inArray(jobs.id, jobIds),
+        isNull(jobs.closedAt),
+        isNull(jobs.duplicateOf),
+        lt(jobs.ghostScore, LIKELY_GHOST_SCORE),
+      ),
+    );
 }
 
 const isSnippet = (source: string) => (SNIPPET_PROVIDERS as readonly string[]).includes(source);

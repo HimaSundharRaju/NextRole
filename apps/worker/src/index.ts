@@ -15,6 +15,7 @@ import { closeDb } from "@gettargetrole/db";
 import { autoPrepareCandidates, createJobAlerts } from "@gettargetrole/jobs/alerts";
 import { importYcCompanies, resolveCompanyRequests } from "@gettargetrole/jobs/companies";
 import { ensureFeedSources } from "@gettargetrole/jobs/feeds";
+import { expireJobs, scoreGhostJobs } from "@gettargetrole/jobs/ghosts";
 import { companiesDueForSync, pruneClosedJobs, syncCompany } from "@gettargetrole/jobs/ingest";
 import { Queue, Worker, type Job } from "bullmq";
 import { pollAiBatches, runStaleRequests, submitAiBatches } from "./batches";
@@ -101,6 +102,9 @@ async function handleIngest(job: Job): Promise<unknown> {
     }
     case JOB_NAMES.pruneClosedJobs:
       return { deleted: await pruneClosedJobs() };
+    case JOB_NAMES.checkJobHealth:
+      // Every job ages, including those on boards that haven't synced today.
+      return { expired: await expireJobs(), rescored: await scoreGhostJobs() };
     case JOB_NAMES.submitEnrichment:
       return { submitted: enrichmentOptions ? await submitEnrichmentBatch(enrichmentOptions) : 0 };
     case JOB_NAMES.pollEnrichment:
@@ -201,6 +205,12 @@ await ingestQueue.upsertJobScheduler(
   // Daily at 04:00 UTC.
   { pattern: "0 4 * * *" },
   { name: JOB_NAMES.pruneClosedJobs },
+);
+await ingestQueue.upsertJobScheduler(
+  "job-health-schedule",
+  // Daily at 04:30 UTC.
+  { pattern: "30 4 * * *" },
+  { name: JOB_NAMES.checkJobHealth },
 );
 if (enrichmentOptions) {
   await ingestQueue.upsertJobScheduler(

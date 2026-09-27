@@ -52,6 +52,7 @@ describe("usajobs connector", () => {
       salary: { min: 117962, max: 153354, currency: "USD", period: "year" },
     });
     expect(infosec!.postedAt?.getUTCFullYear()).toBe(2026);
+    expect(infosec!.expiresAt?.getUTCMonth()).toBe(9);
     // Plain text becomes escaped paragraphs under each section's heading.
     expect(infosec!.descriptionHtml).toContain(
       "<h3>Summary</h3><p>Protect the VA's networks.</p><p>Join a team of 40 engineers.</p>",

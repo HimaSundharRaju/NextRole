@@ -10,13 +10,16 @@ import {
   getDb,
   jobEmployerName,
   jobMatches,
+  jobReports,
   jobs,
   resumeHash,
   resumes,
   type EmploymentType,
+  type GhostReason,
   type VisaSponsorship,
   type WorkplaceType,
 } from "@gettargetrole/db";
+import { LIKELY_GHOST_SCORE } from "@gettargetrole/jobs/ghosts";
 import { quickMatch, type QuickMatch } from "@gettargetrole/jobs/match";
 import {
   and,
@@ -26,6 +29,7 @@ import {
   eq,
   gte,
   isNull,
+  lt,
   lte,
   ne,
   notInArray,
@@ -33,7 +37,12 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { z } from "zod";
-import { SALARY_CURRENCIES, VISA_FILTERS, type VisaFilter } from "@/lib/job-labels";
+import {
+  SALARY_CURRENCIES,
+  VERIFIED_OPEN_MS,
+  VISA_FILTERS,
+  type VisaFilter,
+} from "@/lib/job-labels";
 import { candidateSignals, getProfile } from "./profile";
 import { getPrimaryResume } from "./resumes";
 
@@ -54,6 +63,8 @@ export const jobFiltersSchema = z.object({
   maxYears: z.enum(["2", "5", "8"]).optional().catch(undefined),
   /** Only roles posted by employers themselves, or only by staffing agencies. */
   employer: z.enum(["direct", "agency"]).optional().catch(undefined),
+  /** Include likely ghost jobs, which are hidden unless asked for. */
+  ghosts: z.enum(["show"]).optional().catch(undefined),
   company: z.string().trim().max(100).optional().catch(undefined),
   page: z.coerce.number().int().min(1).max(100).optional().catch(undefined),
   /** ISO country code, e.g. "US". */
@@ -120,6 +131,10 @@ const listColumns = {
   seniority: jobs.seniority,
   yearsMin: jobs.yearsMin,
   source: jobs.source,
+  ghostScore: jobs.ghostScore,
+  ghostReasons: jobs.ghostReasons,
+  repostCount: jobs.repostCount,
+  lastSeenAt: jobs.lastSeenAt,
   companyName: jobEmployerName(),
   companySlug: companies.slug,
   companyIsAgency: companies.isStaffingAgency,
@@ -144,6 +159,13 @@ export interface JobListItem {
   citizenshipRequired: boolean;
   /** The board or feed the job came from; feeds are credited on the card. */
   source: string;
+  /** Signs this may be a ghost job (packages/jobs/src/ghosts.ts). */
+  ghostScore: number;
+  ghostReasons: GhostReason[];
+  repostCount: number;
+  likelyGhost: boolean;
+  /** When the job's board last listed it. */
+  lastSeenAt: Date;
   /** The employer: the one a feed names, else the company whose board lists the job. */
   companyName: string;
   companySlug: string;
@@ -183,6 +205,7 @@ function whereFor(filters: JobFilters): SQL[] {
   if (filters.employer) {
     conditions.push(eq(companies.isStaffingAgency, filters.employer === "agency"));
   }
+  if (filters.ghosts !== "show") conditions.push(lt(jobs.ghostScore, LIKELY_GHOST_SCORE));
   if (filters.maxYears) {
     conditions.push(
       sql`(${jobs.yearsMin} is null or ${jobs.yearsMin} <= ${Number(filters.maxYears)})`,
@@ -241,9 +264,10 @@ export async function searchJobs(userId: string, chosen: JobFilters): Promise<Jo
   const total = countRow?.count ?? 0;
 
   const newSince = Date.now() - 86_400_000;
-  const score = (row: Omit<JobListItem, "match" | "isNew">): JobListItem => ({
+  const score = (row: Omit<JobListItem, "match" | "isNew" | "likelyGhost">): JobListItem => ({
     ...row,
     isNew: row.firstSeenAt.getTime() > newSince,
+    likelyGhost: row.ghostScore >= LIKELY_GHOST_SCORE,
     match: quickMatch(signals, row),
   });
 
@@ -271,7 +295,9 @@ export async function searchJobs(userId: string, chosen: JobFilters): Promise<Jo
   const candidates = await base.orderBy(ranking).limit(MATCH_CANDIDATES);
   const minMatch = Number(filters.minMatch ?? 0);
   const scored = candidates.map(score).filter((job) => job.match.score >= minMatch);
-  if (sort === "match") scored.sort((a, b) => b.match.score - a.match.score);
+  // Signs of a ghost job move it down the ranking without changing its match score.
+  const rank = (job: JobListItem) => job.match.score - job.ghostScore / 4;
+  if (sort === "match") scored.sort((a, b) => rank(b) - rank(a));
   const considered = scored.length;
   return {
     items: scored.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
@@ -304,7 +330,7 @@ export async function getJobDetail(userId: string, jobId: string) {
     .limit(1);
   if (!row) throw new NotFoundError("Job");
 
-  const [signals, [aiMatch], [application], primary] = await Promise.all([
+  const [signals, [aiMatch], [application], primary, [report]] = await Promise.all([
     candidateSignals(userId),
     db
       .select()
@@ -317,6 +343,11 @@ export async function getJobDetail(userId: string, jobId: string) {
       .where(and(eq(applications.userId, userId), eq(applications.jobId, jobId)))
       .limit(1),
     getPrimaryResume(userId),
+    db
+      .select({ reason: jobReports.reason })
+      .from(jobReports)
+      .where(and(eq(jobReports.userId, userId), eq(jobReports.jobId, jobId)))
+      .limit(1),
   ]);
   const [tailored] = application?.resumeId
     ? await db
@@ -340,6 +371,12 @@ export async function getJobDetail(userId: string, jobId: string) {
       isStaffingAgency: row.companyIsAgency,
     },
     match: quickMatch(signals, row.job),
+    likelyGhost: row.job.ghostScore >= LIKELY_GHOST_SCORE,
+    /** Its board listed it in the last two days. */
+    recentlyListed:
+      !row.job.closedAt && Date.now() - row.job.lastSeenAt.getTime() < VERIFIED_OPEN_MS,
+    /** Why the user reported the job, if they did. */
+    report: report?.reason ?? null,
     aiMatch: aiMatch ?? null,
     aiMatchStale: madeFromOlder(aiMatch?.sourceHash),
     application: application ?? null,
