@@ -6,7 +6,9 @@ import {
   companies,
   companyRequests,
   EMPLOYMENT_TYPES,
+  FEED_PROVIDERS,
   getDb,
+  jobEmployerName,
   jobMatches,
   jobs,
   resumeHash,
@@ -26,6 +28,7 @@ import {
   isNull,
   lte,
   ne,
+  notInArray,
   sql,
   type SQL,
 } from "drizzle-orm";
@@ -116,7 +119,8 @@ const listColumns = {
   citizenshipRequired: jobs.citizenshipRequired,
   seniority: jobs.seniority,
   yearsMin: jobs.yearsMin,
-  companyName: companies.name,
+  source: jobs.source,
+  companyName: jobEmployerName(),
   companySlug: companies.slug,
   companyIsAgency: companies.isStaffingAgency,
 };
@@ -138,6 +142,9 @@ export interface JobListItem {
   employmentTypes: EmploymentType[];
   visaSponsorship: VisaSponsorship;
   citizenshipRequired: boolean;
+  /** The board or feed the job came from; feeds are credited on the card. */
+  source: string;
+  /** The employer: the one a feed names, else the company whose board lists the job. */
   companyName: string;
   companySlug: string;
   /** Posted by a staffing agency for one of its clients. */
@@ -159,7 +166,8 @@ export interface JobSearchResult {
 }
 
 function whereFor(filters: JobFilters): SQL[] {
-  const conditions: SQL[] = [isNull(jobs.closedAt)];
+  // A feed's copy of a job the employer lists itself is shown as the employer's listing.
+  const conditions: SQL[] = [isNull(jobs.closedAt), isNull(jobs.duplicateOf)];
   if (filters.q) {
     conditions.push(sql`${jobs.searchVector} @@ websearch_to_tsquery('english', ${filters.q})`);
   }
@@ -285,7 +293,7 @@ export async function getJobDetail(userId: string, jobId: string) {
   const [row] = await db
     .select({
       job: jobs,
-      companyName: companies.name,
+      companyName: jobEmployerName(),
       companySlug: companies.slug,
       companyWebsite: companies.website,
       companyIsAgency: companies.isStaffingAgency,
@@ -327,7 +335,8 @@ export async function getJobDetail(userId: string, jobId: string) {
     company: {
       name: row.companyName,
       slug: row.companySlug,
-      website: row.companyWebsite,
+      // A feed's site isn't the employer's.
+      website: row.job.employerName === null ? row.companyWebsite : "",
       isStaffingAgency: row.companyIsAgency,
     },
     match: quickMatch(signals, row.job),
@@ -362,7 +371,7 @@ export async function locationFacets(
   country?: string,
 ): Promise<{ countries: Facet[]; regions: Facet[] }> {
   const db = getDb();
-  const open = sql`${jobs.closedAt} is null`;
+  const open = sql`${jobs.closedAt} is null and ${jobs.duplicateOf} is null`;
   const countries = await db.execute<{ code: string; count: number }>(
     sql`select code, count(*)::int as count from ${jobs}, unnest(${jobs.countries}) as code
         where ${open} group by code order by count desc`,
@@ -376,11 +385,12 @@ export async function locationFacets(
   return { countries: countries.rows, regions: regions.rows };
 }
 
+/** Companies with open jobs. Feeds carry many employers' jobs, so they aren't listed. */
 export async function listCompaniesForFilter() {
   return getDb()
     .select({ slug: companies.slug, name: companies.name, openJobCount: companies.openJobCount })
     .from(companies)
-    .where(sql`${companies.openJobCount} > 0`)
+    .where(and(sql`${companies.openJobCount} > 0`, notInArray(companies.ats, [...FEED_PROVIDERS])))
     .orderBy(companies.name);
 }
 

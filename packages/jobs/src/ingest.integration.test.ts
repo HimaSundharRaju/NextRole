@@ -1,9 +1,10 @@
 import type * as DbModule from "@gettargetrole/db";
 import type * as DrizzleModule from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as AlertsModule from "./alerts";
 import type * as IngestModule from "./ingest";
 import {
+  adzunaSearch,
   ashbyResponse,
   bullhornContract,
   bullhornDirectHire,
@@ -49,6 +50,10 @@ describe.skipIf(!TEST_DATABASE_URL)("job ingestion (Postgres integration)", () =
       .values({ name: "Acme", slug: "acme", ats: "greenhouse", boardToken: "acme" })
       .returning();
     companyId = company!.id;
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   afterAll(async () => {
@@ -530,5 +535,133 @@ describe.skipIf(!TEST_DATABASE_URL)("job ingestion (Postgres integration)", () =
     expect(candidates).toHaveLength(1);
     expect(candidates[0]?.userId).toBe("user-on");
     expect(candidates[0]?.score).toBeGreaterThanOrEqual(80);
+  });
+
+  it("fingerprints jobs stored before fingerprints existed", async () => {
+    const database = db.getDb();
+    await database.insert(db.jobs).values({
+      companyId,
+      source: "greenhouse",
+      externalId: "legacy-1",
+      title: "Platform Engineer",
+      location: "Austin, TX",
+      applyUrl: "https://job-boards.greenhouse.io/acme/jobs/legacy-1",
+      contentHash: "legacy",
+    });
+    await ingest.syncCompany(companyId, { fetch: fakeFetch({ [board]: greenhouseResponse }) });
+    const rows = await database
+      .select({ externalId: db.jobs.externalId, fingerprint: db.jobs.fingerprint })
+      .from(db.jobs)
+      .orderBy(db.jobs.externalId);
+    expect(rows).toEqual([
+      {
+        externalId: "4012345",
+        fingerprint: "acme|senior software engineer payments|san francisco",
+      },
+      { externalId: "4012346", fingerprint: "acme|data analyst|new york" },
+      { externalId: "legacy-1", fingerprint: "acme|platform engineer|austin" },
+    ]);
+  });
+
+  describe("feeds", () => {
+    const adzunaApi = "https://api.adzuna.com/v1/api/jobs/us/search/";
+    const addFeed = async (name: string, boardToken: string) => {
+      const [feed] = await db
+        .getDb()
+        .insert(db.companies)
+        .values({ name, slug: db.slugify(name), ats: "adzuna", boardToken })
+        .returning();
+      return feed!.id;
+    };
+    const stored = async () => {
+      const rows = await db
+        .getDb()
+        .select({
+          id: db.jobs.id,
+          companyId: db.jobs.companyId,
+          externalId: db.jobs.externalId,
+          employerName: db.jobs.employerName,
+          duplicateOf: db.jobs.duplicateOf,
+        })
+        .from(db.jobs);
+      return (company: string, externalId: string) =>
+        rows.find((row) => row.companyId === company && row.externalId === externalId)!;
+    };
+
+    beforeEach(() => {
+      vi.stubEnv("ADZUNA_APP_ID", "test-app-id");
+      vi.stubEnv("ADZUNA_APP_KEY", "test-app-key");
+    });
+
+    it("shows the employer's own listing instead of feeds' copies, until it closes", async () => {
+      const feed = await addFeed("Adzuna (US IT jobs)", "us|it-jobs|");
+      const contracts = await addFeed("Adzuna (US IT contracts)", "us|it-jobs|contract");
+      const fromAdzuna = { fetch: fakeFetch({ [adzunaApi]: adzunaSearch }) };
+
+      // The feed is read before the employer's board, and another feed after: either order pairs them.
+      await ingest.syncCompany(feed, fromAdzuna);
+      await ingest.syncCompany(companyId, { fetch: fakeFetch({ [board]: greenhouseResponse }) });
+      await ingest.syncCompany(contracts, fromAdzuna);
+
+      let job = await stored();
+      const listing = job(companyId, "4012345");
+      expect(listing).toMatchObject({ employerName: null, duplicateOf: null });
+      expect(job(feed, "4812345678")).toMatchObject({
+        employerName: "Acme, Inc.",
+        duplicateOf: listing.id,
+      });
+      expect(job(contracts, "4812345678").duplicateOf).toBe(listing.id);
+      // Two feeds carrying one ad show it once: the copy seen first.
+      expect(job(feed, "4812345679").duplicateOf).toBeNull();
+      expect(job(contracts, "4812345679").duplicateOf).toBe(job(feed, "4812345679").id);
+
+      // A third feed carrying both ads has nothing new to show, so it sends no alerts.
+      const database = db.getDb();
+      await database
+        .insert(db.users)
+        .values({ id: "user-1", name: "Asha", email: "asha@example.com" });
+      await database.insert(db.profiles).values({
+        userId: "user-1",
+        skills: ["go", "kubernetes", "postgresql"],
+        targetTitles: ["Software Engineer"],
+        remotePreference: "any",
+        alertMinScore: 1,
+      });
+      const third = await ingest.syncCompany(await addFeed("Adzuna (US)", "us||"), fromAdzuna);
+      expect(third.newJobIds).toHaveLength(2);
+      expect(await alerts.createJobAlerts(third.newJobIds)).toBe(0);
+      expect(await alerts.createJobAlerts([listing.id])).toBe(1);
+
+      // The employer's listing closes: its copies stand on their own again, the first one shown.
+      await ingest.syncCompany(companyId, {
+        fetch: fakeFetch({ [board]: { jobs: [greenhouseResponse.jobs[1]] } }),
+      });
+      job = await stored();
+      expect(job(feed, "4812345678").duplicateOf).toBeNull();
+      expect(job(contracts, "4812345678").duplicateOf).toBe(job(feed, "4812345678").id);
+    });
+
+    it("keeps snippet-only feeds out of auto-prepare", async () => {
+      const database = db.getDb();
+      await database
+        .insert(db.users)
+        .values({ id: "user-on", name: "Asha", email: "asha@example.com", plan: "pro" });
+      await database.insert(db.profiles).values({
+        userId: "user-on",
+        targetTitles: ["Software Engineer"],
+        remotePreference: "any",
+        skills: ["go", "kubernetes"],
+        autoPrepareEnabled: true,
+        autoPrepareMinScore: 1,
+      });
+      const { newJobIds } = await ingest.syncCompany(
+        await addFeed("Adzuna (US IT jobs)", "us|it-jobs|"),
+        {
+          fetch: fakeFetch({ [adzunaApi]: adzunaSearch }),
+        },
+      );
+      expect(newJobIds).toHaveLength(2);
+      expect(await alerts.autoPrepareCandidates(newJobIds)).toEqual([]);
+    });
   });
 });

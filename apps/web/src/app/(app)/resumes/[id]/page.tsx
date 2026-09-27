@@ -1,4 +1,4 @@
-import { companies, getDb, jobs } from "@gettargetrole/db";
+import { companies, getDb, jobEmployerName, jobs } from "@gettargetrole/db";
 import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -19,7 +19,7 @@ async function linkedJob(jobId: string | null) {
       id: jobs.id,
       title: jobs.title,
       description: jobs.descriptionText,
-      company: companies.name,
+      company: jobEmployerName(),
     })
     .from(jobs)
     .innerJoin(companies, eq(jobs.companyId, companies.id))

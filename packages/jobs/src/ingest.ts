@@ -3,6 +3,7 @@ import { createLogger } from "@gettargetrole/core/logger";
 import {
   applications,
   companies,
+  FEED_PROVIDERS,
   getDb,
   jobs,
   type AtsProvider,
@@ -13,6 +14,7 @@ import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { boardFetch, getConnector } from "./connectors";
 import type { Fetcher, NormalizedJob } from "./connectors/types";
 import { parseEmploymentTypes } from "./employment";
+import { jobFingerprint } from "./fingerprint";
 import { parseLocations } from "./locations";
 import { htmlToText, sanitizeJobHtml } from "./sanitize";
 import { parseVisaSignals } from "./visa";
@@ -50,6 +52,9 @@ export const PROVIDER_SYNC_MINUTES: Partial<Record<AtsProvider, number>> = {
   amazon: 360,
   // Bullhorn's fair-use policy asks public API readers to stay unobtrusive: hourly at most.
   bullhorn: 60,
+  // Feeds: USAJOBS updates daily; Adzuna's free tier allows 250 requests a day.
+  usajobs: 360,
+  adzuna: 360,
 };
 
 /** The longest a failing board waits between tries. */
@@ -188,6 +193,8 @@ export async function syncCompany(
           companyId: company.id,
           source: company.ats,
           externalId: job.externalId,
+          employerName: job.employer?.slice(0, 200) ?? null,
+          fingerprint: jobFingerprint(job.employer ?? company.name, job.title, job.location),
           title: job.title.slice(0, 300),
           department: job.department.slice(0, 300),
           location: job.location.slice(0, 500),
@@ -223,6 +230,8 @@ export async function syncCompany(
           target: [jobs.companyId, jobs.externalId],
           set: {
             title: sql`excluded.title`,
+            employerName: sql`excluded.employer_name`,
+            fingerprint: sql`excluded.fingerprint`,
             department: sql`excluded.department`,
             location: sql`excluded.location`,
             workplaceType: sql`case when ${enriched} then ${jobs.workplaceType} else excluded.workplace_type end`,
@@ -275,6 +284,8 @@ export async function syncCompany(
         );
     }
 
+    await fillFingerprints(db, company.id, company.name);
+
     const listedCount = new Set(listed.map((job) => job.externalId)).size;
     const suspicious =
       company.openJobCount >= SUSPICIOUS_DROP_MIN_OPEN &&
@@ -300,6 +311,7 @@ export async function syncCompany(
           )
           .returning({ id: jobs.id })
       : [];
+    await linkDuplicates(db, company.id, startedAt);
 
     await db
       .update(companies)
@@ -375,6 +387,79 @@ export async function companiesDueForSync(
       ),
     );
   return rows.map((row) => row.id);
+}
+
+/**
+ * Fingerprints for a company's open jobs that have none: posts stored before fingerprints, or
+ * ones a board only marks as still open without their details being read again.
+ */
+async function fillFingerprints(db: Database, companyId: string, companyName: string) {
+  const missing = await db
+    .select({
+      id: jobs.id,
+      title: jobs.title,
+      location: jobs.location,
+      employerName: jobs.employerName,
+    })
+    .from(jobs)
+    .where(and(eq(jobs.companyId, companyId), isNull(jobs.closedAt), isNull(jobs.fingerprint)))
+    .limit(5000);
+  for (let offset = 0; offset < missing.length; offset += SEEN_BATCH) {
+    const batch = missing.slice(offset, offset + SEEN_BATCH);
+    const prints = batch.map((job) =>
+      jobFingerprint(job.employerName ?? companyName, job.title, job.location),
+    );
+    await db.execute(sql`
+      update ${jobs} set fingerprint = filled.fingerprint
+      from unnest(${sql.param(batch.map((job) => job.id))}::uuid[], ${sql.param(prints)}::text[])
+        as filled(id, fingerprint)
+      where ${jobs.id} = filled.id`);
+  }
+}
+
+const feeds = sql.raw(FEED_PROVIDERS.map((provider) => `'${provider}'`).join(", "));
+
+/**
+ * Hides feeds' copies of jobs listed elsewhere. Among open jobs with the same fingerprint, the
+ * employer's own listing (or else the copy seen first) is the one shown, and the feeds' other
+ * copies point to it; an employer's own listings are never hidden. Redone for the fingerprints
+ * this company's sync touched, including jobs it just closed.
+ */
+async function linkDuplicates(db: Database, companyId: string, syncedAt: Date) {
+  const [feed] = await db
+    .select({ id: companies.id })
+    .from(companies)
+    .where(inArray(companies.ats, [...FEED_PROVIDERS]))
+    .limit(1);
+  if (!feed) return;
+  // Links to a listing that closed, or whose fingerprint changed, no longer hold.
+  await db.execute(sql`
+    update ${jobs} as copy set duplicate_of = null
+    from ${jobs} as original
+    where copy.duplicate_of = original.id
+      and (original.closed_at is not null or original.fingerprint is distinct from copy.fingerprint)
+      and (copy.company_id = ${companyId} or original.company_id = ${companyId})`);
+  await db.execute(sql`
+    with touched as (
+      select distinct fingerprint from ${jobs}
+      where company_id = ${companyId} and fingerprint is not null
+        and (closed_at is null or closed_at >= ${syncedAt.toISOString()}::timestamptz)
+    ),
+    ranked as (
+      select j.id, j.source,
+        first_value(j.id) over (
+          partition by j.fingerprint
+          order by j.source in (${feeds}), j.first_seen_at, j.id
+        ) as shown
+      from ${jobs} j
+      join touched on touched.fingerprint = j.fingerprint
+      where j.closed_at is null
+    )
+    update ${jobs} as copy set duplicate_of = nullif(ranked.shown, ranked.id)
+    from ranked
+    where copy.id = ranked.id
+      and ranked.source in (${feeds})
+      and copy.duplicate_of is distinct from nullif(ranked.shown, ranked.id)`);
 }
 
 /** How long a closed job is kept: long enough for "recently closed" to mean something. */

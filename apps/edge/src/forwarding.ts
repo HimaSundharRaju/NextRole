@@ -46,6 +46,11 @@ export const JOBS_ENV_KEYS = [
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_BASE_URL",
   "OPENAI_API_KEY",
+  // Job feeds, each read when its keys are set.
+  "USAJOBS_API_KEY",
+  "USAJOBS_EMAIL",
+  "ADZUNA_APP_ID",
+  "ADZUNA_APP_KEY",
 ] as const;
 
 /** Copies the listed variables that are set, so each container only receives what it uses. */

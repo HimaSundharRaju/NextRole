@@ -17,7 +17,7 @@ flowchart LR
   web -->|AI requests| anthropic[Anthropic API]
   jobs -->|auto-prepare| anthropic
   web -->|SMTP| mail[Resend]
-  jobs -->|public job boards| boards[Greenhouse · Lever · Ashby · SmartRecruiters · Workday · Oracle · Eightfold · Amazon]
+  jobs -->|public job boards| boards[Greenhouse · Lever · Ashby · SmartRecruiters · Workday · Oracle · Eightfold · Amazon · Bullhorn · USAJOBS]
 ```
 
 - **Worker** (`apps/edge`): receives every request, redirects HTTP to HTTPS, passes the visitor's
@@ -128,6 +128,8 @@ In the repository on GitHub, open **Settings → Secrets and variables → Actio
 | `ENCRYPTION_KEY`                           | Output of `openssl rand -base64 32`                                         |
 | `ANTHROPIC_API_KEY`                        | The Anthropic API key                                                       |
 | `OPENAI_API_KEY`                           | Optional: the OpenAI API key, for features routed to OpenAI models          |
+| `USAJOBS_API_KEY`                          | Optional: a USAJOBS API key, for federal tech jobs                          |
+| `ADZUNA_APP_KEY`                           | Optional: the Adzuna app key (only once Adzuna licenses the site)           |
 | `SMTP_URL`                                 | The Resend SMTP URL                                                         |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional: enables "Continue with Google"                                    |
 
@@ -142,6 +144,8 @@ In the repository on GitHub, open **Settings → Secrets and variables → Actio
 | `ENRICH_JOBS`             | Optional: `off` stops job enrichment (GPT-4o-mini batches; on when `OPENAI_API_KEY` is set) |
 | `ENRICH_DAILY_BUDGET_USD` | Optional: most job enrichment may spend a day, in USD (default 2)                           |
 | `ANTHROPIC_BASE_URL`      | Optional: route AI calls through Cloudflare AI Gateway (see below)                          |
+| `USAJOBS_EMAIL`           | Optional: the email the USAJOBS key was requested with (needed with `USAJOBS_API_KEY`)      |
+| `ADZUNA_APP_ID`           | Optional: the Adzuna app id (needed with `ADZUNA_APP_KEY`)                                  |
 
 With the GitHub CLI, the two generated secrets can be set without ever displaying them:
 

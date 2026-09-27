@@ -110,8 +110,15 @@ export const ATS_PROVIDERS = [
   "eightfold",
   "amazon",
   "bullhorn",
+  "usajobs",
+  "adzuna",
 ] as const;
 export type AtsProvider = (typeof ATS_PROVIDERS)[number];
+
+/** Sources that carry many employers' jobs; the others are one employer's own board. */
+export const FEED_PROVIDERS = ["usajobs", "adzuna"] as const;
+/** Feeds that share only a snippet of each description: too little for the AI to work from. */
+export const SNIPPET_PROVIDERS = ["adzuna"] as const;
 
 export const companies = pgTable(
   "companies",
@@ -257,6 +264,17 @@ export const jobs = pgTable(
     enrichment: jsonb("enrichment").$type<Record<string, unknown>>(),
     /** `content_hash` when the post was enriched; a different hash means it needs it again. */
     enrichedHash: text("enriched_hash"),
+    /** The employer, for a job from a feed of many employers' jobs; null for a company's own. */
+    employerName: text("employer_name"),
+    /**
+     * Employer, title and place, normalized: the same job found on two sources has the same
+     * fingerprint.
+     */
+    fingerprint: text("fingerprint"),
+    /** For a feed's copy of a job the employer lists itself: the employer's listing. */
+    duplicateOf: uuid("duplicate_of").references((): AnyPgColumn => jobs.id, {
+      onDelete: "set null",
+    }),
     /** The enrichment batch the post is waiting on. */
     enrichmentBatchId: uuid("enrichment_batch_id").references(
       (): AnyPgColumn => enrichmentBatches.id,
@@ -287,8 +305,15 @@ export const jobs = pgTable(
     index("jobs_regions_idx").using("gin", table.regions),
     index("jobs_employment_types_idx").using("gin", table.employmentTypes),
     index("jobs_enrichment_batch_idx").on(table.enrichmentBatchId),
+    index("jobs_fingerprint_idx")
+      .on(table.fingerprint)
+      .where(sql`closed_at is null`),
+    index("jobs_duplicate_of_idx").on(table.duplicateOf),
   ],
 ).enableRLS();
+
+/** A job's employer: the one a feed names, else the company whose board lists the job. */
+export const jobEmployerName = () => sql<string>`coalesce(${jobs.employerName}, ${companies.name})`;
 
 export const MATCH_VERDICTS = ["strong", "good", "stretch", "poor"] as const;
 export type MatchVerdict = (typeof MATCH_VERDICTS)[number];

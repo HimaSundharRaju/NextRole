@@ -30,6 +30,8 @@ export interface NormalizedJob {
   yearsMin?: number | null;
   /** Visa sponsorship the board states outright; the text's own statement still counts. */
   sponsorship?: "yes" | "no";
+  /** The employer, for a feed of many employers' jobs. */
+  employer?: string;
 }
 
 /**

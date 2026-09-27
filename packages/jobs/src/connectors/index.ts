@@ -1,4 +1,5 @@
 import type { AtsProvider } from "@gettargetrole/db/schema";
+import { adzuna } from "./adzuna";
 import { amazon } from "./amazon";
 import { ashby } from "./ashby";
 import { bullhorn } from "./bullhorn";
@@ -8,6 +9,7 @@ import { lever } from "./lever";
 import { oracle } from "./oracle";
 import { smartrecruiters } from "./smartrecruiters";
 import type { BoardConnector } from "./types";
+import { usajobs } from "./usajobs";
 import { workday } from "./workday";
 
 export const CONNECTORS: Record<AtsProvider, BoardConnector> = {
@@ -20,6 +22,8 @@ export const CONNECTORS: Record<AtsProvider, BoardConnector> = {
   eightfold,
   amazon,
   bullhorn,
+  usajobs,
+  adzuna,
 };
 
 export function getConnector(provider: AtsProvider): BoardConnector {

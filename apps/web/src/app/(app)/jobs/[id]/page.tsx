@@ -9,7 +9,12 @@ import { SaveJobButton } from "@/components/jobs/save-job-button";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
-import { EDUCATION_LABEL, SENIORITY_LABEL, type JobEnrichmentView } from "@/lib/job-labels";
+import {
+  EDUCATION_LABEL,
+  FEED_CREDIT,
+  SENIORITY_LABEL,
+  type JobEnrichmentView,
+} from "@/lib/job-labels";
 import { allowancesFor } from "@/lib/plans";
 import { formatSalary, timeAgo } from "@/lib/utils";
 import { uuidSchema } from "@/lib/validation";
@@ -45,6 +50,7 @@ export default async function JobPage({ params }: Props) {
   const matchScore = aiMatch?.score ?? match.score;
   const salary = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency, job.salaryPeriod);
   const enrichment = job.enrichment as JobEnrichmentView | null;
+  const credit = FEED_CREDIT[job.source];
   // Hovering a fact job enrichment read shows the post's own words for it.
   const evidence = (field: string) => {
     const quote = enrichment?.quotes?.[field];
@@ -78,6 +84,16 @@ export default async function JobPage({ params }: Props) {
                 </Badge>
               ) : null}
             </span>
+            {credit ? (
+              <a
+                href={credit.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-foreground hover:underline"
+              >
+                {credit.label}
+              </a>
+            ) : null}
             {job.location ? (
               <span className="inline-flex items-center gap-1">
                 <MapPin className="h-4 w-4" aria-hidden /> {job.location}
@@ -127,11 +143,27 @@ export default async function JobPage({ params }: Props) {
         <Card className="lg:self-start">
           <CardBody className="p-6">
             {job.descriptionHtml ? (
-              // Sanitized with a strict allow-list at ingestion (packages/jobs/src/sanitize.ts).
-              <div
-                className="job-description"
-                dangerouslySetInnerHTML={{ __html: job.descriptionHtml }}
-              />
+              <>
+                {/* Sanitized with a strict allow-list at ingestion (packages/jobs/src/sanitize.ts). */}
+                <div
+                  className="job-description"
+                  dangerouslySetInnerHTML={{ __html: job.descriptionHtml }}
+                />
+                {credit?.snippet ? (
+                  <p className="mt-4 text-sm text-muted-foreground">
+                    {credit.site} shares the start of each description.{" "}
+                    <a
+                      href={job.applyUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-primary hover:underline"
+                    >
+                      Read the full posting
+                    </a>{" "}
+                    before tailoring your resume to it.
+                  </p>
+                ) : null}
+              </>
             ) : (
               <p className="text-sm text-muted-foreground">
                 The full description is on the company&apos;s site.

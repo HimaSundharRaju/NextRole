@@ -6,6 +6,7 @@ import {
   notifications,
   PLAN_ORDER,
   profiles,
+  SNIPPET_PROVIDERS,
   users,
   type Database,
 } from "@gettargetrole/db";
@@ -14,10 +15,15 @@ import { quickMatch } from "./match";
 
 const log = createLogger("alerts");
 
+/**
+ * The new jobs worth telling people about: open, and not a feed's copy of a job the employer
+ * lists itself (the employer's listing was the news).
+ */
 function openJobs(jobIds: string[], db: Database) {
   return db
     .select({
       id: jobs.id,
+      source: jobs.source,
       title: jobs.title,
       skills: jobs.skills,
       location: jobs.location,
@@ -30,8 +36,10 @@ function openJobs(jobIds: string[], db: Database) {
       yearsMin: jobs.yearsMin,
     })
     .from(jobs)
-    .where(and(inArray(jobs.id, jobIds), isNull(jobs.closedAt)));
+    .where(and(inArray(jobs.id, jobIds), isNull(jobs.closedAt), isNull(jobs.duplicateOf)));
 }
+
+const isSnippet = (source: string) => (SNIPPET_PROVIDERS as readonly string[]).includes(source);
 
 /** Postings that say they won't sponsor, or that require citizenship or a clearance. */
 function rulesOutSponsorship(job: { visaSponsorship: string; citizenshipRequired: boolean }) {
@@ -116,7 +124,8 @@ export async function autoPrepareCandidates(
   const plansWithAuto = PLAN_ORDER.filter((plan) => AUTO_PREPARE_DAILY_MAX[plan] > 0);
   const found: AutoPrepareCandidate[] = [];
   for (const job of await openJobs(jobIds, db)) {
-    if (job.skills.length === 0) continue;
+    // A snippet is too little to tailor a resume to; the person can open the full posting.
+    if (job.skills.length === 0 || isSnippet(job.source)) continue;
     const candidates = await db
       .select({
         userId: profiles.userId,

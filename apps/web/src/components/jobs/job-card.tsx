@@ -2,7 +2,7 @@ import { skillLabel } from "@gettargetrole/resume/skills";
 import { Building2, Clock, ExternalLink, MapPin } from "lucide-react";
 import Link from "next/link";
 import { Badge, MatchBadge } from "@/components/ui/badge";
-import { EMPLOYMENT_TYPE_LABEL } from "@/lib/job-labels";
+import { EMPLOYMENT_TYPE_LABEL, FEED_CREDIT } from "@/lib/job-labels";
 import { formatSalary, timeAgo } from "@/lib/utils";
 import type { JobListItem } from "@/server/data/jobs";
 import { SaveJobButton } from "./save-job-button";
@@ -52,6 +52,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export function JobCard({ job, compact = false }: { job: JobListItem; compact?: boolean }) {
   const salary = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency, job.salaryPeriod);
+  const credit = FEED_CREDIT[job.source];
 
   return (
     <article className="group relative rounded-xl border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md">
@@ -78,6 +79,16 @@ export function JobCard({ job, compact = false }: { job: JobListItem; compact?: 
                 </Badge>
               ) : null}
             </span>
+            {credit ? (
+              <a
+                href={credit.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative z-10 text-xs hover:text-foreground hover:underline"
+              >
+                {credit.label}
+              </a>
+            ) : null}
             {job.location ? (
               <span className="inline-flex items-center gap-1">
                 <MapPin className="h-3.5 w-3.5" aria-hidden />
@@ -100,8 +111,10 @@ export function JobCard({ job, compact = false }: { job: JobListItem; compact?: 
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-muted"
-                aria-label={`Apply on ${job.companyName}'s site`}
-                title="Apply on the company's site"
+                aria-label={
+                  credit ? `Apply on ${credit.site}` : `Apply on ${job.companyName}'s site`
+                }
+                title={credit ? `Apply on ${credit.site}` : "Apply on the company's site"}
               >
                 Apply <ExternalLink className="h-3.5 w-3.5" aria-hidden />
               </a>
