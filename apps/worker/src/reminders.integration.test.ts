@@ -2,8 +2,9 @@ import type * as DbModule from "@gettargetrole/db";
 import type * as DrizzleModule from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type * as RemindersModule from "./reminders";
+import { ensureTestDatabase, testDatabaseUrl } from "@gettargetrole/db/test-database";
 
-const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
+const TEST_DATABASE_URL = testDatabaseUrl("worker");
 
 describe.skipIf(!TEST_DATABASE_URL)("follow-up reminders (Postgres integration)", () => {
   // Modules are imported after DATABASE_URL points at the test database.
@@ -12,6 +13,7 @@ describe.skipIf(!TEST_DATABASE_URL)("follow-up reminders (Postgres integration)"
   let reminders: typeof RemindersModule;
 
   beforeAll(async () => {
+    await ensureTestDatabase(TEST_DATABASE_URL!);
     process.env.DATABASE_URL = TEST_DATABASE_URL;
     const { runMigrations } = await import("@gettargetrole/db/migrate");
     await runMigrations();

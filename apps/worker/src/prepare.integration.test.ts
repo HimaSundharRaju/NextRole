@@ -4,8 +4,9 @@ import { DEFAULT_RESUME_SETTINGS, emptyResume, type Resume } from "@gettargetrol
 import type * as DrizzleModule from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type * as PrepareModule from "./prepare";
+import { ensureTestDatabase, testDatabaseUrl } from "@gettargetrole/db/test-database";
 
-const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
+const TEST_DATABASE_URL = testDatabaseUrl("worker");
 
 class CountingProvider extends MockProvider {
   tailorCalls = 0;
@@ -61,6 +62,7 @@ describe.skipIf(!TEST_DATABASE_URL)("auto-prepare (Postgres integration)", () =>
   const userId = "user-p";
 
   beforeAll(async () => {
+    await ensureTestDatabase(TEST_DATABASE_URL!);
     process.env.DATABASE_URL = TEST_DATABASE_URL;
     const { runMigrations } = await import("@gettargetrole/db/migrate");
     await runMigrations();

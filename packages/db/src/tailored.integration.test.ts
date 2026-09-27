@@ -2,8 +2,9 @@ import { DEFAULT_RESUME_SETTINGS, emptyResume } from "@gettargetrole/resume/sche
 import type * as DrizzleModule from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type * as DbModule from "./index";
+import { ensureTestDatabase, testDatabaseUrl } from "./test-database";
 
-const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
+const TEST_DATABASE_URL = testDatabaseUrl("db");
 
 describe.skipIf(!TEST_DATABASE_URL)("tailored resumes and metering (Postgres integration)", () => {
   // Modules are imported after DATABASE_URL points at the test database.
@@ -20,6 +21,7 @@ describe.skipIf(!TEST_DATABASE_URL)("tailored resumes and metering (Postgres int
   };
 
   beforeAll(async () => {
+    await ensureTestDatabase(TEST_DATABASE_URL!);
     process.env.DATABASE_URL = TEST_DATABASE_URL;
     const { runMigrations } = await import("./migrate-lib");
     await runMigrations();

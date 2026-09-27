@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDb, getPool } from "./client";
+import { ensureTestDatabase, testDatabaseUrl } from "./test-database";
 
-const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
+const TEST_DATABASE_URL = testDatabaseUrl("db");
 
 describe.skipIf(!TEST_DATABASE_URL)("connection pool (Postgres integration)", () => {
-  beforeAll(() => {
+  beforeAll(async () => {
+    await ensureTestDatabase(TEST_DATABASE_URL!);
     process.env.DATABASE_URL = TEST_DATABASE_URL;
   });
 

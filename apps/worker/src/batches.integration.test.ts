@@ -12,8 +12,9 @@ import type * as DrizzleModule from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type * as BatchesModule from "./batches";
 import type * as PrepareModule from "./prepare";
+import { ensureTestDatabase, testDatabaseUrl } from "@gettargetrole/db/test-database";
 
-const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
+const TEST_DATABASE_URL = testDatabaseUrl("worker");
 
 /** A batch API in memory: results come from the mock provider unless a feature is set to fail. */
 class FakeBatches implements AiBatches {
@@ -130,6 +131,7 @@ describe.skipIf(!TEST_DATABASE_URL)("auto-prepare batches (Postgres integration)
   const userId = "user-b";
 
   beforeAll(async () => {
+    await ensureTestDatabase(TEST_DATABASE_URL!);
     process.env.DATABASE_URL = TEST_DATABASE_URL;
     const { runMigrations } = await import("@gettargetrole/db/migrate");
     await runMigrations();
