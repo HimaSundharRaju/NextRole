@@ -61,6 +61,16 @@ test("resume studio chat edits the resume and exports files", async ({ page }) =
   await page.getByRole("tab", { name: "ATS check" }).click();
   await expect(page.getByText("ATS readiness")).toBeVisible();
 
+  // A suggestion's fix goes to the AI in the chat, as one Studio message.
+  const allowance = page.getByText(/\d+ of \d+ left this month/);
+  const left = Number((await allowance.textContent())?.split(" ")[0]);
+  await page
+    .getByRole("button", { name: /^(Fix|Work on it) with AI$/ })
+    .first()
+    .click();
+  await expect(page.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true");
+  await expect(allowance).toHaveText(new RegExp(`^${left - 1} of \\d+ left this month$`));
+
   for (const [name, extension] of [
     ["PDF", ".pdf"],
     ["Word", ".docx"],

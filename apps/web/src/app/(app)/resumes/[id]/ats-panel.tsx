@@ -1,11 +1,19 @@
 "use client";
 
-import { analyzeResume } from "@gettargetrole/resume/ats";
+import { analyzeResume, fixAllRequest, type AtsIssue } from "@gettargetrole/resume/ats";
 import type { Resume } from "@gettargetrole/resume/schema";
 import { skillLabel } from "@gettargetrole/resume/skills";
-import { AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Info,
+  MessageCircleQuestion,
+  PenLine,
+  Wand2,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { Badge, scoreTone } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/form";
 import { ProgressBar } from "@/components/ui/misc";
 
@@ -16,12 +24,53 @@ const SEVERITY_CLASS = {
   low: "text-muted-foreground",
 } as const;
 
+/** The button that fixes an issue: the AI does it, asks for the facts first, or the person edits. */
+function FixButton({
+  issue,
+  onAskAi,
+  onEdit,
+}: {
+  issue: AtsIssue;
+  onAskAi: (request: string) => void;
+  onEdit: () => void;
+}) {
+  const { fix } = issue;
+  const className =
+    "mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline";
+  if (fix.kind === "edit") {
+    return (
+      <button type="button" onClick={onEdit} className={className}>
+        <PenLine className="h-3 w-3" aria-hidden /> Add it in Edit
+      </button>
+    );
+  }
+  return (
+    <button type="button" onClick={() => onAskAi(fix.request)} className={className}>
+      {fix.ask ? (
+        <>
+          <MessageCircleQuestion className="h-3 w-3" aria-hidden /> Work on it with AI
+        </>
+      ) : (
+        <>
+          <Wand2 className="h-3 w-3" aria-hidden /> Fix with AI
+        </>
+      )}
+    </button>
+  );
+}
+
 export function AtsPanel({
   resume,
   jobDescription,
+  onAskAi,
+  onEdit,
 }: {
   resume: Resume;
   jobDescription: string | null;
+  /** Sends a request to the Studio AI; each one is a Studio message. */
+  onAskAi: (request: string) => void;
+  /** Opens the editor, for facts only the person has. */
+  onEdit: () => void;
 }) {
   const [pasted, setPasted] = useState("");
   const description = jobDescription ?? pasted;
@@ -29,6 +78,7 @@ export function AtsPanel({
     () => analyzeResume(resume, description || undefined),
     [resume, description],
   );
+  const fixAll = fixAllRequest(report.issues);
 
   return (
     <div className="h-full space-y-5 overflow-y-auto p-4 text-sm">
@@ -85,7 +135,20 @@ export function AtsPanel({
       ) : null}
 
       <div>
-        <p className="mb-2 font-medium">Suggestions</p>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="font-medium">Suggestions</p>
+          {fixAll ? (
+            <Button size="sm" variant="secondary" onClick={() => onAskAi(fixAll)}>
+              <Wand2 className="h-3.5 w-3.5" aria-hidden /> Fix all with AI
+            </Button>
+          ) : null}
+        </div>
+        {report.issues.length > 0 ? (
+          <p className="mb-2 text-xs text-muted-foreground">
+            Each AI fix is one Studio message, and &ldquo;Fix all&rdquo; is one message for every
+            fix the AI can make from your resume alone. The AI asks you for anything only you know.
+          </p>
+        ) : null}
         {report.issues.length === 0 ? (
           <p className="flex items-center gap-2 text-success">
             <CheckCircle2 className="h-4 w-4" aria-hidden /> Looks great — no issues found.
@@ -103,6 +166,8 @@ export function AtsPanel({
                   <span>
                     <span className="font-medium">{issue.section}: </span>
                     {issue.message}
+                    <br />
+                    <FixButton issue={issue} onAskAi={onAskAi} onEdit={onEdit} />
                   </span>
                 </li>
               );
