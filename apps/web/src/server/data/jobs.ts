@@ -47,6 +47,8 @@ export const jobFiltersSchema = z.object({
   sort: z.enum(["match", "newest"]).optional().catch(undefined),
   /** Hide jobs that match the user's resume less well than this. */
   minMatch: z.enum(["60", "70", "80"]).optional().catch(undefined),
+  /** Roles asking for at most this many years; posts that don't say are kept. */
+  maxYears: z.enum(["2", "5", "8"]).optional().catch(undefined),
   company: z.string().trim().max(100).optional().catch(undefined),
   page: z.coerce.number().int().min(1).max(100).optional().catch(undefined),
   /** ISO country code, e.g. "US". */
@@ -110,6 +112,8 @@ const listColumns = {
   employmentTypes: jobs.employmentTypes,
   visaSponsorship: jobs.visaSponsorship,
   citizenshipRequired: jobs.citizenshipRequired,
+  seniority: jobs.seniority,
+  yearsMin: jobs.yearsMin,
   companyName: companies.name,
   companySlug: companies.slug,
 };
@@ -163,6 +167,11 @@ function whereFor(filters: JobFilters): SQL[] {
   if (filters.country) conditions.push(arrayContains(jobs.countries, [filters.country]));
   if (filters.region) conditions.push(arrayContains(jobs.regions, [filters.region]));
   if (filters.type?.length) conditions.push(arrayOverlaps(jobs.employmentTypes, filters.type));
+  if (filters.maxYears) {
+    conditions.push(
+      sql`(${jobs.yearsMin} is null or ${jobs.yearsMin} <= ${Number(filters.maxYears)})`,
+    );
+  }
   if (filters.salaryMin || filters.salaryMax) {
     conditions.push(eq(jobs.salaryCurrency, filters.currency ?? "USD"));
     // A range such as 140-180k matches a floor of 150k: it can reach it.

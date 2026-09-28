@@ -33,6 +33,7 @@ export function JobFilters({
     posted?: string;
     sort?: string;
     minMatch?: string;
+    maxYears?: string;
     company?: string;
     country?: string;
     region?: string;
@@ -132,7 +133,7 @@ export function JobFilters({
           <option value="80">80%+ match</option>
         </Select>
       </div>
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
         <Select
           name="country"
           defaultValue={filters.country ?? ""}
@@ -166,6 +167,18 @@ export function JobFilters({
               {VISA_FILTER_LABEL[option]}
             </option>
           ))}
+        </Select>
+        <Select
+          name="maxYears"
+          defaultValue={filters.maxYears ?? ""}
+          onChange={submitOnChange}
+          aria-label="Experience required"
+          title="Roles that ask for at most this much experience. Posts that don't say are included."
+        >
+          <option value="">Any experience</option>
+          <option value="2">Up to 2 years</option>
+          <option value="5">Up to 5 years</option>
+          <option value="8">Up to 8 years</option>
         </Select>
         <div className="flex gap-1">
           <Input

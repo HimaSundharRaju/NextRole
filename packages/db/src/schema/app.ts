@@ -240,6 +240,24 @@ export const jobs = pgTable(
       .default("unknown"),
     /** The post requires citizenship or a security clearance. */
     citizenshipRequired: boolean("citizenship_required").notNull().default(false),
+    /** Fewest years of experience the post asks for, read by job enrichment. */
+    yearsMin: integer("years_min"),
+    /** The level the role is hired at, read by job enrichment. */
+    seniority: text("seniority", { enum: SENIORITY_LEVELS }),
+    /**
+     * What job enrichment read from the post (packages/ai/src/enrich.ts): facts whose quotes
+     * checked out, the quotes, and a one-line summary.
+     */
+    enrichment: jsonb("enrichment").$type<Record<string, unknown>>(),
+    /** `content_hash` when the post was enriched; a different hash means it needs it again. */
+    enrichedHash: text("enriched_hash"),
+    /** The enrichment batch the post is waiting on. */
+    enrichmentBatchId: uuid("enrichment_batch_id").references(
+      (): AnyPgColumn => enrichmentBatches.id,
+      {
+        onDelete: "set null",
+      },
+    ),
     postedAt: timestamp("posted_at", { withTimezone: true }),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
@@ -262,6 +280,7 @@ export const jobs = pgTable(
     index("jobs_countries_idx").using("gin", table.countries),
     index("jobs_regions_idx").using("gin", table.regions),
     index("jobs_employment_types_idx").using("gin", table.employmentTypes),
+    index("jobs_enrichment_batch_idx").on(table.enrichmentBatchId),
   ],
 ).enableRLS();
 
@@ -542,6 +561,26 @@ export const aiUsage = pgTable(
   },
   (table) => [index("ai_usage_user_created_idx").on(table.userId, table.createdAt)],
 ).enableRLS();
+
+export const ENRICHMENT_BATCH_STATUSES = ["submitted", "done", "failed"] as const;
+
+/**
+ * A batch of job posts sent for enrichment (half price; results within 24 hours). Each post
+ * points at its batch while it waits.
+ */
+export const enrichmentBatches = pgTable("enrichment_batches", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  vendor: text("vendor", { enum: ["anthropic", "openai"] }).notNull(),
+  model: text("model").notNull(),
+  /** The batch's id at the vendor. */
+  externalId: text("external_id").notNull(),
+  status: text("status", { enum: ENRICHMENT_BATCH_STATUSES }).notNull().default("submitted"),
+  jobCount: integer("job_count").notNull(),
+  /** What the batch should cost, counted against the daily budget until the real cost is in. */
+  estimatedCostMicroUsd: bigint("estimated_cost_micro_usd", { mode: "number" }).notNull(),
+  createdAt,
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}).enableRLS();
 
 export const AI_BATCH_FEATURES = ["tailor", "cover_letter"] as const;
 export const AI_BATCH_STATUSES = ["queued", "submitted", "succeeded", "failed"] as const;

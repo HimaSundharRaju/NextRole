@@ -29,14 +29,30 @@ export function setAiProvider(next: AiProvider | undefined): void {
 export { AnthropicProvider, UPDATE_RESUME_TOOL } from "./anthropic-provider";
 export {
   ClaudeBatches,
+  ClaudeRequestBatches,
+  enrichmentBatches,
   getAiBatches,
+  OpenAIRequestBatches,
   type AiBatches,
+  type AnyFeatureRequest,
   type BatchEntry,
   type BatchFeature,
   type BatchOutput,
   type BatchResult,
   type BatchTask,
+  type RequestBatches,
+  type RequestResult,
 } from "./batch";
+export {
+  CONTRACT_TERMS,
+  EDUCATION_LEVELS,
+  enrichRequest,
+  foldText,
+  SENIORITIES,
+  verifyEnrichment,
+  type EnrichmentOutput,
+  type JobEnrichment,
+} from "./enrich";
 export { applyResumeChanges } from "./requests";
 export { MockProvider } from "./mock-provider";
 export { OpenAIProvider } from "./openai-provider";

@@ -133,13 +133,15 @@ In the repository on GitHub, open **Settings → Secrets and variables → Actio
 
 **Variables**
 
-| Name                 | Value                                                                                      |
-| -------------------- | ------------------------------------------------------------------------------------------ |
-| `APP_URL`            | The public URL from step 2, for example `https://gettargetrole.hearthspace.in`             |
-| `EMAIL_FROM`         | Sender on your verified domain, for example `GetTargetRole <no-reply@sundhar.io>`          |
-| `AI_MODEL`           | Optional: puts every feature on one Claude model instead of the per-feature routes         |
-| `AI_BATCH`           | Optional: `off` makes auto-prepare call the AI right away instead of in half-price batches |
-| `ANTHROPIC_BASE_URL` | Optional: route AI calls through Cloudflare AI Gateway (see below)                         |
+| Name                      | Value                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------- |
+| `APP_URL`                 | The public URL from step 2, for example `https://gettargetrole.hearthspace.in`              |
+| `EMAIL_FROM`              | Sender on your verified domain, for example `GetTargetRole <no-reply@sundhar.io>`           |
+| `AI_MODEL`                | Optional: puts every feature on one Claude model instead of the per-feature routes          |
+| `AI_BATCH`                | Optional: `off` makes auto-prepare call the AI right away instead of in half-price batches  |
+| `ENRICH_JOBS`             | Optional: `off` stops job enrichment (GPT-4o-mini batches; on when `OPENAI_API_KEY` is set) |
+| `ENRICH_DAILY_BUDGET_USD` | Optional: most job enrichment may spend a day, in USD (default 2)                           |
+| `ANTHROPIC_BASE_URL`      | Optional: route AI calls through Cloudflare AI Gateway (see below)                          |
 
 With the GitHub CLI, the two generated secrets can be set without ever displaying them:
 

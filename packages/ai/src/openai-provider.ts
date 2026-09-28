@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { zodResponsesFunction, zodTextFormat } from "openai/helpers/zod";
 import type {
   Response,
+  ResponseCreateParamsNonStreaming,
   ResponseInputContent,
   ResponseInputItem,
 } from "openai/resources/responses/responses";
@@ -54,6 +55,7 @@ const FEATURE_EFFORT: Record<AiFeature, ReasoningEffort> = {
   outreach: "low",
   interview: "low",
   studio: "low",
+  enrich: "minimal",
 };
 
 const UPDATE_RESUME_FUNCTION = zodResponsesFunction({
@@ -83,7 +85,13 @@ function inputContent(parts: RequestPart[]): ResponseInputContent[] {
   );
 }
 
-export function openAiUsage(feature: AiFeature, model: string, response: Response): UsageRecord {
+/** Token usage and cost of a response; `batch` prices it at the Batch API discount. */
+export function openAiUsage(
+  feature: AiFeature,
+  model: string,
+  response: Response,
+  options: { batch?: boolean } = {},
+): UsageRecord {
   const usage = response.usage;
   const cached = usage?.input_tokens_details?.cached_tokens ?? 0;
   const tokens = {
@@ -93,7 +101,21 @@ export function openAiUsage(feature: AiFeature, model: string, response: Respons
     // Reasoning tokens are part of output_tokens and billed as output.
     outputTokens: usage?.output_tokens ?? 0,
   };
-  return { feature, model, ...tokens, costMicroUsd: estimateCostMicroUsd(model, tokens) };
+  return {
+    feature,
+    model,
+    ...tokens,
+    costMicroUsd: estimateCostMicroUsd(model, tokens, options),
+    ...(options.batch ? { batch: true } : {}),
+  };
+}
+
+/** The text of a response's message output; batch results arrive as raw JSON without it. */
+function outputText(response: Response): string {
+  return response.output
+    .flatMap((item) => (item.type === "message" ? item.content : []))
+    .map((content) => (content.type === "output_text" ? content.text : ""))
+    .join("");
 }
 
 async function recordUsage(record: UsageRecord, ctx: AiCallContext): Promise<void> {
@@ -188,6 +210,69 @@ export class OpenAIProvider implements AiProvider {
     };
   }
 
+  /** Validates structured output against the request's schema and finishes it. */
+  private finish<Output, Result>(request: FeatureRequest<Output, Result>, output: unknown): Result {
+    const parsed = request.schema.safeParse(output);
+    if (!parsed.success) {
+      log.error(
+        { feature: request.feature, issues: parsed.error.issues.slice(0, 5) },
+        "structured output failed validation",
+      );
+      throw new ExternalServiceError(
+        "The AI service",
+        "The AI returned an incomplete response. Please try again.",
+      );
+    }
+    return request.finish(parsed.data);
+  }
+
+  /** The Batch API body for a feature request: the same request a live call sends. */
+  batchBody<Output, Result>(
+    request: FeatureRequest<Output, Result>,
+  ): ResponseCreateParamsNonStreaming {
+    // The format without its parse helper, which doesn't survive JSON.
+    const { type, name, schema, strict } = zodTextFormat(
+      request.strictSchema ?? request.schema,
+      "result",
+    );
+    return {
+      ...this.options(request.feature, { userId: null }),
+      instructions: request.system,
+      input: [
+        {
+          role: "user",
+          content: inputContent([
+            ...request.stable.map((text) => ({ type: "text" as const, text })),
+            ...request.content,
+          ]),
+        },
+      ],
+      text: { format: { type, name, schema, strict } },
+      max_output_tokens: request.maxTokens ?? 32_000,
+    };
+  }
+
+  /** Reads a Batch API response into the feature's result, recording usage at batch price. */
+  async readBatchResponse<Output, Result>(
+    request: FeatureRequest<Output, Result>,
+    response: Response,
+    ctx: AiCallContext,
+  ): Promise<Result> {
+    const model = response.model ?? this.modelFor(request.feature);
+    await recordUsage(openAiUsage(request.feature, model, response, { batch: true }), ctx);
+    assertUsable(response);
+    let output: unknown;
+    try {
+      output = JSON.parse(outputText(response));
+    } catch {
+      throw new ExternalServiceError(
+        "The AI service",
+        "The AI returned an unreadable response. Please try again.",
+      );
+    }
+    return this.finish(request, output);
+  }
+
   private async run<Output, Result>(
     request: FeatureRequest<Output, Result>,
     ctx: AiCallContext,
@@ -225,18 +310,7 @@ export class OpenAIProvider implements AiProvider {
     }
     await recordUsage(openAiUsage(request.feature, options.model, response), ctx);
     assertUsable(response);
-    const parsed = request.schema.safeParse(response.output_parsed);
-    if (!parsed.success) {
-      log.error(
-        { feature: request.feature, issues: parsed.error.issues.slice(0, 5) },
-        "structured output failed validation",
-      );
-      throw new ExternalServiceError(
-        "The AI service",
-        "The AI returned an incomplete response. Please try again.",
-      );
-    }
-    return request.finish(parsed.data);
+    return this.finish(request, response.output_parsed);
   }
 
   async importResume(...[source, ctx]: Parameters<AiProvider["importResume"]>) {

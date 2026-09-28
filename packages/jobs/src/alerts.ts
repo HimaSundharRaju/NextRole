@@ -26,6 +26,8 @@ function openJobs(jobIds: string[], db: Database) {
       salaryPeriod: jobs.salaryPeriod,
       visaSponsorship: jobs.visaSponsorship,
       citizenshipRequired: jobs.citizenshipRequired,
+      seniority: jobs.seniority,
+      yearsMin: jobs.yearsMin,
     })
     .from(jobs)
     .where(and(inArray(jobs.id, jobIds), isNull(jobs.closedAt)));

@@ -209,6 +209,8 @@ export async function syncCompany(
         };
       });
 
+      // An unchanged post that enrichment has read keeps the columns enrichment filled in.
+      const enriched = sql`(${jobs.contentHash} = excluded.content_hash and ${jobs.enrichedHash} = ${jobs.contentHash})`;
       const result = await db
         .insert(jobs)
         .values(rows)
@@ -218,7 +220,7 @@ export async function syncCompany(
             title: sql`excluded.title`,
             department: sql`excluded.department`,
             location: sql`excluded.location`,
-            workplaceType: sql`excluded.workplace_type`,
+            workplaceType: sql`case when ${enriched} then ${jobs.workplaceType} else excluded.workplace_type end`,
             employmentType: sql`excluded.employment_type`,
             // SmartRecruiters listings arrive without descriptions; never blank an existing one.
             descriptionHtml: sql`case when excluded.description_html = '' then ${jobs.descriptionHtml} else excluded.description_html end`,
@@ -231,10 +233,11 @@ export async function syncCompany(
             salaryPeriod: sql`coalesce(excluded.salary_period, ${jobs.salaryPeriod})`,
             countries: sql`excluded.countries`,
             regions: sql`excluded.regions`,
-            // Like skills, signals read from the description survive listings that omit it.
-            employmentTypes: sql`case when excluded.description_text = '' then ${jobs.employmentTypes} else excluded.employment_types end`,
-            visaSponsorship: sql`case when excluded.description_text = '' then ${jobs.visaSponsorship} else excluded.visa_sponsorship end`,
-            citizenshipRequired: sql`case when excluded.description_text = '' then ${jobs.citizenshipRequired} else excluded.citizenship_required end`,
+            // Like skills, signals read from the description survive listings that omit it, and
+            // what enrichment added survives until the post changes.
+            employmentTypes: sql`case when excluded.description_text = '' or ${enriched} then ${jobs.employmentTypes} else excluded.employment_types end`,
+            visaSponsorship: sql`case when excluded.description_text = '' or ${enriched} then ${jobs.visaSponsorship} else excluded.visa_sponsorship end`,
+            citizenshipRequired: sql`case when excluded.description_text = '' or ${enriched} then ${jobs.citizenshipRequired} else excluded.citizenship_required end`,
             postedAt: sql`coalesce(${jobs.postedAt}, excluded.posted_at)`,
             lastSeenAt: sql`excluded.last_seen_at`,
             closedAt: sql`null`,

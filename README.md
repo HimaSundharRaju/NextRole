@@ -98,23 +98,24 @@ psql postgres://nextrole:nextrole@localhost:5432/nextrole \
 All configuration comes from environment variables, validated at startup. `.env.example` lists
 every variable with its default.
 
-| Variable                                   | Required | Description                                                                                                   |
-| ------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------- |
-| `APP_URL`                                  | yes      | Public URL of the web app. With `https://` the auth cookies are marked `Secure`.                              |
-| `DATABASE_URL`                             | yes      | PostgreSQL connection string (`DATABASE_POOL_MAX` sets the pool size, default 10)                             |
-| `REDIS_URL`                                | yes      | Redis connection string. Redis must use `maxmemory-policy noeviction` (a BullMQ requirement).                 |
-| `BETTER_AUTH_SECRET`                       | yes      | At least 32 random characters; signs sessions and tokens                                                      |
-| `ENCRYPTION_KEY`                           | yes      | 32 random bytes, base64; for encrypting stored third-party credentials such as mailbox tokens (AES-256-GCM)   |
-| `ANTHROPIC_API_KEY`                        | yes      | Anthropic API key                                                                                             |
-| `OPENAI_API_KEY`                           | no       | OpenAI API key for features routed to OpenAI models; without it they stay on Claude                           |
-| `AI_MODEL`                                 | no       | Puts every feature on one Claude model instead of the per-feature routes (`AI_ROUTE_<FEATURE>` overrides one) |
-| `AI_BATCH`                                 | no       | `off` makes auto-prepare call the AI right away instead of in half-price batches (worker only)                |
-| `SMTP_URL`, `EMAIL_FROM`                   | prod     | Outgoing email. Production requires email verification, so SMTP must be configured.                           |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | no       | Enables "Continue with Google"                                                                                |
-| `TRUSTED_PROXIES`                          | no       | Proxy IPs/CIDRs to trust when requests pass through more than one proxy hop                                   |
-| `INGEST_INTERVAL_MINUTES`                  | no       | How often each job board is re-synced (default 10)                                                            |
-| `INGEST_CONCURRENCY`, `WORKER_HEALTH_PORT` | no       | Worker parallelism (default 4) and health port (default 8081)                                                 |
-| `LOG_LEVEL`                                | no       | Pino log level (default `info`)                                                                               |
+| Variable                                   | Required | Description                                                                                                              |
+| ------------------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `APP_URL`                                  | yes      | Public URL of the web app. With `https://` the auth cookies are marked `Secure`.                                         |
+| `DATABASE_URL`                             | yes      | PostgreSQL connection string (`DATABASE_POOL_MAX` sets the pool size, default 10)                                        |
+| `REDIS_URL`                                | yes      | Redis connection string. Redis must use `maxmemory-policy noeviction` (a BullMQ requirement).                            |
+| `BETTER_AUTH_SECRET`                       | yes      | At least 32 random characters; signs sessions and tokens                                                                 |
+| `ENCRYPTION_KEY`                           | yes      | 32 random bytes, base64; for encrypting stored third-party credentials such as mailbox tokens (AES-256-GCM)              |
+| `ANTHROPIC_API_KEY`                        | yes      | Anthropic API key                                                                                                        |
+| `OPENAI_API_KEY`                           | no       | OpenAI API key for features routed to OpenAI models; without it they stay on Claude                                      |
+| `AI_MODEL`                                 | no       | Puts every feature on one Claude model instead of the per-feature routes (`AI_ROUTE_<FEATURE>` overrides one)            |
+| `AI_BATCH`                                 | no       | `off` makes auto-prepare call the AI right away instead of in half-price batches (worker only)                           |
+| `ENRICH_JOBS`, `ENRICH_DAILY_BUDGET_USD`   | no       | Job enrichment with GPT-4o-mini batches (on when `OPENAI_API_KEY` is set; `off` stops it) and its daily cap (default $2) |
+| `SMTP_URL`, `EMAIL_FROM`                   | prod     | Outgoing email. Production requires email verification, so SMTP must be configured.                                      |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | no       | Enables "Continue with Google"                                                                                           |
+| `TRUSTED_PROXIES`                          | no       | Proxy IPs/CIDRs to trust when requests pass through more than one proxy hop                                              |
+| `INGEST_INTERVAL_MINUTES`                  | no       | How often each job board is re-synced (default 10)                                                                       |
+| `INGEST_CONCURRENCY`, `WORKER_HEALTH_PORT` | no       | Worker parallelism (default 4) and health port (default 8081)                                                            |
+| `LOG_LEVEL`                                | no       | Pino log level (default `info`)                                                                                          |
 
 ## Testing
 

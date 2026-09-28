@@ -12,6 +12,8 @@ const workerEnvSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   // Auto-prepare's AI work goes through the batch API at half price; "off" calls the AI right away.
   AI_BATCH: z.enum(["on", "off"]).default("on"),
+  // Job enrichment (packages/ai/src/enrich.ts): most it may spend a day, in USD.
+  ENRICH_DAILY_BUDGET_USD: z.coerce.number().min(0).default(2),
 });
 
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;

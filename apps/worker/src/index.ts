@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { getAi, getAiBatches } from "@gettargetrole/ai";
+import { enrichmentBatches, getAi, getAiBatches } from "@gettargetrole/ai";
 import { createLogger } from "@gettargetrole/core/logger";
 import {
   autoPrepareDeduplicationId,
@@ -17,6 +17,7 @@ import { importYcCompanies, resolveCompanyRequests } from "@gettargetrole/jobs/c
 import { companiesDueForSync, pruneClosedJobs, syncCompany } from "@gettargetrole/jobs/ingest";
 import { Queue, Worker, type Job } from "bullmq";
 import { pollAiBatches, runStaleRequests, submitAiBatches } from "./batches";
+import { pollEnrichmentBatches, submitEnrichmentBatch } from "./enrichment";
 import { aiConfigured, loadWorkerEnv } from "./env";
 import { autoPrepare } from "./prepare";
 import { createFollowUpReminders } from "./reminders";
@@ -45,6 +46,12 @@ if (!autoPrepareOn) log.warn("auto-prepare is off: the worker has no AI key (ANT
 // already sent are still read when it's off.
 const batches = autoPrepareOn ? getAiBatches() : null;
 const batching = batches !== null && env.AI_BATCH === "on";
+// Job enrichment runs on GPT-4o-mini batches when OpenAI is configured (ENRICH_JOBS=off stops it).
+const enrichment = enrichmentBatches();
+const enrichmentOptions = enrichment && {
+  ...enrichment,
+  dailyBudgetUsd: env.ENRICH_DAILY_BUDGET_USD,
+};
 
 /** Queues auto-prepare for users whose settings match the new jobs, strongest matches first. */
 async function enqueueAutoPrepare(jobIds: string[]): Promise<number> {
@@ -93,6 +100,10 @@ async function handleIngest(job: Job): Promise<unknown> {
     }
     case JOB_NAMES.pruneClosedJobs:
       return { deleted: await pruneClosedJobs() };
+    case JOB_NAMES.submitEnrichment:
+      return { submitted: enrichmentOptions ? await submitEnrichmentBatch(enrichmentOptions) : 0 };
+    case JOB_NAMES.pollEnrichment:
+      return { enriched: enrichmentOptions ? await pollEnrichmentBatches(enrichmentOptions) : 0 };
     case JOB_NAMES.syncCompany: {
       const { companyId } = job.data as SyncCompanyJob;
       const result = await syncCompany(companyId);
@@ -188,6 +199,21 @@ await ingestQueue.upsertJobScheduler(
   { pattern: "0 4 * * *" },
   { name: JOB_NAMES.pruneClosedJobs },
 );
+if (enrichmentOptions) {
+  await ingestQueue.upsertJobScheduler(
+    "enrichment-submit-schedule",
+    { every: 15 * 60_000 },
+    { name: JOB_NAMES.submitEnrichment },
+  );
+  await ingestQueue.upsertJobScheduler(
+    "enrichment-poll-schedule",
+    { every: 5 * 60_000 },
+    { name: JOB_NAMES.pollEnrichment },
+  );
+} else {
+  await ingestQueue.removeJobScheduler("enrichment-submit-schedule");
+  await ingestQueue.removeJobScheduler("enrichment-poll-schedule");
+}
 await ingestQueue.upsertJobScheduler(
   "yc-import-schedule",
   // Mondays at 05:00 UTC.
@@ -235,6 +261,7 @@ log.info(
     concurrency: env.INGEST_CONCURRENCY,
     autoPrepare: autoPrepareOn,
     batches: batching,
+    enrichment: enrichment?.model ?? "off",
   },
   "worker started",
 );
