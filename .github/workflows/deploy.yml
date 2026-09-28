@@ -82,7 +82,7 @@ jobs:
         with:
           # Deploy exactly the commit CI tested.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: steps.config.outputs.ready == 'true'
       - uses: actions/setup-node@v5
         if: steps.config.outputs.ready == 'true'
