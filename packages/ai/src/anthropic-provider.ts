@@ -11,13 +11,19 @@ import { createLogger } from "@gettargetrole/core/logger";
 import { z } from "zod";
 import {
   assertUsable,
+  batchParams,
   cacheable,
+  cacheControl,
   getAnthropic,
   mapAnthropicError,
   modelParams,
+  readStructured,
   recordUsage,
   runStructured,
   textOf,
+  type BatchRequestParams,
+  type CachePlan,
+  type StructuredCall,
 } from "./client";
 import { configuredModel, type AiFeature } from "./config";
 import { STUDIO_SYSTEM } from "./prompts";
@@ -92,11 +98,12 @@ export class AnthropicProvider implements AiProvider {
     return this.modelOf(feature);
   }
 
-  private async run<Output, Result>(
+  private structuredCall<Output, Result>(
     request: FeatureRequest<Output, Result>,
     ctx: AiCallContext,
-  ): Promise<Result> {
-    const output = await runStructured({
+    cache?: CachePlan,
+  ): StructuredCall<z.ZodType<Output>> {
+    return {
       feature: request.feature,
       model: this.modelFor(request.feature),
       system: request.system,
@@ -106,6 +113,33 @@ export class AnthropicProvider implements AiProvider {
       viaTool: request.viaTool,
       maxTokens: request.maxTokens,
       ctx,
+      cache,
+    };
+  }
+
+  private async run<Output, Result>(
+    request: FeatureRequest<Output, Result>,
+    ctx: AiCallContext,
+  ): Promise<Result> {
+    return request.finish(await runStructured(this.structuredCall(request, ctx)));
+  }
+
+  /** The Message Batches entry for a feature request: the same prompt a live call sends. */
+  batchParams<Output, Result>(
+    request: FeatureRequest<Output, Result>,
+    cache: CachePlan,
+  ): BatchRequestParams {
+    return batchParams(this.structuredCall(request, { userId: null }, cache));
+  }
+
+  /** Reads a batch entry's message into the feature's result, recording usage at batch price. */
+  async readBatchResult<Output, Result>(
+    request: FeatureRequest<Output, Result>,
+    message: BetaMessage,
+    ctx: AiCallContext,
+  ): Promise<Result> {
+    const output = await readStructured(this.structuredCall(request, ctx), message, {
+      batch: true,
     });
     return request.finish(output);
   }
@@ -158,7 +192,9 @@ export class AnthropicProvider implements AiProvider {
           // The ceiling for Claude Haiku 4.5; newer models allow more.
           max_tokens: 64_000,
           ...modelParams(model, "studio"),
-          system: [{ type: "text", text: STUDIO_SYSTEM, cache_control: { type: "ephemeral" } }],
+          // The tool and instructions are the same for every user, so their cache entry lives
+          // for an hour; the conversation's lives for five minutes.
+          system: [{ type: "text", text: STUDIO_SYSTEM, cache_control: cacheControl("1h") }],
           tools: [UPDATE_RESUME_TOOL],
           tool_choice: { type: "auto" },
           messages: [...historyToMessages(input.history), { role: "user", content: latest }],

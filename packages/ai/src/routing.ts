@@ -77,6 +77,18 @@ export function routeFor(feature: AiFeature, env: NodeJS.ProcessEnv = process.en
   return DEFAULT_ROUTES[feature];
 }
 
+/** The route a feature takes: without OpenAI configured, its OpenAI route runs on Claude. */
+export function effectiveRoute(route: Route, feature: AiFeature, openai: boolean): Route {
+  return route.vendor === "openai" && !openai
+    ? { vendor: "anthropic", model: CLAUDE_FALLBACK[feature] }
+    : route;
+}
+
+/** The Claude model for a feature: its route's model, or its fallback when routed to OpenAI. */
+export function claudeModelFor(route: Route, feature: AiFeature): string {
+  return route.vendor === "anthropic" ? route.model : CLAUDE_FALLBACK[feature];
+}
+
 /** Errors that mean "try the same request on Claude": outages, limits, bad output, refusals. */
 function shouldFallBack(error: unknown): boolean {
   return error instanceof ExternalServiceError || error instanceof AiRefusalError;
@@ -101,20 +113,14 @@ export class RoutedProvider implements AiProvider {
   ) {
     this.anthropic =
       options.anthropic ??
-      new AnthropicProvider((feature) => {
-        const route = this.routes(feature);
-        return route.vendor === "anthropic" ? route.model : CLAUDE_FALLBACK[feature];
-      });
+      new AnthropicProvider((feature) => claudeModelFor(this.routes(feature), feature));
     this.openai =
       options.openaiProvider ??
       (options.openai ? new OpenAIProvider((feature) => this.routes(feature).model) : null);
   }
 
   private route(feature: AiFeature): Route {
-    const route = this.routes(feature);
-    return route.vendor === "openai" && !this.openai
-      ? { vendor: "anthropic", model: CLAUDE_FALLBACK[feature] }
-      : route;
+    return effectiveRoute(this.routes(feature), feature, Boolean(this.openai));
   }
 
   modelFor(feature: AiFeature): string {

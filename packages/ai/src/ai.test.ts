@@ -115,6 +115,19 @@ describe("cost estimation", () => {
       }),
     ).toBe(6_000_000);
   });
+
+  it("prices 1-hour cache writes at 2× input and batches at half price", () => {
+    const tokens = {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 2_000_000,
+      cacheWrite1hTokens: 1_000_000,
+    };
+    // Sonnet 5 input is $2: 1M 5-minute writes at $2.50, 1M 1-hour writes at $4.
+    expect(estimateCostMicroUsd("claude-sonnet-5", tokens)).toBe(6_500_000);
+    expect(estimateCostMicroUsd("claude-sonnet-5", tokens, { batch: true })).toBe(3_250_000);
+  });
 });
 
 describe("model capabilities", () => {
@@ -411,6 +424,10 @@ describe("AnthropicProvider against a fake Messages API", () => {
     )) {
       void event;
     }
+    // The tool and instructions are the same for everyone: cached for an hour.
+    expect(fake.requests[0]!.body.system).toEqual([
+      expect.objectContaining({ cache_control: { type: "ephemeral", ttl: "1h" } }),
+    ]);
     const messages = fake.requests[0]!.body.messages as Array<{ role: string; content: unknown }>;
     // 30 turns is 6 over the 24-turn window, so the first block of 12 turns is dropped.
     expect(messages).toHaveLength(30 - 12 + 1);

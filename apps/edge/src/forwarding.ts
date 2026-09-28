@@ -40,6 +40,7 @@ export const JOBS_ENV_KEYS = [
   // Auto-prepare tailors resumes and writes cover letters in the background.
   "AI_PROVIDER",
   "AI_MODEL",
+  "AI_BATCH",
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_BASE_URL",
   "OPENAI_API_KEY",

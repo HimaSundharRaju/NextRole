@@ -10,6 +10,8 @@ const workerEnvSchema = z.object({
   // Auto-prepare calls the AI with the same settings as the web app (packages/core/src/env.ts).
   AI_PROVIDER: z.enum(["anthropic", "mock"]).default("anthropic"),
   ANTHROPIC_API_KEY: z.string().optional(),
+  // Auto-prepare's AI work goes through the batch API at half price; "off" calls the AI right away.
+  AI_BATCH: z.enum(["on", "off"]).default("on"),
 });
 
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;

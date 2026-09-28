@@ -1,7 +1,15 @@
-import type { AiCallContext, AiProvider, CandidateProfile, JobContext } from "@gettargetrole/ai";
+import type {
+  AiBatches,
+  AiCallContext,
+  AiProvider,
+  BatchTask,
+  CandidateProfile,
+  JobContext,
+} from "@gettargetrole/ai";
 import { createLogger } from "@gettargetrole/core/logger";
 import type { AutoPrepareJob } from "@gettargetrole/core/queues";
 import {
+  aiBatchRequests,
   applicationEvents,
   applications,
   AUTO_PREPARE_BUDGET_SHARE,
@@ -24,6 +32,7 @@ import {
   users,
   type ApplicationStatus,
   type Database,
+  type DbExecutor,
 } from "@gettargetrole/db";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 
@@ -46,6 +55,7 @@ export type SkipReason =
 
 export type AutoPrepareOutcome =
   | { status: "ready"; applicationId: string; tailored: boolean; wroteLetter: boolean }
+  | { status: "queued"; applicationId: string; tailor: boolean; letter: boolean }
   | { status: "skipped"; reason: SkipReason };
 
 type ApplicationRow = typeof applications.$inferSelect;
@@ -56,7 +66,17 @@ interface Slot {
   created: boolean;
 }
 
-function candidateProfileOf(profile: typeof profiles.$inferSelect): CandidateProfile {
+export interface AutoPrepareOptions {
+  now?: Date;
+  db?: Database;
+  /**
+   * Batch processing: the AI work is queued and finished by the batch schedulers at half price.
+   * Without it, the AI is called right away.
+   */
+  batches?: AiBatches | null;
+}
+
+export function candidateProfileOf(profile: typeof profiles.$inferSelect): CandidateProfile {
   return {
     targetTitles: profile.targetTitles,
     workAuthorization: profile.workAuthorization,
@@ -101,6 +121,20 @@ async function takeSlot(
       (!PREPARABLE.includes(existing.status) || (existing.resumeId && existing.coverLetter))
     ) {
       return "already_handled";
+    }
+    if (existing) {
+      // A slot already taken for it means it's being prepared, possibly in a batch.
+      const [held] = await tx
+        .select({ id: applicationEvents.id })
+        .from(applicationEvents)
+        .where(
+          and(
+            eq(applicationEvents.applicationId, existing.id),
+            eq(applicationEvents.type, "auto_prepared"),
+          ),
+        )
+        .limit(1);
+      if (held) return "already_handled";
     }
 
     const slotsSince = async (since: Date) => {
@@ -158,14 +192,17 @@ async function takeSlot(
 }
 
 /** Gives the slot back after a failure, and removes an application nobody has touched yet. */
-async function releaseSlot(db: Database, slot: Slot): Promise<void> {
+export async function releaseSlot(
+  db: DbExecutor,
+  slot: { applicationId: string; slotEventId: string; created: boolean },
+): Promise<void> {
   await db.delete(applicationEvents).where(eq(applicationEvents.id, slot.slotEventId));
   if (!slot.created) return;
   await db
     .delete(applications)
     .where(
       and(
-        eq(applications.id, slot.application.id),
+        eq(applications.id, slot.applicationId),
         eq(applications.status, "preparing"),
         eq(applications.coverLetter, ""),
       ),
@@ -173,15 +210,90 @@ async function releaseSlot(db: Database, slot: Slot): Promise<void> {
 }
 
 /**
+ * Attaches the tailored resume and cover letter and marks the application ready, unless the
+ * user has moved it along meanwhile. Either way the work counts against the plan; the user is
+ * notified only when the application is ready.
+ */
+export async function markReady(
+  db: DbExecutor,
+  input: {
+    userId: string;
+    applicationId: string;
+    jobId: string;
+    resumeId: string;
+    coverLetter: string;
+    title: string;
+    companyName: string;
+    score: number;
+  },
+): Promise<boolean> {
+  const [updated] = await db
+    .update(applications)
+    .set({ resumeId: input.resumeId, coverLetter: input.coverLetter, status: "ready" })
+    .where(and(eq(applications.id, input.applicationId), inArray(applications.status, PREPARABLE)))
+    .returning({ id: applications.id });
+  await recordUsageEvent(input.userId, "auto", input.applicationId, db);
+  if (!updated) return false;
+  await db
+    .insert(notifications)
+    .values({
+      userId: input.userId,
+      type: "application_ready",
+      title: `Ready to apply: ${input.title} at ${input.companyName}`,
+      body: `${input.score}% match. Review your tailored resume and cover letter, then submit.`,
+      link: `/jobs/${input.jobId}`,
+      dedupeKey: `ready:${input.jobId}`,
+    })
+    .onConflictDoNothing();
+  return true;
+}
+
+/**
+ * Queues the application's AI work for the batch schedulers. A tailored resume that already
+ * exists is attached now; the rest arrives with the batch.
+ */
+async function queueBatch(
+  db: Database,
+  input: {
+    userId: string;
+    slot: Slot;
+    score: number;
+    existingResumeId: string | null;
+    tasks: BatchTask[];
+  },
+): Promise<void> {
+  const { slot } = input;
+  await db.transaction(async (tx) => {
+    if (input.existingResumeId && !slot.application.resumeId) {
+      await tx
+        .update(applications)
+        .set({ resumeId: input.existingResumeId })
+        .where(eq(applications.id, slot.application.id));
+    }
+    await tx.insert(aiBatchRequests).values(
+      input.tasks.map((task) => ({
+        userId: input.userId,
+        applicationId: slot.application.id,
+        feature: task.feature,
+        input: task.input as unknown as Record<string, unknown>,
+        slotEventId: slot.slotEventId,
+        createdApplication: slot.created,
+        score: input.score,
+      })),
+    );
+  });
+}
+
+/**
  * Prepares one application for a strong new match: a tailored resume made from the main resume
  * (an existing one for the same main resume is reused, which costs nothing) and a cover letter.
- * The application ends up "ready"; the user reviews it and submits on the employer's site.
+ * The application ends up "ready"; the user reviews it and submits on the employer's site. With
+ * `batches`, the AI work is queued for a batch and the application becomes ready when it's done.
  */
 export async function autoPrepare(
   input: AutoPrepareJob,
   ai: AiProvider,
-  now = new Date(),
-  db: Database = getDb(),
+  { now = new Date(), db = getDb(), batches = null }: AutoPrepareOptions = {},
 ): Promise<AutoPrepareOutcome> {
   const { userId, jobId, score } = input;
   const skip = (reason: SkipReason): AutoPrepareOutcome => {
@@ -248,7 +360,36 @@ export async function autoPrepare(
           .limit(1)
       : [];
     const sourceHash = resumeHash(primary.content);
-    let resume = attached ?? (await findTailoredResume(userId, { jobId }, sourceHash));
+    const existing = attached ?? (await findTailoredResume(userId, { jobId }, sourceHash));
+    const profile = candidateProfileOf(owner.profile);
+
+    const tasks: BatchTask[] = [];
+    if (!existing) {
+      tasks.push({ feature: "tailor", input: { resume: primary.content, job: jobContext } });
+    }
+    if (!slot.application.coverLetter) {
+      // In a batch the letter can't wait for the tailored resume, so it's written from the main
+      // resume: the same facts, and both run in one batch.
+      tasks.push({
+        feature: "cover_letter",
+        input: { resume: (existing ?? primary).content, job: jobContext, profile },
+      });
+    }
+    if (batches && tasks.length > 0 && tasks.every((task) => batches.supports(task.feature))) {
+      await queueBatch(db, {
+        userId,
+        slot,
+        score,
+        existingResumeId: existing?.id ?? null,
+        tasks,
+      });
+      const tailor = !existing;
+      const letter = !slot.application.coverLetter;
+      log.info({ userId, jobId, applicationId, tailor, letter }, "application queued for a batch");
+      return { status: "queued", applicationId, tailor, letter };
+    }
+
+    let resume = existing;
     const tailored = !resume;
     if (!resume) {
       const result = await ai.tailorResume({ resume: primary.content, job: jobContext }, ctx);
@@ -278,7 +419,7 @@ export async function autoPrepare(
     const wroteLetter = !coverLetter;
     if (!coverLetter) {
       const letter = await ai.writeCoverLetter(
-        { resume: resume.content, job: jobContext, profile: candidateProfileOf(owner.profile) },
+        { resume: resume.content, job: jobContext, profile },
         ctx,
       );
       coverLetter = letter.body;
@@ -289,26 +430,24 @@ export async function autoPrepare(
       });
     }
 
-    await db
-      .update(applications)
-      .set({ resumeId: resume.id, coverLetter, status: "ready" })
-      .where(and(eq(applications.id, applicationId), inArray(applications.status, PREPARABLE)));
-    await recordUsageEvent(userId, "auto", applicationId);
-    await db
-      .insert(notifications)
-      .values({
-        userId,
-        type: "application_ready",
-        title: `Ready to apply: ${job.title} at ${companyName}`,
-        body: `${score}% match. Review your tailored resume and cover letter, then submit.`,
-        link: `/jobs/${jobId}`,
-        dedupeKey: `ready:${jobId}`,
-      })
-      .onConflictDoNothing();
+    await markReady(db, {
+      userId,
+      applicationId,
+      jobId,
+      resumeId: resume.id,
+      coverLetter,
+      title: job.title,
+      companyName,
+      score,
+    });
     log.info({ userId, jobId, applicationId, tailored, wroteLetter }, "application prepared");
     return { status: "ready", applicationId, tailored, wroteLetter };
   } catch (error) {
-    await releaseSlot(db, slot);
+    await releaseSlot(db, {
+      applicationId,
+      slotEventId: slot.slotEventId,
+      created: slot.created,
+    });
     throw error;
   }
 }

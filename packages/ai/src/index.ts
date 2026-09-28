@@ -27,12 +27,24 @@ export function setAiProvider(next: AiProvider | undefined): void {
 }
 
 export { AnthropicProvider, UPDATE_RESUME_TOOL } from "./anthropic-provider";
+export {
+  ClaudeBatches,
+  getAiBatches,
+  type AiBatches,
+  type BatchEntry,
+  type BatchFeature,
+  type BatchOutput,
+  type BatchResult,
+  type BatchTask,
+} from "./batch";
 export { applyResumeChanges } from "./requests";
 export { MockProvider } from "./mock-provider";
 export { OpenAIProvider } from "./openai-provider";
 export {
+  claudeModelFor,
   CLAUDE_FALLBACK,
   DEFAULT_ROUTES,
+  effectiveRoute,
   parseRoute,
   routeFor,
   RoutedProvider,

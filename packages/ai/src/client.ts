@@ -1,7 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { transformJSONSchema } from "@anthropic-ai/sdk/lib/transform-json-schema";
+import type { BatchCreateParams } from "@anthropic-ai/sdk/resources/beta/messages/batches";
 import type {
+  BetaCacheControlEphemeral,
   BetaContentBlockParam,
   BetaMessage,
   BetaTextBlockParam,
@@ -61,7 +63,14 @@ export function getAnthropic(): Anthropic {
   return client;
 }
 
-export function usageFrom(feature: AiFeature, message: BetaMessage): UsageRecord {
+/**
+ * Token usage and cost of a message. `batch` prices it at the Message Batches discount.
+ */
+export function usageFrom(
+  feature: AiFeature,
+  message: BetaMessage,
+  options: { batch?: boolean } = {},
+): UsageRecord {
   const iterations = message.usage.iterations ?? [];
   const attempts = iterations.filter(
     (entry): entry is Extract<typeof entry, { type: "message" | "fallback_message" }> =>
@@ -76,6 +85,7 @@ export function usageFrom(feature: AiFeature, message: BetaMessage): UsageRecord
           outputTokens: entry.output_tokens,
           cacheReadTokens: entry.cache_read_input_tokens ?? 0,
           cacheWriteTokens: entry.cache_creation_input_tokens ?? 0,
+          cacheWrite1hTokens: entry.cache_creation?.ephemeral_1h_input_tokens ?? 0,
         }))
       : [
           {
@@ -84,17 +94,18 @@ export function usageFrom(feature: AiFeature, message: BetaMessage): UsageRecord
             outputTokens: message.usage.output_tokens,
             cacheReadTokens: message.usage.cache_read_input_tokens ?? 0,
             cacheWriteTokens: message.usage.cache_creation_input_tokens ?? 0,
+            cacheWrite1hTokens: message.usage.cache_creation?.ephemeral_1h_input_tokens ?? 0,
           },
         ];
-  return sources.reduce<UsageRecord>(
-    (total, part) => ({
+  const total = sources.reduce<UsageRecord>(
+    (sum, part) => ({
       feature,
       model: message.model,
-      inputTokens: total.inputTokens + part.inputTokens,
-      outputTokens: total.outputTokens + part.outputTokens,
-      cacheReadTokens: total.cacheReadTokens + part.cacheReadTokens,
-      cacheWriteTokens: total.cacheWriteTokens + part.cacheWriteTokens,
-      costMicroUsd: total.costMicroUsd + estimateCostMicroUsd(part.model, part),
+      inputTokens: sum.inputTokens + part.inputTokens,
+      outputTokens: sum.outputTokens + part.outputTokens,
+      cacheReadTokens: sum.cacheReadTokens + part.cacheReadTokens,
+      cacheWriteTokens: sum.cacheWriteTokens + part.cacheWriteTokens,
+      costMicroUsd: sum.costMicroUsd + estimateCostMicroUsd(part.model, part, options),
     }),
     {
       feature,
@@ -106,14 +117,16 @@ export function usageFrom(feature: AiFeature, message: BetaMessage): UsageRecord
       costMicroUsd: 0,
     },
   );
+  return options.batch ? { ...total, batch: true } : total;
 }
 
 export async function recordUsage(
   feature: AiFeature,
   message: BetaMessage,
   ctx: AiCallContext,
+  options: { batch?: boolean } = {},
 ): Promise<void> {
-  const usage = usageFrom(feature, message);
+  const usage = usageFrom(feature, message, options);
   log.info(
     {
       feature,
@@ -121,7 +134,9 @@ export async function recordUsage(
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
       stopReason: message.stop_reason,
+      batch: Boolean(options.batch),
     },
     "claude call",
   );
@@ -191,6 +206,26 @@ export function mapAnthropicError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+/**
+ * How long a prompt-cache entry lives. Five minutes suits back-to-back calls; an hour suits
+ * prefixes shared across many users or calls spread out in time (batches, Studio instructions).
+ * A 1-hour write costs 2× the input price instead of 1.25×; reads cost 0.1× either way.
+ */
+export type CacheTtl = "5m" | "1h";
+
+/** Where a structured call puts cache breakpoints: after the instructions and after `stable`. */
+export interface CachePlan {
+  system: CacheTtl;
+  /** Null leaves `stable` uncached, for prefixes no other call will reuse. */
+  stable: CacheTtl | null;
+}
+
+const LIVE_CACHE: CachePlan = { system: "5m", stable: "5m" };
+
+export function cacheControl(ttl: CacheTtl): BetaCacheControlEphemeral {
+  return ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" };
+}
+
 export interface StructuredCall<S extends z.ZodType> {
   feature: AiFeature;
   /** The Claude model; defaults to AI_MODEL. */
@@ -214,17 +249,21 @@ export interface StructuredCall<S extends z.ZodType> {
    * `schema` either way.
    */
   viaTool?: boolean;
+  /** Cache breakpoints; by default both live for five minutes. */
+  cache?: CachePlan;
 }
 
 /**
  * Marks the end of `blocks` as a prompt-cache breakpoint. Prefixes below the model's minimum
- * (4,096 tokens on claude-haiku-4-5, 512 on claude-opus-5) are simply not cached.
+ * (4,096 tokens on claude-haiku-4-5, 1,024 on claude-sonnet-5, 512 on claude-opus-5) are simply
+ * not cached, at no charge.
  */
-export function cacheable(blocks: BetaTextBlockParam[]): BetaTextBlockParam[] {
+export function cacheable(
+  blocks: BetaTextBlockParam[],
+  ttl: CacheTtl = "5m",
+): BetaTextBlockParam[] {
   const last = blocks.at(-1);
-  return last
-    ? [...blocks.slice(0, -1), { ...last, cache_control: { type: "ephemeral" } }]
-    : blocks;
+  return last ? [...blocks.slice(0, -1), { ...last, cache_control: cacheControl(ttl) }] : blocks;
 }
 
 /** The tool that carries the result of a `viaTool` call. */
@@ -241,14 +280,13 @@ function resultTool(schema: z.ZodType): BetaTool {
 }
 
 /**
- * One Claude call that must return JSON matching `schema`, as a structured output or, with
- * `viaTool`, a tool call. Streams under the hood so large outputs don't hit HTTP timeouts.
+ * The Messages API request for a structured call: JSON matching `schema` as a structured output
+ * or, with `viaTool`, a tool call. Live calls and batches send exactly this.
  */
-export async function runStructured<S extends z.ZodType>(
-  call: StructuredCall<S>,
-): Promise<z.infer<S>> {
+export function structuredParams<S extends z.ZodType>(call: StructuredCall<S>) {
   const model = call.model ?? configuredModel();
   const params = modelParams(model, call.feature);
+  const cache = call.cache ?? LIVE_CACHE;
   const output = call.viaTool
     ? {
         tools: [resultTool(call.schema)],
@@ -262,25 +300,43 @@ export async function runStructured<S extends z.ZodType>(
   const system = call.viaTool
     ? `${call.system}\n\nSubmit your result by calling the ${RESULT_TOOL_NAME} tool.`
     : call.system;
-  let message: BetaMessage;
-  try {
-    const stream = getAnthropic().beta.messages.stream(
+  const stable = call.stable ?? [];
+  return {
+    model,
+    max_tokens: call.maxTokens ?? 32_000,
+    ...params,
+    ...output,
+    system: [{ type: "text" as const, text: system, cache_control: cacheControl(cache.system) }],
+    messages: [
       {
-        model,
-        max_tokens: call.maxTokens ?? 32_000,
-        ...params,
-        ...output,
-        system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: [...cacheable(call.stable ?? []), ...call.content] }],
+        role: "user" as const,
+        content: [...(cache.stable ? cacheable(stable, cache.stable) : stable), ...call.content],
       },
-      { signal: call.ctx.signal },
-    );
-    message = await stream.finalMessage();
-  } catch (error) {
-    throw mapAnthropicError(error);
-  }
+    ],
+  };
+}
 
-  await recordUsage(call.feature, message, call.ctx);
+export type BatchRequestParams = BatchCreateParams.Request["params"];
+
+/**
+ * The request for one entry of a Message Batch. Refusal fallbacks are left out: they need a
+ * beta header that would apply to the whole batch; a refused entry is retried instead.
+ */
+export function batchParams<S extends z.ZodType>(call: StructuredCall<S>): BatchRequestParams {
+  const { betas: _betas, fallbacks: _fallbacks, ...params } = structuredParams(call);
+  return params;
+}
+
+/**
+ * Reads the result of a structured call from Claude's message: records usage, stops on refusals
+ * and cut-off output, and validates the JSON against `schema`.
+ */
+export async function readStructured<S extends z.ZodType>(
+  call: StructuredCall<S>,
+  message: BetaMessage,
+  options: { batch?: boolean } = {},
+): Promise<z.infer<S>> {
+  await recordUsage(call.feature, message, call.ctx, options);
   assertUsable(message);
 
   let json: unknown;
@@ -312,4 +368,23 @@ export async function runStructured<S extends z.ZodType>(
     );
   }
   return parsed.data;
+}
+
+/**
+ * One Claude call that must return JSON matching `schema`. Streams under the hood so large
+ * outputs don't hit HTTP timeouts.
+ */
+export async function runStructured<S extends z.ZodType>(
+  call: StructuredCall<S>,
+): Promise<z.infer<S>> {
+  let message: BetaMessage;
+  try {
+    const stream = getAnthropic().beta.messages.stream(structuredParams(call), {
+      signal: call.ctx.signal,
+    });
+    message = await stream.finalMessage();
+  } catch (error) {
+    throw mapAnthropicError(error);
+  }
+  return readStructured(call, message);
 }

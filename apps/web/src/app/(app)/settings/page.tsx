@@ -63,7 +63,7 @@ export default async function SettingsPage() {
       <Card id="auto-prepare" className="scroll-mt-20">
         <CardHeader
           title="Auto-prepare applications"
-          description="When a new job matches you well, we tailor your main resume and write a cover letter for it, then mark it Ready to apply. You review and submit on the company's site."
+          description="When a new job matches you well, we tailor your main resume and write a cover letter for it, then mark it Ready to apply, usually within the hour. We notify you; you review and submit on the company's site."
         />
         <CardBody>
           <AutoPrepareForm

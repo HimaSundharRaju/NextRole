@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { normalizeResume, type Resume, type ResumeSettings } from "@gettargetrole/resume/schema";
 import { and, desc, eq } from "drizzle-orm";
-import { getDb } from "./client";
+import { getDb, type DbExecutor } from "./client";
 import { resumeRevisions, resumes, type TailorNotes } from "./schema/app";
 
 function canonical(value: unknown): unknown {
@@ -36,8 +36,13 @@ function targetCondition(target: TailorTarget) {
 }
 
 /** The newest tailored resume for a target made from this exact main resume, if any. */
-export async function findTailoredResume(userId: string, target: TailorTarget, sourceHash: string) {
-  const [row] = await getDb()
+export async function findTailoredResume(
+  userId: string,
+  target: TailorTarget,
+  sourceHash: string,
+  db: DbExecutor = getDb(),
+) {
+  const [row] = await db
     .select()
     .from(resumes)
     .where(
@@ -53,18 +58,21 @@ export async function findTailoredResume(userId: string, target: TailorTarget, s
   return row ?? null;
 }
 
-export async function saveTailoredResume(input: {
-  userId: string;
-  target: TailorTarget;
-  title: string;
-  content: Resume;
-  settings: ResumeSettings;
-  sourceHash: string;
-  notes: TailorNotes;
-  note: string;
-}) {
+export async function saveTailoredResume(
+  input: {
+    userId: string;
+    target: TailorTarget;
+    title: string;
+    content: Resume;
+    settings: ResumeSettings;
+    sourceHash: string;
+    notes: TailorNotes;
+    note: string;
+  },
+  db: DbExecutor = getDb(),
+) {
   const content = normalizeResume(input.content);
-  return getDb().transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     const [created] = await tx
       .insert(resumes)
       .values({

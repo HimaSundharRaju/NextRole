@@ -133,12 +133,13 @@ In the repository on GitHub, open **Settings → Secrets and variables → Actio
 
 **Variables**
 
-| Name                 | Value                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| `APP_URL`            | The public URL from step 2, for example `https://gettargetrole.hearthspace.in`     |
-| `EMAIL_FROM`         | Sender on your verified domain, for example `GetTargetRole <no-reply@sundhar.io>`  |
-| `AI_MODEL`           | Optional: puts every feature on one Claude model instead of the per-feature routes |
-| `ANTHROPIC_BASE_URL` | Optional: route AI calls through Cloudflare AI Gateway (see below)                 |
+| Name                 | Value                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| `APP_URL`            | The public URL from step 2, for example `https://gettargetrole.hearthspace.in`             |
+| `EMAIL_FROM`         | Sender on your verified domain, for example `GetTargetRole <no-reply@sundhar.io>`          |
+| `AI_MODEL`           | Optional: puts every feature on one Claude model instead of the per-feature routes         |
+| `AI_BATCH`           | Optional: `off` makes auto-prepare call the AI right away instead of in half-price batches |
+| `ANTHROPIC_BASE_URL` | Optional: route AI calls through Cloudflare AI Gateway (see below)                         |
 
 With the GitHub CLI, the two generated secrets can be set without ever displaying them:
 
@@ -180,7 +181,9 @@ After that, every push to `main` deploys automatically once CI passes.
 - **AI spend**: every call's cost is stored in the `ai_usage` table and capped per user by plan.
   To also get Cloudflare's usage dashboards, caching and rate limits, create an AI Gateway in the
   Cloudflare dashboard and set the `ANTHROPIC_BASE_URL` variable to
-  `https://gateway.ai.cloudflare.com/v1/<account id>/<gateway name>/anthropic`.
+  `https://gateway.ai.cloudflare.com/v1/<account id>/<gateway name>/anthropic`. Auto-prepare's
+  batches go through the same address; if the worker logs that it can't send them, set
+  `AI_BATCH` to `off` (the queued work also falls back to live calls after half an hour).
 - **Roll back**: revert the change on `main` (the deploy runs again), or roll back to an earlier
   version from the Worker's Deployments page in the dashboard.
 - **Removed settings**: deploys add and update secrets but never delete them. Remove one with

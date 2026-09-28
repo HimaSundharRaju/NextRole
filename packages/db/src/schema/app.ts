@@ -487,9 +487,54 @@ export const aiUsage = pgTable(
     cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
     cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
     costMicroUsd: bigint("cost_micro_usd", { mode: "number" }).notNull().default(0),
+    /** Made through a batch API, at half price. */
+    batch: boolean("batch").notNull().default(false),
     createdAt,
   },
   (table) => [index("ai_usage_user_created_idx").on(table.userId, table.createdAt)],
+).enableRLS();
+
+export const AI_BATCH_FEATURES = ["tailor", "cover_letter"] as const;
+export const AI_BATCH_STATUSES = ["queued", "submitted", "succeeded", "failed"] as const;
+export type AiBatchStatus = (typeof AI_BATCH_STATUSES)[number];
+
+/**
+ * Auto-prepare work waiting on a batch API (half price; results within 24 hours, usually
+ * minutes): one row per tailored resume or cover letter. The worker submits queued rows, reads
+ * the results, and finishes the application once all of its rows are done; then the rows go.
+ */
+export const aiBatchRequests = pgTable(
+  "ai_batch_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: userRef(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id, { onDelete: "cascade" }),
+    feature: text("feature", { enum: AI_BATCH_FEATURES }).notNull(),
+    /** The feature's input (resume, job, profile), sent as it is when the batch goes out. */
+    input: jsonb("input").$type<Record<string, unknown>>().notNull(),
+    status: text("status", { enum: AI_BATCH_STATUSES }).notNull().default("queued"),
+    /** How many batches it has been sent in; a failure is retried once. */
+    attempts: integer("attempts").notNull().default(0),
+    batchId: text("batch_id"),
+    /** The validated result. */
+    output: jsonb("output").$type<Record<string, unknown>>(),
+    error: text("error").notNull().default(""),
+    /** The auto-prepare slot (an `auto_prepared` event) to give back if the work fails. */
+    slotEventId: uuid("slot_event_id").notNull(),
+    /** Whether auto-prepare created the application, so a failure may remove it. */
+    createdApplication: boolean("created_application").notNull().default(false),
+    /** Match score when the job was found, for the "ready" notification. */
+    score: integer("score").notNull().default(0),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex("ai_batch_requests_application_feature_uq").on(table.applicationId, table.feature),
+    index("ai_batch_requests_status_idx").on(table.status, table.createdAt),
+    index("ai_batch_requests_batch_idx").on(table.batchId),
+  ],
 ).enableRLS();
 
 /**

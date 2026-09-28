@@ -36,6 +36,13 @@
       "when": 1790404394967,
       "tag": "0004_plans_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790449965979,
+      "tag": "0005_batch_requests",
+      "breakpoints": true
     }
   ]
 }

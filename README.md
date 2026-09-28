@@ -108,6 +108,7 @@ every variable with its default.
 | `ANTHROPIC_API_KEY`                        | yes      | Anthropic API key                                                                                             |
 | `OPENAI_API_KEY`                           | no       | OpenAI API key for features routed to OpenAI models; without it they stay on Claude                           |
 | `AI_MODEL`                                 | no       | Puts every feature on one Claude model instead of the per-feature routes (`AI_ROUTE_<FEATURE>` overrides one) |
+| `AI_BATCH`                                 | no       | `off` makes auto-prepare call the AI right away instead of in half-price batches (worker only)                |
 | `SMTP_URL`, `EMAIL_FROM`                   | prod     | Outgoing email. Production requires email verification, so SMTP must be configured.                           |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | no       | Enables "Continue with Google"                                                                                |
 | `TRUSTED_PROXIES`                          | no       | Proxy IPs/CIDRs to trust when requests pass through more than one proxy hop                                   |

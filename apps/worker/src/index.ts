@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { getAi } from "@gettargetrole/ai";
+import { getAi, getAiBatches } from "@gettargetrole/ai";
 import { createLogger } from "@gettargetrole/core/logger";
 import {
   autoPrepareDeduplicationId,
@@ -15,6 +15,7 @@ import { closeDb } from "@gettargetrole/db";
 import { autoPrepareCandidates, createJobAlerts } from "@gettargetrole/jobs/alerts";
 import { companiesDueForSync, syncCompany } from "@gettargetrole/jobs/ingest";
 import { Queue, Worker, type Job } from "bullmq";
+import { pollAiBatches, runStaleRequests, submitAiBatches } from "./batches";
 import { aiConfigured, loadWorkerEnv } from "./env";
 import { autoPrepare } from "./prepare";
 import { createFollowUpReminders } from "./reminders";
@@ -39,6 +40,10 @@ const autoPrepareQueue = new Queue(QUEUE_NAMES.autoPrepare, {
 
 const autoPrepareOn = aiConfigured(env);
 if (!autoPrepareOn) log.warn("auto-prepare is off: the worker has no AI key (ANTHROPIC_API_KEY)");
+// Auto-prepare's AI work goes through the batch API at half price, unless AI_BATCH=off. Batches
+// already sent are still read when it's off.
+const batches = autoPrepareOn ? getAiBatches() : null;
+const batching = batches !== null && env.AI_BATCH === "on";
 
 /** Queues auto-prepare for users whose settings match the new jobs, strongest matches first. */
 async function enqueueAutoPrepare(jobIds: string[]): Promise<number> {
@@ -101,8 +106,25 @@ async function handleNotifications(job: Job): Promise<unknown> {
 }
 
 async function handleAutoPrepare(job: Job): Promise<unknown> {
-  if (job.name !== JOB_NAMES.autoPrepare) throw new Error(`Unknown auto-prepare job: ${job.name}`);
-  return autoPrepare(job.data as AutoPrepareJob, getAi());
+  switch (job.name) {
+    case JOB_NAMES.autoPrepare:
+      return autoPrepare(job.data as AutoPrepareJob, getAi(), {
+        batches: batching ? batches : null,
+      });
+    case JOB_NAMES.submitAiBatches:
+      return batching && batches ? submitAiBatches(batches) : { submitted: 0 };
+    case JOB_NAMES.pollAiBatches: {
+      if (!batches) return { read: 0 };
+      // Queued work that can't go out in a batch runs as live calls; the poll then finishes
+      // those applications along with the batched ones.
+      const live = await runStaleRequests(getAi(), undefined, {
+        staleAfterMs: batching ? undefined : 0,
+      });
+      return { live, ...(await pollAiBatches(batches)) };
+    }
+    default:
+      throw new Error(`Unknown auto-prepare job: ${job.name}`);
+  }
 }
 
 const ingestWorker = new Worker(QUEUE_NAMES.ingest, handleIngest, {
@@ -142,6 +164,24 @@ await notificationsQueue.upsertJobScheduler(
   { pattern: "0 */1 * * *" },
   { name: JOB_NAMES.followUpReminders },
 );
+if (batching) {
+  await autoPrepareQueue.upsertJobScheduler(
+    "submit-ai-batches",
+    { every: 2 * 60_000 },
+    { name: JOB_NAMES.submitAiBatches },
+  );
+} else {
+  await autoPrepareQueue.removeJobScheduler("submit-ai-batches");
+}
+if (batches) {
+  await autoPrepareQueue.upsertJobScheduler(
+    "poll-ai-batches",
+    { every: 5 * 60_000 },
+    { name: JOB_NAMES.pollAiBatches },
+  );
+} else {
+  await autoPrepareQueue.removeJobScheduler("poll-ai-batches");
+}
 
 const health = createServer((req, res) => {
   const healthy = workers.every((worker) => worker.isRunning());
@@ -159,6 +199,7 @@ log.info(
     intervalMinutes: env.INGEST_INTERVAL_MINUTES,
     concurrency: env.INGEST_CONCURRENCY,
     autoPrepare: autoPrepareOn,
+    batches: batching,
   },
   "worker started",
 );

@@ -11,6 +11,7 @@
     "AI_PROVIDER",
     "AI_MODEL",
     "AI_ROUTE_*",
+    "AI_BATCH",
     "OPENAI_API_KEY",
     "BETTER_AUTH_SECRET",
     "BETTER_AUTH_URL",

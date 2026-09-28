@@ -1,5 +1,5 @@
 export * from "./schema";
-export { closeDb, getDb, getPool, type Database } from "./client";
+export { closeDb, getDb, getPool, type Database, type DbExecutor } from "./client";
 export {
   hasAiBudget,
   monthlyAiSpendMicroUsd,
@@ -10,11 +10,13 @@ export {
 export {
   AUTO_PREPARE_BUDGET_SHARE,
   AUTO_PREPARE_DAILY_MAX,
+  fullUseCostUsd,
   MIN_AI_MATCH,
   MONTHLY_AI_BUDGET_USD,
   nextPlanWithMore,
   PLAN_LIMITS,
   PLAN_ORDER,
+  UNIT_COST_USD,
   USAGE_UNITS,
   type UsageUnit,
 } from "./plans";

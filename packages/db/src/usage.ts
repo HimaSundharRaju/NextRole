@@ -1,5 +1,5 @@
 import { and, eq, gte, sql } from "drizzle-orm";
-import { getDb } from "./client";
+import { getDb, type DbExecutor } from "./client";
 import { startOfMonth } from "./metering";
 import { USAGE_UNITS, type UsageUnit } from "./plans";
 import { usageEvents } from "./schema/app";
@@ -37,6 +37,11 @@ export async function monthlyUnits(
   return row?.count ?? 0;
 }
 
-export async function recordUsageEvent(userId: string, unit: UsageUnit, ref = ""): Promise<void> {
-  await getDb().insert(usageEvents).values({ userId, unit, ref });
+export async function recordUsageEvent(
+  userId: string,
+  unit: UsageUnit,
+  ref = "",
+  db: DbExecutor = getDb(),
+): Promise<void> {
+  await db.insert(usageEvents).values({ userId, unit, ref });
 }
