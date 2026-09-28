@@ -16,6 +16,7 @@ export const DEFAULT_COMPANIES: Array<{
   website: string;
   /** For boards that take many requests to read; see `companies.sync_interval_minutes`. */
   syncIntervalMinutes?: number;
+  isStaffingAgency?: boolean;
 }> = [
   {
     name: "Anthropic",
@@ -401,6 +402,22 @@ export const DEFAULT_COMPANIES: Array<{
     ats: "workday",
     boardToken: "zoom.wd5.myworkdayjobs.com|zoom|Zoom",
     website: "https://zoom.us",
+  },
+  // Staffing firms whose career portals publish their clients' roles through Bullhorn's public
+  // jobs API, mostly contracts (verified live, September 2026).
+  {
+    name: "CEI",
+    ats: "bullhorn",
+    boardToken: "30|3vcpe1|cei.ai/jobs",
+    website: "https://cei.ai",
+    isStaffingAgency: true,
+  },
+  {
+    name: "Prestige Staffing",
+    ats: "bullhorn",
+    boardToken: "30|SCQRD|jobs.prestigestaffing.com",
+    website: "https://www.prestigestaffing.com",
+    isStaffingAgency: true,
   },
   // Companies found by their board names on Greenhouse, Ashby and Lever, verified live
   // (September 2026).

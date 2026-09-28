@@ -13,6 +13,7 @@ import {
   assignSpecialist,
   lookUpCompanyRequests,
   setCompanyActive,
+  setCompanyStaffing,
   setUserBanned,
   setUserPlan,
   setUserRole,
@@ -94,6 +95,7 @@ const TOKEN_HINT: Record<string, string> = {
   oracle: "host|siteNumber",
   eightfold: "host|domain, or host|domain|pcsx",
   amazon: "all, or countries (USA,IND)",
+  bullhorn: "cluster|corpToken|portal host/path",
 };
 
 export function AddCompanyForm() {
@@ -132,6 +134,7 @@ export function AddCompanyForm() {
         <option value="oracle">Oracle</option>
         <option value="eightfold">Eightfold</option>
         <option value="amazon">Amazon</option>
+        <option value="bullhorn">Bullhorn (staffing)</option>
       </Select>
       <Input
         name="boardToken"
@@ -161,10 +164,31 @@ export function LookUpRequestsButton() {
   );
 }
 
-export function CompanyActions({ companyId, active }: { companyId: string; active: boolean }) {
+export function CompanyActions({
+  companyId,
+  active,
+  isStaffingAgency,
+}: {
+  companyId: string;
+  active: boolean;
+  isStaffingAgency: boolean;
+}) {
   const { pending, run } = useAction();
   return (
     <div className="flex justify-end gap-1">
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={pending}
+        onClick={() =>
+          run(
+            () => setCompanyStaffing({ companyId, isStaffingAgency: !isStaffingAgency }),
+            isStaffingAgency ? "No longer marked as an agency." : "Marked as a staffing agency.",
+          )
+        }
+      >
+        {isStaffingAgency ? "Not an agency" : "Agency"}
+      </Button>
       <Button
         size="sm"
         variant="ghost"

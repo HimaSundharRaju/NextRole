@@ -49,6 +49,8 @@ export const jobFiltersSchema = z.object({
   minMatch: z.enum(["60", "70", "80"]).optional().catch(undefined),
   /** Roles asking for at most this many years; posts that don't say are kept. */
   maxYears: z.enum(["2", "5", "8"]).optional().catch(undefined),
+  /** Only roles posted by employers themselves, or only by staffing agencies. */
+  employer: z.enum(["direct", "agency"]).optional().catch(undefined),
   company: z.string().trim().max(100).optional().catch(undefined),
   page: z.coerce.number().int().min(1).max(100).optional().catch(undefined),
   /** ISO country code, e.g. "US". */
@@ -116,6 +118,7 @@ const listColumns = {
   yearsMin: jobs.yearsMin,
   companyName: companies.name,
   companySlug: companies.slug,
+  companyIsAgency: companies.isStaffingAgency,
 };
 
 export interface JobListItem {
@@ -137,6 +140,8 @@ export interface JobListItem {
   citizenshipRequired: boolean;
   companyName: string;
   companySlug: string;
+  /** Posted by a staffing agency for one of its clients. */
+  companyIsAgency: boolean;
   applicationStatus: string | null;
   /** First seen in the last 24 hours. */
   isNew: boolean;
@@ -167,6 +172,9 @@ function whereFor(filters: JobFilters): SQL[] {
   if (filters.country) conditions.push(arrayContains(jobs.countries, [filters.country]));
   if (filters.region) conditions.push(arrayContains(jobs.regions, [filters.region]));
   if (filters.type?.length) conditions.push(arrayOverlaps(jobs.employmentTypes, filters.type));
+  if (filters.employer) {
+    conditions.push(eq(companies.isStaffingAgency, filters.employer === "agency"));
+  }
   if (filters.maxYears) {
     conditions.push(
       sql`(${jobs.yearsMin} is null or ${jobs.yearsMin} <= ${Number(filters.maxYears)})`,
@@ -280,6 +288,7 @@ export async function getJobDetail(userId: string, jobId: string) {
       companyName: companies.name,
       companySlug: companies.slug,
       companyWebsite: companies.website,
+      companyIsAgency: companies.isStaffingAgency,
     })
     .from(jobs)
     .innerJoin(companies, eq(jobs.companyId, companies.id))
@@ -315,7 +324,12 @@ export async function getJobDetail(userId: string, jobId: string) {
 
   return {
     job: row.job,
-    company: { name: row.companyName, slug: row.companySlug, website: row.companyWebsite },
+    company: {
+      name: row.companyName,
+      slug: row.companySlug,
+      website: row.companyWebsite,
+      isStaffingAgency: row.companyIsAgency,
+    },
     match: quickMatch(signals, row.job),
     aiMatch: aiMatch ?? null,
     aiMatchStale: madeFromOlder(aiMatch?.sourceHash),

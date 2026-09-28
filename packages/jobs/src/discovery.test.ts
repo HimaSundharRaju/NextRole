@@ -7,7 +7,13 @@ import {
   robotsAllows,
   slugCandidates,
 } from "./discovery";
-import { ashbyResponse, eightfoldList, greenhouseResponse, pcsxList } from "./test-fixtures";
+import {
+  ashbyResponse,
+  bullhornContract,
+  eightfoldList,
+  greenhouseResponse,
+  pcsxList,
+} from "./test-fixtures";
 
 describe("detectBoard", () => {
   it.each([
@@ -227,6 +233,31 @@ describe("discoverBoard", () => {
       { fetch },
     );
     expect(found).toMatchObject({ token: "explore.jobs.netflix.net|netflix.com", openJobs: 2 });
+  });
+
+  it("finds a staffing firm's Bullhorn portal from its settings file", async () => {
+    const fetch = site({
+      "https://jobs.staffco.example/robots.txt": "",
+      "https://jobs.staffco.example/app.json": new Response(
+        JSON.stringify({ companyName: "StaffCo", service: { corpToken: "SCQRD", swimlane: "30" } }),
+        { headers: { "content-type": "application/json" } },
+      ),
+      "https://jobs.staffco.example/": `<html><head><title>Career Portal</title><base href="."></head><body><app-root></app-root></body></html>`,
+      "https://public-rest30.bullhornstaffing.com/rest-services/SCQRD/search/JobOrder": {
+        total: 191,
+        data: [bullhornContract],
+      },
+    });
+    const found = await discoverBoard(
+      { name: "", url: "https://jobs.staffco.example/" },
+      { fetch },
+    );
+    expect(found).toEqual({
+      provider: "bullhorn",
+      token: "30|SCQRD|jobs.staffco.example",
+      openJobs: 191,
+      suggestedName: "Staffco",
+    });
   });
 
   it("gives up when nothing turns up", async () => {

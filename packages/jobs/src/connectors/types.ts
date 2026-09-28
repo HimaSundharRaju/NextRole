@@ -26,6 +26,10 @@ export interface NormalizedJob {
   needsHydration?: boolean;
   /** Where `hydrate` finds the posting's details, when the id alone isn't enough. */
   ref?: string;
+  /** Years of experience the board says the role needs; beats reading them from the text. */
+  yearsMin?: number | null;
+  /** Visa sponsorship the board states outright; the text's own statement still counts. */
+  sponsorship?: "yes" | "no";
 }
 
 /**

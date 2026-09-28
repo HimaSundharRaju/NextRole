@@ -34,6 +34,8 @@ export async function trackBoard(
         ats: input.provider,
         boardToken: input.token,
         website: input.website ?? "",
+        // Bullhorn makes software for staffing firms, so its boards list clients' roles.
+        isStaffingAgency: input.provider === "bullhorn",
       })
       .onConflictDoNothing()
       .returning({ id: companies.id });

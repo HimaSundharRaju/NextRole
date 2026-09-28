@@ -69,6 +69,14 @@ export default async function JobPage({ params }: Props) {
           <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-1">
               <Building2 className="h-4 w-4" aria-hidden /> {company.name}
+              {company.isStaffingAgency ? (
+                <Badge
+                  tone="outline"
+                  title="A staffing agency posting a role at one of its clients"
+                >
+                  Staffing agency
+                </Badge>
+              ) : null}
             </span>
             {job.location ? (
               <span className="inline-flex items-center gap-1">

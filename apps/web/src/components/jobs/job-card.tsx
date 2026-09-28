@@ -69,6 +69,14 @@ export function JobCard({ job, compact = false }: { job: JobListItem; compact?: 
             <span className="inline-flex items-center gap-1">
               <Building2 className="h-3.5 w-3.5" aria-hidden />
               {job.companyName}
+              {job.companyIsAgency ? (
+                <Badge
+                  tone="outline"
+                  title="A staffing agency posting a role at one of its clients"
+                >
+                  Staffing agency
+                </Badge>
+              ) : null}
             </span>
             {job.location ? (
               <span className="inline-flex items-center gap-1">

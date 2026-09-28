@@ -308,3 +308,56 @@ export const pcsxDetail = {
     efcustomTextEmploymentType: ["Full-Time"],
   },
 };
+
+/** Bullhorn's public jobs API (search/JobOrder), shaped like two staffing firms' feeds. */
+export const bullhornContract = {
+  id: 32799,
+  title: "Cyber Security Analyst II ",
+  publicDescription:
+    "<h1>Cyber Security Analyst II</h1><p><strong>Job at a Glance</strong><br><strong>Title:</strong> Cyber Security Analyst II<br><strong>Location:</strong> Akron, OH</p><p>12-month contract. W2 only, no C2C.</p>",
+  willSponsor: false,
+  salary: 0,
+  payRate: 62.5,
+  salaryUnit: "Per Hour",
+  address: {
+    address1: "341 White Pond Drive",
+    city: "Akron",
+    state: "Ohio",
+    zip: "44320",
+    countryID: 1,
+  },
+  dateAdded: 1790365265290,
+  dateLastPublished: 1790369374490,
+  onSite: "On-Site",
+  isPublic: 1,
+  isOpen: true,
+  yearsRequired: 3,
+  employmentType: "Contract",
+  responseUser: { id: 1309646, firstName: "Recruiter", lastName: "Name" },
+  publishedCategory: { id: 2000243, name: "Infrastructure & Security" },
+};
+
+export const bullhornDirectHire = {
+  id: 54384,
+  title: "Custom Solutions Manager",
+  publicDescription:
+    "<p>Custom Solutions Manager&nbsp;<br />$125,000 - $150,000<br />Remote&nbsp;<br />Summary: a senior, customer-focused role.</p><p>We can sponsor H-1B visas for this role.</p>",
+  willSponsor: true,
+  salary: 135000,
+  payRate: 0,
+  salaryUnit: "",
+  address: {
+    address1: "5810 Plantation Dr",
+    city: "Atlanta",
+    state: "GA",
+    zip: "30077",
+    countryID: 1,
+  },
+  dateAdded: 1784747240107,
+  onSite: null,
+  isPublic: 1,
+  isOpen: true,
+  yearsRequired: 0,
+  employmentType: "Direct Hire",
+  publishedCategory: { id: 1057638, name: "Medical/Health" },
+};

@@ -33,7 +33,7 @@ export const addCompany = authedAction(
       .trim()
       .min(1)
       .max(200)
-      .regex(/^[A-Za-z0-9_.,|-]+$/, "Use the board's identifier from its careers URL"),
+      .regex(/^[A-Za-z0-9_.,|/-]+$/, "Use the board's identifier from its careers URL"),
     website: z.union([z.literal(""), z.url({ protocol: /^https$/ })]),
   }),
   async (input, user) => {
@@ -43,6 +43,8 @@ export const addCompany = authedAction(
       .values({
         ...input,
         slug: slugify(input.name) || slugify(`${input.ats}-${input.boardToken}`),
+        // Bullhorn makes software for staffing firms, so its boards list clients' roles.
+        isStaffingAgency: input.ats === "bullhorn",
       })
       .onConflictDoNothing()
       .returning({ id: companies.id });
@@ -110,6 +112,24 @@ export const lookUpCompanyRequests = authedAction(
     return null;
   },
   { ...adminOnly, rateLimit: "adminSync" },
+);
+
+/** Marks a company as a staffing agency (or not), which the board labels and can filter out. */
+export const setCompanyStaffing = authedAction(
+  z.object({ companyId: z.uuid(), isStaffingAgency: z.boolean() }),
+  async ({ companyId, isStaffingAgency }, user) => {
+    await getDb().update(companies).set({ isStaffingAgency }).where(eq(companies.id, companyId));
+    await recordAudit({
+      actorUserId: user.id,
+      action: "admin.company.staffing",
+      targetType: "company",
+      targetId: companyId,
+      metadata: { isStaffingAgency },
+    });
+    revalidatePath("/admin");
+    return null;
+  },
+  adminOnly,
 );
 
 export const setCompanyActive = authedAction(

@@ -57,6 +57,13 @@
       "when": 1790466666555,
       "tag": "0007_job_enrichment",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790482088059,
+      "tag": "0008_staffing_agencies",
+      "breakpoints": true
     }
   ]
 }

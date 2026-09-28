@@ -3,6 +3,7 @@
 import { countryLabel, regionLabel } from "@gettargetrole/jobs/locations";
 import { Search } from "lucide-react";
 import Form from "next/form";
+import Link from "next/link";
 import type { ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/form";
@@ -34,6 +35,7 @@ export function JobFilters({
     sort?: string;
     minMatch?: string;
     maxYears?: string;
+    employer?: string;
     company?: string;
     country?: string;
     region?: string;
@@ -75,7 +77,7 @@ export function JobFilters({
           Search
         </Button>
       </div>
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
         <Select
           name="workplace"
           defaultValue={filters.workplace ?? "any"}
@@ -131,6 +133,16 @@ export function JobFilters({
           <option value="60">60%+ match</option>
           <option value="70">70%+ match</option>
           <option value="80">80%+ match</option>
+        </Select>
+        <Select
+          name="employer"
+          defaultValue={filters.employer ?? ""}
+          onChange={submitOnChange}
+          aria-label="Posted by"
+        >
+          <option value="">Employers and agencies</option>
+          <option value="direct">Employers only</option>
+          <option value="agency">Staffing agencies only</option>
         </Select>
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
@@ -235,6 +247,12 @@ export function JobFilters({
         <span className="text-xs text-muted-foreground">
           W-2, C2C and 1099 show up when a post says so.
         </span>
+        <Link
+          href="/jobs?type=contract&type=w2&type=c2c&type=1099&sort=newest"
+          className="ml-auto text-xs font-medium text-primary hover:underline"
+        >
+          Contract roles (W-2 / C2C)
+        </Link>
       </fieldset>
     </Form>
   );
