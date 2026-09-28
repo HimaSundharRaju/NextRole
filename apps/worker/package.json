@@ -12,15 +12,18 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.128.0",
     "bullmq": "6.3.8",
     "drizzle-orm": "0.45.3",
     "ioredis": "6.0.0",
+    "mammoth": "1.12.3",
     "pg": "8.23.0",
     "pino": "10.3.1",
     "sanitize-html": "2.17.7",
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@gettargetrole/ai": "workspace:*",
     "@gettargetrole/core": "workspace:*",
     "@gettargetrole/db": "workspace:*",
     "@gettargetrole/jobs": "workspace:*",

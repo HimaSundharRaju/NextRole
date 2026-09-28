@@ -283,6 +283,15 @@ export async function pipelineStats(userId: string) {
   };
 }
 
+/** Applications auto-prepare finished that the user hasn't submitted yet. */
+export async function readyToApplyCount(userId: string): Promise<number> {
+  const [row] = await getDb()
+    .select({ count: sql<number>`count(*)::int` })
+    .from(applications)
+    .where(and(eq(applications.userId, userId), eq(applications.status, "ready")));
+  return row?.count ?? 0;
+}
+
 export async function followUpsDue(userId: string) {
   return getDb()
     .select({

@@ -23,7 +23,8 @@ export const metadata: Metadata = { title: "Application" };
 export const maxDuration = 300;
 
 const EVENT_LABEL: Record<string, (data: Record<string, unknown>) => string> = {
-  created: () => "Added to tracker",
+  created: (data) =>
+    data.source === "auto_prepare" ? "Added by auto-prepare" : "Added to tracker",
   status_changed: (data) =>
     `Moved to ${STATUS_META[data.to as keyof typeof STATUS_META]?.label ?? String(data.to)}`,
   note: () => "Updated notes",
@@ -36,6 +37,8 @@ const EVENT_LABEL: Record<string, (data: Record<string, unknown>) => string> = {
     })[String(data.part)] ?? "Apply kit updated",
   outreach_drafted: () => "Outreach drafted",
   submitted: () => "Submitted — receipt saved",
+  auto_prepared: (data) =>
+    typeof data.score === "number" ? `Auto-prepared for a ${data.score}% match` : "Auto-prepared",
 };
 
 export default async function ApplicationPage({ params }: { params: Promise<{ id: string }> }) {

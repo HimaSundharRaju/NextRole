@@ -1,7 +1,9 @@
+import { emptyResume } from "@gettargetrole/resume/schema";
 import { describe, expect, it } from "vitest";
 import { connectionConfig } from "./client";
 import { DEFAULT_COMPANIES } from "./seed-lib";
 import { slugify } from "./slug";
+import { resumeHash } from "./tailored";
 
 describe("connectionConfig", () => {
   const url =
@@ -45,5 +47,16 @@ describe("default companies", () => {
 
     const boards = DEFAULT_COMPANIES.map((company) => `${company.ats}:${company.boardToken}`);
     expect(new Set(boards).size).toBe(boards.length);
+  });
+});
+
+describe("resumeHash", () => {
+  it("ignores key order, which jsonb changes, but not content", () => {
+    const resume = { ...emptyResume(), summary: "Builds payment systems." };
+    const reordered = Object.fromEntries(Object.entries(resume).reverse()) as typeof resume;
+    expect(resumeHash(reordered)).toBe(resumeHash(resume));
+    expect(resumeHash({ ...resume, summary: "Builds search systems." })).not.toBe(
+      resumeHash(resume),
+    );
   });
 });

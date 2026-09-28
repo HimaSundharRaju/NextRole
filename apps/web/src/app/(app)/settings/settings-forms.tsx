@@ -4,12 +4,17 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, Input, Textarea } from "@/components/ui/form";
+import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Alert } from "@/components/ui/misc";
 import { useToast } from "@/components/ui/toast";
 import { authClient } from "@/lib/auth-client";
-import type { AboutInput } from "@/lib/validation";
-import { deleteAccount, saveAbout } from "./actions";
+import {
+  AUTO_PREPARE_LIMITS,
+  AUTO_PREPARE_SCORES,
+  type AboutInput,
+  type AutoPrepareInput,
+} from "@/lib/validation";
+import { deleteAccount, saveAbout, saveAutoPrepare } from "./actions";
 
 export function AboutForm({ initial }: { initial: AboutInput }) {
   const toast = useToast();
@@ -92,6 +97,94 @@ export function AboutForm({ initial }: { initial: AboutInput }) {
           maxLength={4000}
         />
       </Field>
+      <Button type="submit" loading={pending}>
+        Save
+      </Button>
+    </form>
+  );
+}
+
+export function AutoPrepareForm({
+  initial,
+  hasResume,
+}: {
+  initial: AutoPrepareInput;
+  hasResume: boolean;
+}) {
+  const toast = useToast();
+  const [pending, startTransition] = useTransition();
+  const [enabled, setEnabled] = useState(initial.autoPrepareEnabled);
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    startTransition(async () => {
+      const result = await saveAutoPrepare({
+        autoPrepareEnabled: form.get("autoPrepareEnabled") === "on",
+        autoPrepareMinScore: Number(form.get("autoPrepareMinScore") ?? 80),
+        autoPrepareDailyLimit: Number(form.get("autoPrepareDailyLimit") ?? 3),
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Saved.");
+    });
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-4">
+      <label className="flex items-center gap-3 text-sm">
+        <input
+          type="checkbox"
+          name="autoPrepareEnabled"
+          checked={enabled}
+          onChange={(event) => setEnabled(event.target.checked)}
+          className="h-4 w-4 accent-[var(--primary)]"
+        />
+        Auto-prepare applications for my best new matches
+      </label>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label="Minimum match"
+          htmlFor="autoPrepareMinScore"
+          hint="Only jobs that match your main resume this well"
+        >
+          <Select
+            id="autoPrepareMinScore"
+            name="autoPrepareMinScore"
+            defaultValue={String(initial.autoPrepareMinScore)}
+          >
+            {AUTO_PREPARE_SCORES.map((score) => (
+              <option key={score} value={score}>
+                {score}%+ match
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          label="Daily limit"
+          htmlFor="autoPrepareDailyLimit"
+          hint="Each one uses AI credits for a resume and a cover letter"
+        >
+          <Select
+            id="autoPrepareDailyLimit"
+            name="autoPrepareDailyLimit"
+            defaultValue={String(initial.autoPrepareDailyLimit)}
+          >
+            {AUTO_PREPARE_LIMITS.map((limit) => (
+              <option key={limit} value={limit}>
+                Up to {limit} a day
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+      {enabled && !hasResume ? (
+        <Alert tone="warning">
+          Add your main resume under Resumes — auto-prepare tailors from it.
+        </Alert>
+      ) : null}
       <Button type="submit" loading={pending}>
         Save
       </Button>

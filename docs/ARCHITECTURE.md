@@ -9,7 +9,7 @@ pipeline, the AI integration and the security model. For setup and deployment, s
 | Component     | Runs as                      | Responsibilities                                                                                                             |
 | ------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `apps/web`    | Next.js 16 standalone server | UI (React Server Components), server actions, API routes, authentication, AI calls                                           |
-| `apps/worker` | Node.js process with BullMQ  | Job-board ingestion, job alerts, follow-up reminders; `dist/migrate.js` for migrations                                       |
+| `apps/worker` | Node.js process with BullMQ  | Job-board ingestion, job alerts, auto-prepare, follow-up reminders; `dist/migrate.js` for migrations                         |
 | `apps/edge`   | Cloudflare Worker            | Routes traffic to the web containers and keeps the jobs container running (see [DEPLOY_CLOUDFLARE.md](DEPLOY_CLOUDFLARE.md)) |
 | PostgreSQL 16 | Managed database             | All durable state, including sessions and full-text search                                                                   |
 | Redis         | Managed cache (`noeviction`) | BullMQ queues and schedulers, distributed rate limits                                                                        |
@@ -59,12 +59,40 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    posting only updates `last_seen_at`. Jobs that disappear from a board are marked closed.
 5. **Alert.** New jobs are scored against each candidate's profile, and strong matches create
    notifications. Candidates who need sponsorship aren't alerted about posts that rule it out.
+6. **Auto-prepare.** For users who turned it on, new jobs at or above their minimum match are
+   queued on the `auto-prepare` queue, strongest matches first (see below).
 
 Matching (`packages/jobs/src/match.ts`) is deterministic and costs nothing to run, so the whole
 feed can be ranked. The score is skill overlap (50%), title similarity to the target roles (30%)
 and location fit (20%). It is reduced for a seniority mismatch or pay below the salary floor, and
 each score comes with the reasons behind it. The AI's deeper fit analysis runs only when a
 candidate asks for it on a single job.
+
+## Applying
+
+Every job can be applied to manually: the job page's apply kit tailors the main resume, writes a
+cover letter and drafts answers, and the candidate submits on the employer's site and marks the
+application applied. Nothing is ever submitted for them; employers' application forms have no API
+that would allow it.
+
+Auto-prepare does the same preparation in the background (`apps/worker/src/prepare.ts`). It is
+off by default; in Settings the user sets a minimum match score (default 80) and a daily limit
+(default 3). For each strong new match the worker:
+
+1. Skips the job if auto-prepare is off, the job has closed, there is no main resume, or the
+   user has spent 80% of the month's AI budget (the rest stays available for their own
+   requests).
+2. Takes a daily slot under a per-user Postgres advisory lock, so parallel jobs can't exceed the
+   limit, and only then creates the application. Applications the user has moved past
+   preparing are left alone.
+3. Reuses a tailored resume made from the same main resume, or tailors one, then writes a cover
+   letter from it. A failure gives the slot back and removes the untouched application; the
+   tailored resume is kept, so the retry doesn't pay for it again.
+4. Marks the application "Ready to apply" and sends an `application_ready` notification.
+
+The queue runs two jobs at a time with a rate limit, separate from alerts and reminders, because
+AI calls take tens of seconds. It needs `ANTHROPIC_API_KEY` in the worker's environment; without
+it the worker logs that auto-prepare is off and skips queueing.
 
 ## AI integration
 
@@ -98,10 +126,15 @@ prep and the Studio chat. Its production implementation calls the Anthropic Type
   `claude-opus-5`, 4,096 on `claude-haiku-4-5`). Tailor returns only the sections it rewrites and
   copies the rest, and job posts go to the model without their legal notices (equal-opportunity,
   accommodation, privacy and background-check text).
+- **Reuse.** A tailored resume stores a hash of the main resume it came from (`resumes.source_hash`),
+  as does a fit analysis. Opening Tailor again for a job reuses the existing version when the main
+  resume hasn't changed, at no cost; when it has, the job page marks the tailored resume and the
+  fit analysis as made from an earlier version.
 - **Untrusted content.** Resumes, job descriptions and uploaded documents are wrapped in tagged
   blocks, and the prompts instruct the model to treat them as data, never as instructions.
 - **Metering and budgets.** Each call records its tokens and estimated cost in `ai_usage`. Before
-  a call, the user's spend this month is checked against their plan's budget.
+  a call, the user's spend this month is checked against their plan's budget
+  (`packages/db/src/plans.ts`), in the web app and the worker alike.
 - **Testing.** `AI_PROVIDER=mock` swaps in a deterministic provider for local development and the
   end-to-end suite. The configuration refuses it when `NODE_ENV=production`.
 

@@ -22,15 +22,19 @@ export function FitPanel({
   jobId,
   quick,
   aiMatch,
+  stale = false,
 }: {
   jobId: string;
   quick: { score: number; matchedSkills: string[]; missingSkills: string[]; reasons: string[] };
   aiMatch: AiMatch | null;
+  /** The AI assessment was made from an earlier version of the main resume. */
+  stale?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AiMatch | null>(aiMatch);
+  const [outdated, setOutdated] = useState(stale);
 
   function run() {
     setError(null);
@@ -47,6 +51,7 @@ export function FitPanel({
         strengths: result.data.strengths,
         gaps: result.data.gaps,
       });
+      setOutdated(false);
       router.refresh();
     });
   }
@@ -63,6 +68,11 @@ export function FitPanel({
               </Badge>
               <span className="text-xs text-muted-foreground">AI assessment</span>
             </div>
+            {outdated ? (
+              <p className="text-xs text-warning">
+                Made from an earlier version of your main resume. Re-analyze to update it.
+              </p>
+            ) : null}
             <p>{analysis.summary}</p>
             {analysis.strengths.length ? (
               <ul className="space-y-1.5">

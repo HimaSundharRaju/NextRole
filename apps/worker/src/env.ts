@@ -7,9 +7,17 @@ const workerEnvSchema = z.object({
   INGEST_INTERVAL_MINUTES: z.coerce.number().int().min(1).default(10),
   INGEST_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
   WORKER_HEALTH_PORT: z.coerce.number().int().min(0).default(8081),
+  // Auto-prepare calls the AI with the same settings as the web app (packages/core/src/env.ts).
+  AI_PROVIDER: z.enum(["anthropic", "mock"]).default("anthropic"),
+  ANTHROPIC_API_KEY: z.string().optional(),
 });
 
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;
+
+/** Whether background AI work (auto-prepare) can run. */
+export function aiConfigured(env: WorkerEnv): boolean {
+  return env.AI_PROVIDER === "mock" || Boolean(env.ANTHROPIC_API_KEY);
+}
 
 export function loadWorkerEnv(source: NodeJS.ProcessEnv = process.env): WorkerEnv {
   const parsed = workerEnvSchema.safeParse(source);

@@ -88,15 +88,19 @@ describe("pickEnv", () => {
       WEB: {},
       DATABASE_URL: "postgres://db",
       ANTHROPIC_API_KEY: "sk-ant-test",
+      BETTER_AUTH_SECRET: "secret",
       INGEST_CONCURRENCY: "4",
       SMTP_URL: "",
     };
     expect(pickEnv(env, WEB_ENV_KEYS)).toEqual({
       DATABASE_URL: "postgres://db",
       ANTHROPIC_API_KEY: "sk-ant-test",
+      BETTER_AUTH_SECRET: "secret",
     });
+    // The jobs container calls the AI for auto-prepare, but never sees auth secrets.
     expect(pickEnv(env, JOBS_ENV_KEYS)).toEqual({
       DATABASE_URL: "postgres://db",
+      ANTHROPIC_API_KEY: "sk-ant-test",
       INGEST_CONCURRENCY: "4",
     });
   });

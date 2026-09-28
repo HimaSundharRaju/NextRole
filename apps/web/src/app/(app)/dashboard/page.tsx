@@ -25,6 +25,7 @@ export const metadata: Metadata = { title: "Dashboard" };
 const PIPELINE: Array<{ status: string; label: string }> = [
   { status: "saved", label: "Saved" },
   { status: "preparing", label: "Preparing" },
+  { status: "ready", label: "Ready to apply" },
   { status: "applied", label: "Applied" },
   { status: "screening", label: "Screening" },
   { status: "interviewing", label: "Interviewing" },

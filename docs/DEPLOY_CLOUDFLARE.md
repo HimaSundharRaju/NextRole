@@ -15,6 +15,7 @@ flowchart LR
   jobs --> pg
   jobs --> redis
   web -->|AI requests| anthropic[Anthropic API]
+  jobs -->|auto-prepare| anthropic
   web -->|SMTP| mail[Resend]
   jobs -->|public job boards| boards[Greenhouse · Lever · Ashby · SmartRecruiters]
 ```
@@ -23,7 +24,9 @@ flowchart LR
   real IP to the app, and spreads traffic across the web containers.
 - **Web containers**: the Next.js server from `apps/web/Dockerfile`. Two run by default.
 - **Jobs container**: the background worker from `apps/worker/Dockerfile`. A cron trigger starts
-  it after each deploy and it never idles out, so job boards sync every 10 minutes.
+  it after each deploy and it never idles out, so job boards sync every 10 minutes. It also
+  prepares applications for users who turn on auto-prepare, with the same Anthropic key and
+  model settings as the web containers.
 - **Deploys**: the GitHub Actions `Deploy` workflow runs after CI passes on `main`. It applies
   database migrations, adds any missing default job boards, builds and uploads both images with
   `wrangler deploy`, uploads the secrets, and checks `/api/health` on the live site.

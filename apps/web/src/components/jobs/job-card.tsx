@@ -1,5 +1,5 @@
 import { skillLabel } from "@gettargetrole/resume/skills";
-import { Building2, Clock, MapPin } from "lucide-react";
+import { Building2, Clock, ExternalLink, MapPin } from "lucide-react";
 import Link from "next/link";
 import { Badge, MatchBadge } from "@/components/ui/badge";
 import { EMPLOYMENT_TYPE_LABEL } from "@/lib/job-labels";
@@ -41,6 +41,7 @@ const WORKPLACE_LABEL: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   saved: "Saved",
   preparing: "Preparing",
+  ready: "Ready to apply",
   applied: "Applied",
   screening: "Screening",
   interviewing: "Interviewing",
@@ -84,7 +85,19 @@ export function JobCard({ job, compact = false }: { job: JobListItem; compact?: 
         <div className="relative z-10 flex shrink-0 items-center gap-2">
           <MatchBadge score={job.match.score} />
           {!compact ? (
-            <SaveJobButton jobId={job.id} saved={Boolean(job.applicationStatus)} />
+            <>
+              <SaveJobButton jobId={job.id} saved={Boolean(job.applicationStatus)} />
+              <a
+                href={job.applyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary hover:bg-muted"
+                aria-label={`Apply on ${job.companyName}'s site`}
+                title="Apply on the company's site"
+              >
+                Apply <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+              </a>
+            </>
           ) : null}
         </div>
       </div>

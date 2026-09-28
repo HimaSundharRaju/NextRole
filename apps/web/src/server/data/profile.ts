@@ -39,6 +39,9 @@ export type ProfileUpdate = Partial<
     | "portfolioUrl"
     | "alertsEnabled"
     | "alertMinScore"
+    | "autoPrepareEnabled"
+    | "autoPrepareMinScore"
+    | "autoPrepareDailyLimit"
   >
 >;
 

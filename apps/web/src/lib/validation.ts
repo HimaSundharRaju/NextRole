@@ -18,6 +18,16 @@ export const preferencesSchema = z.object({
 });
 export type PreferencesInput = z.infer<typeof preferencesSchema>;
 
+export const AUTO_PREPARE_SCORES = [70, 75, 80, 85, 90] as const;
+export const AUTO_PREPARE_LIMITS = [1, 3, 5, 10] as const;
+
+export const autoPrepareSchema = z.object({
+  autoPrepareEnabled: z.boolean(),
+  autoPrepareMinScore: z.number().int().min(50).max(95),
+  autoPrepareDailyLimit: z.number().int().min(1).max(10),
+});
+export type AutoPrepareInput = z.infer<typeof autoPrepareSchema>;
+
 const optionalUrl = z
   .string()
   .trim()
