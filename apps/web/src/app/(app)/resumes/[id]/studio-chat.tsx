@@ -2,7 +2,15 @@
 
 import type { Resume } from "@gettargetrole/resume/schema";
 import { ArrowUp, RotateCcw, Sparkles, Wand2 } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type Ref,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { AllowanceNote } from "@/components/usage/usage-bars";
 import type { UnitAllowance } from "@/lib/plans";
@@ -14,6 +22,12 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   edit?: string | null;
+}
+
+/** Lets other studio tools, such as the ATS check, send the AI a request. */
+export interface StudioChatHandle {
+  /** "busy" while the AI is still replying; "used_up" when no messages are left this month. */
+  send(text: string): "sent" | "busy" | "used_up";
 }
 
 type StreamEvent =
@@ -53,6 +67,7 @@ async function* readEvents(response: Response): AsyncGenerator<StreamEvent> {
 }
 
 export function StudioChat({
+  ref,
   resumeId,
   initialMessages,
   hasJob,
@@ -60,6 +75,7 @@ export function StudioChat({
   onResume,
   onComplete,
 }: {
+  ref?: Ref<StudioChatHandle>;
   resumeId: string;
   initialMessages: ChatMessage[];
   hasJob: boolean;
@@ -82,6 +98,15 @@ export function StudioChat({
   }, [messages]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  useImperativeHandle(ref, () => ({
+    send(text) {
+      if (streaming) return "busy";
+      if (left === 0) return "used_up";
+      void send(text);
+      return "sent";
+    },
+  }));
 
   async function send(text: string) {
     const message = text.trim();

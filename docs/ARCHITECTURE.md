@@ -321,6 +321,13 @@ converted to text with mammoth; and pasted text. The model extracts a structured
 `packages/resume/src/schema.ts`). The same structure feeds the live HTML preview, the PDF
 renderer (`@react-pdf/renderer`), the Word renderer (`docx`) and the ATS readiness check.
 
+Each ATS suggestion says how to fix it (`packages/resume/src/ats.ts`). Facts only the person has
+(contact details, job titles, dates, education) send them to the editor, since the AI must never
+make them up. Everything else becomes a request to the Studio AI in the chat: rewrites it can make
+from the resume alone, or, for missing numbers, bullets or keywords, a request to ask the person
+for the facts first. "Fix all with AI" bundles the rewrites the AI can make alone into one
+message. Every fix is a Studio message, counted against the plan like any other.
+
 ## Security model
 
 **Authentication.** Better Auth provides email and password sign-in (verified email required in

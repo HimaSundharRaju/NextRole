@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyzeResume, isQuantified } from "./ats";
+import { analyzeResume, fixAllRequest, isQuantified, type AtsIssue } from "./ats";
 import { renderResumeDocx } from "./docx";
 import { SAMPLE_JOB_DESCRIPTION, SAMPLE_RESUME } from "./fixtures";
 import { pdfSafeText, renderResumePdf } from "./pdf";
@@ -118,6 +118,93 @@ describe("analyzeResume", () => {
   it("detects quantified bullets", () => {
     expect(isQuantified("Cut costs by 32%")).toBe(true);
     expect(isQuantified("Improved the onboarding flow")).toBe(false);
+  });
+});
+
+describe("ATS fixes", () => {
+  const fixFor = (issues: AtsIssue[], text: string) =>
+    issues.find((issue) => issue.message.includes(text))?.fix;
+
+  it("leaves facts only the person has to the editor, never the AI", () => {
+    const { issues } = analyzeResume(emptyResume());
+    for (const text of ["full name", "email address", "phone number", "LinkedIn", "education"]) {
+      expect(fixFor(issues, text)?.kind).toBe("edit");
+    }
+    expect(fixFor(issues, "work experience")).toEqual({ kind: "edit", section: "experience" });
+    expect(issues.every((issue) => issue.fix)).toBe(true);
+  });
+
+  it("asks the AI to rewrite a weak bullet, quoting it and keeping its facts", () => {
+    const { issues } = analyzeResume(SAMPLE_RESUME);
+    const fix = fixFor(issues, "Responsible for");
+    expect(fix).toMatchObject({ kind: "ai" });
+    expect(fix?.kind === "ai" && fix.ask).toBeFalsy();
+    expect(fix?.kind === "ai" && fix.request).toMatch(
+      /^Rewrite this bullet under .+ to start with a strong action verb, keeping every fact: "Responsible for/,
+    );
+  });
+
+  it("has the AI ask for facts before adding keywords, numbers or bullets", () => {
+    const { issues } = analyzeResume(SAMPLE_RESUME, SAMPLE_JOB_DESCRIPTION);
+    const keywords = issues.find((issue) => issue.section === "Keywords")?.fix;
+    expect(keywords).toMatchObject({ kind: "ai", ask: true });
+    expect(keywords?.kind === "ai" && keywords.request).toContain("gRPC");
+    expect(keywords?.kind === "ai" && keywords.request).toContain(
+      "Ask me which of these I've actually used",
+    );
+
+    const resume = normalizeResume({
+      ...SAMPLE_RESUME,
+      experience: [{ ...SAMPLE_RESUME.experience[0]!, highlights: [] }],
+    });
+    const bullets = fixFor(analyzeResume(resume).issues, "achievement bullets");
+    expect(bullets).toMatchObject({ kind: "ai", ask: true });
+  });
+
+  it("bundles the fixes the AI can make alone into one message", () => {
+    const issues: AtsIssue[] = [
+      {
+        severity: "high",
+        section: "Contact",
+        message: "",
+        fix: { kind: "edit", section: "basics" },
+      },
+      {
+        severity: "medium",
+        section: "Summary",
+        message: "",
+        fix: { kind: "ai", request: "Write a summary." },
+      },
+      {
+        severity: "medium",
+        section: "Keywords",
+        message: "",
+        fix: { kind: "ai", request: "Ask me.", ask: true },
+      },
+      {
+        severity: "low",
+        section: "Skills",
+        message: "",
+        fix: { kind: "ai", request: "Trim my skills." },
+      },
+      {
+        severity: "low",
+        section: "Skills",
+        message: "",
+        fix: { kind: "ai", request: "Trim my skills." },
+      },
+    ];
+    expect(fixAllRequest(issues)).toBe(
+      "Fix these issues from the ATS check, using only facts already in my resume:\n- Write a summary.\n- Trim my skills.",
+    );
+    // One fix is its own button.
+    expect(fixAllRequest(issues.slice(0, 3))).toBeNull();
+
+    const many = Array.from({ length: 40 }, (_, i) => ({
+      ...issues[1]!,
+      fix: { kind: "ai" as const, request: `Rewrite bullet ${i}: ${"x".repeat(150)}` },
+    }));
+    expect(fixAllRequest(many)!.length).toBeLessThanOrEqual(3_500);
   });
 });
 

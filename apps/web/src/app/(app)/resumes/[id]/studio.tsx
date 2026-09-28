@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { ScaledPreview } from "@/components/resume/scaled-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -31,7 +31,7 @@ import type { UnitAllowance } from "@/lib/plans";
 import { AtsPanel } from "./ats-panel";
 import { HistoryPanel, type RevisionItem } from "./history-panel";
 import { ResumeEditor } from "./resume-editor";
-import { StudioChat, type ChatMessage } from "./studio-chat";
+import { StudioChat, type ChatMessage, type StudioChatHandle } from "./studio-chat";
 
 type Tab = "chat" | "edit" | "ats" | "history";
 
@@ -67,6 +67,18 @@ export function ResumeStudio({
   const [saving, startSaving] = useTransition();
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState(title);
+  const chatRef = useRef<StudioChatHandle>(null);
+
+  /** Sends a fix from the ATS check to the AI, in the chat, where its reply shows. */
+  function askAi(request: string) {
+    const outcome = chatRef.current?.send(request);
+    if (outcome === "busy") {
+      toast.error("The AI is still replying. Try again when it's done.");
+      return;
+    }
+    // Used up: the chat shows the plan's limit and how to get more.
+    setTab("chat");
+  }
 
   function replaceResume(next: Resume) {
     setResume(next);
@@ -214,6 +226,7 @@ export function ResumeStudio({
           <div className="min-h-0 flex-1">
             <div className={cn("h-full", tab !== "chat" && "hidden")}>
               <StudioChat
+                ref={chatRef}
                 resumeId={resumeId}
                 initialMessages={messages}
                 hasJob={Boolean(job)}
@@ -244,7 +257,12 @@ export function ResumeStudio({
               />
             ) : null}
             {tab === "ats" ? (
-              <AtsPanel resume={resume} jobDescription={job?.description ?? null} />
+              <AtsPanel
+                resume={resume}
+                jobDescription={job?.description ?? null}
+                onAskAi={askAi}
+                onEdit={() => setTab("edit")}
+              />
             ) : null}
             {tab === "history" ? (
               <HistoryPanel
