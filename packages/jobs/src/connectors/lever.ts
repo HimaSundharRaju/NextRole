@@ -81,6 +81,6 @@ export const lever: BoardConnector = {
   async listJobs(token, context) {
     const url = `https://api.lever.co/v0/postings/${encodeURIComponent(token)}?mode=json`;
     const postings = await getJson<LeverPosting[]>(url, context);
-    return postings.map(mapLeverPosting);
+    return { jobs: postings.map(mapLeverPosting), complete: true };
   },
 };

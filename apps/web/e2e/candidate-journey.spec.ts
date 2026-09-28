@@ -122,3 +122,15 @@ test("the free plan shows the job board and offers tailoring as an upgrade", asy
   await expect(page.getByRole("heading", { name: "Plan & usage" })).toBeVisible();
   await expect(page.getByText("Auto-prepare is part of Pro", { exact: false })).toBeVisible();
 });
+
+test("anyone can ask for a company the board is missing", async ({ page }) => {
+  await signUpAndOnboard(page, "Ria Das", uniqueEmail("request"));
+  await page.goto("/jobs");
+  await page.getByLabel("Company name or careers link").fill("Acme Robotics");
+  await page.getByRole("button", { name: "Request" }).click();
+  await expect(
+    page.getByText("we're looking for its job board now", { exact: false }),
+  ).toBeVisible();
+  const request = page.getByRole("listitem").filter({ hasText: "Acme Robotics" });
+  await expect(request.getByText("Looking")).toBeVisible();
+});

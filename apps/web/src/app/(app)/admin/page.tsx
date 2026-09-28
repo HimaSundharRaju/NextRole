@@ -7,6 +7,7 @@ import { PLANS } from "@/lib/plans";
 import { cn, formatDate, timeAgo } from "@/lib/utils";
 import {
   aiUsageReport,
+  companyRequestReport,
   listAssignments,
   listCompanies,
   platformStats,
@@ -15,9 +16,11 @@ import {
 } from "@/server/data/admin";
 import { requireRole } from "@/server/session";
 import {
+  AddCompanyByUrlForm,
   AddCompanyForm,
   AssignForm,
   CompanyActions,
+  LookUpRequestsButton,
   UnassignButton,
   UserControls,
 } from "./admin-client";
@@ -289,56 +292,125 @@ async function AiUsage() {
   );
 }
 
+const REQUEST_STATUS = {
+  pending: { label: "Pending", tone: "neutral" },
+  added: { label: "Added", tone: "success" },
+  tracked: { label: "Already tracked", tone: "primary" },
+  not_found: { label: "No board found", tone: "warning" },
+} as const;
+
 async function Companies() {
-  const rows = await listCompanies();
+  const [rows, requests] = await Promise.all([listCompanies(), companyRequestReport()]);
   return (
-    <Card>
-      <CardHeader
-        title="Job sources"
-        description="Public career boards polled by the worker. New boards sync within a minute."
-      />
-      <CardBody className="space-y-4">
-        <AddCompanyForm />
-        <div className="overflow-x-auto">
+    <div className="space-y-6">
+      <Card>
+        <CardHeader
+          title="Job sources"
+          description="Public career boards polled by the worker. New boards sync within a minute."
+        />
+        <CardBody className="space-y-4">
+          <AddCompanyByUrlForm />
+          <details className="text-sm">
+            <summary className="cursor-pointer text-muted-foreground">
+              Add with a provider and board token
+            </summary>
+            <div className="mt-3">
+              <AddCompanyForm />
+            </div>
+          </details>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="py-2 pr-3">Company</th>
+                  <th className="py-2 pr-3">Source</th>
+                  <th className="py-2 pr-3">Open jobs</th>
+                  <th className="py-2 pr-3">Last sync</th>
+                  <th className="py-2" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {rows.map((company) => (
+                  <tr key={company.id} className={company.active ? undefined : "opacity-60"}>
+                    <td className="py-2 pr-3 font-medium">{company.name}</td>
+                    <td className="py-2 pr-3 text-muted-foreground">
+                      <span className="capitalize">{company.ats}</span> ·{" "}
+                      <span className="break-all">{company.boardToken}</span>
+                    </td>
+                    <td className="py-2 pr-3 tabular-nums">{company.openJobCount}</td>
+                    <td className="py-2 pr-3">
+                      {company.lastSyncStatus === "error" ? (
+                        <Badge tone="danger" title={company.lastSyncError ?? undefined}>
+                          Failed {timeAgo(company.lastSyncedAt)}
+                        </Badge>
+                      ) : company.lastSyncedAt ? (
+                        <span className="text-muted-foreground">
+                          {timeAgo(company.lastSyncedAt)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">Pending</span>
+                      )}
+                    </td>
+                    <td className="py-2">
+                      <CompanyActions companyId={company.id} active={company.active} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Company requests"
+          description={`Companies users asked for and YC's hiring companies, looked up every 10 minutes. ${requests.counts.pending ?? 0} pending, ${requests.counts.added ?? 0} added, ${requests.counts.not_found ?? 0} with no board found.`}
+          action={<LookUpRequestsButton />}
+        />
+        <CardBody className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="py-2 pr-3">Company</th>
-                <th className="py-2 pr-3">Source</th>
-                <th className="py-2 pr-3">Open jobs</th>
-                <th className="py-2 pr-3">Last sync</th>
-                <th className="py-2" />
+                <th className="py-2 pr-3">From</th>
+                <th className="py-2 pr-3">Status</th>
+                <th className="py-2">Asked</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {rows.map((company) => (
-                <tr key={company.id} className={company.active ? undefined : "opacity-60"}>
-                  <td className="py-2 pr-3 font-medium">{company.name}</td>
-                  <td className="py-2 pr-3 text-muted-foreground">
-                    <span className="capitalize">{company.ats}</span> · {company.boardToken}
-                  </td>
-                  <td className="py-2 pr-3 tabular-nums">{company.openJobCount}</td>
+              {requests.rows.map((request) => (
+                <tr key={request.id}>
                   <td className="py-2 pr-3">
-                    {company.lastSyncStatus === "error" ? (
-                      <Badge tone="danger" title={company.lastSyncError ?? undefined}>
-                        Failed {timeAgo(company.lastSyncedAt)}
-                      </Badge>
-                    ) : company.lastSyncedAt ? (
-                      <span className="text-muted-foreground">{timeAgo(company.lastSyncedAt)}</span>
-                    ) : (
-                      <span className="text-muted-foreground">Pending</span>
-                    )}
+                    <p className="font-medium">{request.companyName ?? (request.name || "—")}</p>
+                    {request.url ? (
+                      <p className="max-w-xs truncate text-xs text-muted-foreground">
+                        {request.url}
+                      </p>
+                    ) : null}
                   </td>
-                  <td className="py-2">
-                    <CompanyActions companyId={company.id} active={company.active} />
+                  <td className="py-2 pr-3 text-muted-foreground">
+                    {request.source === "yc" ? "YC list" : (request.userEmail ?? "Admin")}
                   </td>
+                  <td className="py-2 pr-3">
+                    <Badge
+                      tone={REQUEST_STATUS[request.status].tone}
+                      title={request.note || undefined}
+                    >
+                      {REQUEST_STATUS[request.status].label}
+                    </Badge>
+                  </td>
+                  <td className="py-2 text-muted-foreground">{timeAgo(request.createdAt)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-      </CardBody>
-    </Card>
+          {requests.rows.length === 0 ? (
+            <p className="py-4 text-sm text-muted-foreground">No requests yet.</p>
+          ) : null}
+        </CardBody>
+      </Card>
+    </div>
   );
 }
 

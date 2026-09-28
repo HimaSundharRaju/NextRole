@@ -2,6 +2,7 @@ import { Briefcase, ChevronLeft, ChevronRight, FileText } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ApplyModeBar } from "@/components/jobs/apply-mode-bar";
+import { CompanyRequest } from "@/components/jobs/company-request";
 import { AUTO_PREPARE_DAILY_MAX } from "@gettargetrole/db/plans";
 import { JobCard } from "@/components/jobs/job-card";
 import { JobFilters } from "@/components/jobs/job-filters";
@@ -10,6 +11,7 @@ import { EmptyState, PageHeader } from "@/components/ui/misc";
 import { cn, plural } from "@/lib/utils";
 import { readyToApplyCount } from "@/server/data/applications";
 import {
+  companyRequestsOf,
   jobFiltersSchema,
   listCompaniesForFilter,
   locationFacets,
@@ -52,12 +54,13 @@ export default async function JobsPage({
     parsed.region && !parsed.region.startsWith(`${parsed.country}-`)
       ? { ...parsed, region: undefined }
       : parsed;
-  const [result, companies, facets, profile, readyCount] = await Promise.all([
+  const [result, companies, facets, profile, readyCount, requests] = await Promise.all([
     searchJobs(user.id, filters),
     listCompaniesForFilter(),
     locationFacets(filters.country),
     getProfile(user.id),
     readyToApplyCount(user.id),
+    companyRequestsOf(user.id),
   ]);
   const page = result.page;
 
@@ -139,6 +142,8 @@ export default async function JobsPage({
           </Link>
         </nav>
       ) : null}
+
+      <CompanyRequest requests={requests} />
     </div>
   );
 }

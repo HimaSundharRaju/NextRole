@@ -6,6 +6,7 @@ import {
   applications,
   auditLogs,
   companies,
+  companyRequests,
   getDb,
   jobs,
   specialistAssignments,
@@ -248,5 +249,43 @@ export async function aiUsageReport(now = new Date()) {
       spendUsd: usd(row.cost),
       capShare: usd(row.cost) / PLANS[row.plan].monthlyAiBudgetUsd,
     })),
+  };
+}
+
+/**
+ * Company requests: how many are in each state, and the latest ones people made or that found
+ * no board (YC's pending ones are left out; there can be hundreds).
+ */
+export async function companyRequestReport(limit = 50) {
+  const db = getDb();
+  const [counts, rows] = await Promise.all([
+    db
+      .select({ status: companyRequests.status, count: sql<number>`count(*)::int` })
+      .from(companyRequests)
+      .groupBy(companyRequests.status),
+    db
+      .select({
+        id: companyRequests.id,
+        source: companyRequests.source,
+        name: companyRequests.name,
+        url: companyRequests.url,
+        status: companyRequests.status,
+        note: companyRequests.note,
+        createdAt: companyRequests.createdAt,
+        userEmail: users.email,
+        companyName: companies.name,
+      })
+      .from(companyRequests)
+      .leftJoin(users, eq(companyRequests.userId, users.id))
+      .leftJoin(companies, eq(companyRequests.companyId, companies.id))
+      .where(or(sql`${companyRequests.source} <> 'yc'`, eq(companyRequests.status, "not_found")))
+      .orderBy(desc(companyRequests.createdAt))
+      .limit(limit),
+  ]);
+  return {
+    counts: Object.fromEntries(counts.map((row) => [row.status, row.count])) as Partial<
+      Record<(typeof rows)[number]["status"], number>
+    >,
+    rows,
   };
 }

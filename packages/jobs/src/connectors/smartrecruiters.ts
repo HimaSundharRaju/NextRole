@@ -36,7 +36,7 @@ interface SmartRecruitersDetail extends SmartRecruitersPosting {
 }
 
 const PAGE_SIZE = 100;
-const MAX_POSTINGS = 1000;
+const MAX_POSTINGS = 10_000;
 
 function postingUrl(company: string, id: string): string {
   return `https://jobs.smartrecruiters.com/${encodeURIComponent(company)}/${encodeURIComponent(id)}`;
@@ -84,13 +84,15 @@ export const smartrecruiters: BoardConnector = {
   boardUrl: (token) => `https://jobs.smartrecruiters.com/${encodeURIComponent(token)}`,
   async listJobs(token, context) {
     const results: NormalizedJob[] = [];
+    let total = 0;
     for (let offset = 0; offset < MAX_POSTINGS; offset += PAGE_SIZE) {
       const url = `https://api.smartrecruiters.com/v1/companies/${encodeURIComponent(token)}/postings?limit=${PAGE_SIZE}&offset=${offset}`;
       const page = await getJson<SmartRecruitersList>(url, context);
+      total = page.totalFound;
       results.push(...page.content.map((posting) => mapSmartRecruitersPosting(token, posting)));
       if (page.content.length < PAGE_SIZE || results.length >= page.totalFound) break;
     }
-    return results;
+    return { jobs: results, complete: results.length >= total };
   },
   async hydrate(token, job, context) {
     const url = `https://api.smartrecruiters.com/v1/companies/${encodeURIComponent(token)}/postings/${encodeURIComponent(job.externalId)}`;

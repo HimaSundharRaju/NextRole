@@ -42,12 +42,20 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
 ## Job pipeline
 
 1. **Schedule.** A BullMQ job scheduler (`enqueue-due-syncs`) runs every `INGEST_INTERVAL_MINUTES`.
-   It finds the active companies whose last sync is older than the interval and enqueues a
-   `sync-company` job for each. A deduplication id per company means a board is never synced twice
-   at once, and admins can trigger a sync manually.
-2. **Fetch.** Connectors for Greenhouse, Lever, Ashby and SmartRecruiters call each board's
-   public API with timeouts and typed errors. Failures are retried with exponential backoff and
-   recorded on the company.
+   It finds the active companies whose last sync is older than their interval and enqueues a
+   `sync-company` job for each. Boards that take many requests to read sync less often (every 3
+   hours for Workday, Oracle and Eightfold, 6 for Amazon; `companies.sync_interval_minutes`
+   overrides it), and each failure in a row doubles a board's wait, up to a day. A deduplication
+   id per company means a board is never synced twice at once, and admins can trigger a sync
+   manually.
+2. **Fetch.** Connectors call each board's public API with timeouts and typed errors:
+   Greenhouse, Lever, Ashby and SmartRecruiters for most companies, and Workday, Oracle
+   Recruiting Cloud, Eightfold (both of its APIs) and amazon.jobs for large employers. Every
+   request goes through one per-host limiter (at most 2 at a time and 60 a minute, paused after a 429) and identifies itself as `GetTargetRoleBot`; the endpoints used are ones the sites'
+   robots.txt allows. Some boards cap a search (Workday at 2,000 results, Amazon at 10,000), so
+   their connectors read one job family, country or category at a time. Boards that list jobs
+   without descriptions have each new posting's details fetched (up to 250 per sync for large
+   boards); postings already stored keep theirs.
 3. **Normalize.** Postings are mapped to one shape: title, location, workplace type, salary
    range and period, and apply URL. Descriptions are sanitized against a strict HTML allowlist,
    and skills are extracted with the shared taxonomy in `packages/resume`. Deterministic parsers
@@ -56,11 +64,25 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    including explicit W-2, C2C and 1099 arrangements (`employment.ts`), and what the post says
    about visa sponsorship and citizenship or clearance (`visa.ts`, explicit statements only).
 4. **Upsert.** Jobs are upserted on `(company, external id)`. A content hash means an unchanged
-   posting only updates `last_seen_at`. Jobs that disappear from a board are marked closed.
+   posting only updates `last_seen_at`, and a stored posting whose details come from a second
+   request is only marked as still open. Jobs that disappear from a board are closed, but only
+   when the board listed everything: a listing that is partial (a capped search, a page that
+   failed) closes nothing, and neither does one with under a fifth of the board's usual jobs,
+   which is flagged on the company until the drop has lasted three syncs.
 5. **Alert.** New jobs are scored against each candidate's profile, and strong matches create
    notifications. Candidates who need sponsorship aren't alerted about posts that rule it out.
 6. **Auto-prepare.** For users who turned it on, new jobs at or above their minimum match are
    queued on the `auto-prepare` queue, strongest matches first (see below).
+
+**Finding more companies** (`discovery.ts`, `companies.ts`). Users ask for a missing company
+on the jobs page, by name or careers link; admins add one from any link to its board, careers
+page or website; and every Monday the public list of hiring Y Combinator companies is queued.
+All of these become `company_requests`, which the worker looks up every 10 minutes (and right
+after a user asks), people's first. A link to a board is read directly; another page is read,
+if robots.txt allows, for the board it links to or embeds, including a careers page linked from
+a company's home page; otherwise the name is tried as a board name on Ashby, Greenhouse and
+Lever, where a guessed board must have open jobs. Found boards are added and synced at once,
+and the request records what happened, which the user and admins can see.
 
 Matching (`packages/jobs/src/match.ts`) is deterministic and costs nothing to run, so the whole
 feed can be ranked. The score is skill overlap (50%), title similarity to the target roles (30%)

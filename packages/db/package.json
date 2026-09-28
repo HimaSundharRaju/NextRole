@@ -9,7 +9,8 @@
     "./client": "./src/client.ts",
     "./migrate": "./src/migrate-lib.ts",
     "./seed": "./src/seed-lib.ts",
-    "./plans": "./src/plans.ts"
+    "./plans": "./src/plans.ts",
+    "./test-database": "./src/test-database.ts"
   },
   "scripts": {
     "lint": "eslint src",

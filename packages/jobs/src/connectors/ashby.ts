@@ -110,6 +110,9 @@ export const ashby: BoardConnector = {
   async listJobs(token, context) {
     const url = `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(token)}?includeCompensation=true`;
     const data = await getJson<AshbyResponse>(url, context);
-    return (data.jobs ?? []).filter((job) => job.isListed !== false).map(mapAshbyJob);
+    return {
+      jobs: (data.jobs ?? []).filter((job) => job.isListed !== false).map(mapAshbyJob),
+      complete: true,
+    };
   },
 };

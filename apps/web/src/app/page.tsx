@@ -23,7 +23,7 @@ const FEATURES = [
   {
     icon: Radar,
     title: "Real-time job radar",
-    body: "We watch company career pages on Greenhouse, Lever, Ashby and SmartRecruiters and surface new roles within minutes — hours before they're reposted on job boards.",
+    body: "We watch company career pages, from startups on Greenhouse, Lever and Ashby to enterprises on Workday, Oracle and Eightfold, and surface new roles fast, often before they're reposted on job boards. Missing a company? Ask for it and we add it.",
   },
   {
     icon: Sparkles,

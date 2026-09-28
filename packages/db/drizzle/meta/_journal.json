@@ -43,6 +43,13 @@
       "when": 1790449965979,
       "tag": "0005_batch_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790465056234,
+      "tag": "0006_job_coverage",
+      "breakpoints": true
     }
   ]
 }

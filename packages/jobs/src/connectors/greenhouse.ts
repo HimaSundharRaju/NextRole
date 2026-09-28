@@ -75,6 +75,6 @@ export const greenhouse: BoardConnector = {
   async listJobs(token, context) {
     const url = `https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(token)}/jobs?content=true&pay_transparency=true`;
     const data = await getJson<GreenhouseResponse>(url, context);
-    return (data.jobs ?? []).map(mapGreenhouseJob);
+    return { jobs: (data.jobs ?? []).map(mapGreenhouseJob), complete: true };
   },
 };

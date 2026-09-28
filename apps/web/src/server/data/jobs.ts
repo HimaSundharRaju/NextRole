@@ -4,6 +4,7 @@ import { NotFoundError } from "@gettargetrole/core/errors";
 import {
   applications,
   companies,
+  companyRequests,
   EMPLOYMENT_TYPES,
   getDb,
   jobMatches,
@@ -359,3 +360,24 @@ export async function listCompaniesForFilter() {
     .where(sql`${companies.openJobCount} > 0`)
     .orderBy(companies.name);
 }
+
+/** The user's latest company requests and how they went. */
+export async function companyRequestsOf(userId: string, limit = 5) {
+  return getDb()
+    .select({
+      id: companyRequests.id,
+      name: companyRequests.name,
+      url: companyRequests.url,
+      status: companyRequests.status,
+      note: companyRequests.note,
+      createdAt: companyRequests.createdAt,
+      companyName: companies.name,
+    })
+    .from(companyRequests)
+    .leftJoin(companies, eq(companyRequests.companyId, companies.id))
+    .where(eq(companyRequests.userId, userId))
+    .orderBy(desc(companyRequests.createdAt))
+    .limit(limit);
+}
+
+export type CompanyRequestRow = Awaited<ReturnType<typeof companyRequestsOf>>[number];

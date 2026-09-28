@@ -2,14 +2,16 @@
 
 import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useTransition, type FormEvent } from "react";
+import { useState, useTransition, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
 import { PLANS } from "@/lib/plans";
 import {
   addCompany,
+  addCompanyByUrl,
   assignSpecialist,
+  lookUpCompanyRequests,
   setCompanyActive,
   setUserBanned,
   setUserPlan,
@@ -42,8 +44,61 @@ function useAction() {
   return { pending, run };
 }
 
+/** Adds a company from a link to its job board, careers page or website. */
+export function AddCompanyByUrlForm() {
+  const router = useRouter();
+  const toast = useToast();
+  const [pending, startTransition] = useTransition();
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    startTransition(async () => {
+      const result = await addCompanyByUrl({
+        name: String(form.get("name") ?? ""),
+        url: String(form.get("url") ?? ""),
+      });
+      if (!result.ok) {
+        toast.error(result.fieldErrors ? Object.values(result.fieldErrors)[0]! : result.error);
+        return;
+      }
+      const { name, provider, openJobs } = result.data;
+      toast.success(`Added ${name} (${provider}, ${openJobs} open jobs). First sync queued.`);
+      formElement.reset();
+      router.refresh();
+    });
+  }
+  return (
+    <form onSubmit={onSubmit} className="grid gap-2 sm:grid-cols-[1fr_2fr_auto]">
+      <Input name="name" placeholder="Company name (optional)" aria-label="Company name" />
+      <Input
+        name="url"
+        type="url"
+        required
+        placeholder="Careers page or job board link"
+        aria-label="Careers page or job board link"
+      />
+      <Button type="submit" loading={pending}>
+        Find and add
+      </Button>
+    </form>
+  );
+}
+
+const TOKEN_HINT: Record<string, string> = {
+  greenhouse: "Board token (e.g. stripe)",
+  lever: "Board token (e.g. palantir)",
+  ashby: "Board token (e.g. openai)",
+  smartrecruiters: "Company id (e.g. Visa)",
+  workday: "host|tenant|site",
+  oracle: "host|siteNumber",
+  eightfold: "host|domain, or host|domain|pcsx",
+  amazon: "all, or countries (USA,IND)",
+};
+
 export function AddCompanyForm() {
   const { pending, run } = useAction();
+  const [provider, setProvider] = useState("greenhouse");
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -63,15 +118,24 @@ export function AddCompanyForm() {
   return (
     <form onSubmit={onSubmit} className="grid gap-2 sm:grid-cols-[1fr_9rem_1fr_1fr_auto]">
       <Input name="name" placeholder="Company name" required aria-label="Company name" />
-      <Select name="ats" aria-label="Job board provider">
+      <Select
+        name="ats"
+        aria-label="Job board provider"
+        value={provider}
+        onChange={(event) => setProvider(event.target.value)}
+      >
         <option value="greenhouse">Greenhouse</option>
         <option value="lever">Lever</option>
         <option value="ashby">Ashby</option>
         <option value="smartrecruiters">SmartRecruiters</option>
+        <option value="workday">Workday</option>
+        <option value="oracle">Oracle</option>
+        <option value="eightfold">Eightfold</option>
+        <option value="amazon">Amazon</option>
       </Select>
       <Input
         name="boardToken"
-        placeholder="Board token (e.g. stripe)"
+        placeholder={TOKEN_HINT[provider]}
         required
         aria-label="Board token"
       />
@@ -80,6 +144,20 @@ export function AddCompanyForm() {
         Add
       </Button>
     </form>
+  );
+}
+
+export function LookUpRequestsButton() {
+  const { pending, run } = useAction();
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      loading={pending}
+      onClick={() => run(() => lookUpCompanyRequests({}), "Looking them up now.")}
+    >
+      Look up now
+    </Button>
   );
 }
 

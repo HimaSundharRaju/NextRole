@@ -10,7 +10,9 @@
     "./locations": "./src/locations.ts",
     "./sanitize": "./src/sanitize.ts",
     "./ingest": "./src/ingest.ts",
-    "./alerts": "./src/alerts.ts"
+    "./alerts": "./src/alerts.ts",
+    "./discovery": "./src/discovery.ts",
+    "./companies": "./src/companies.ts"
   },
   "scripts": {
     "lint": "eslint src",

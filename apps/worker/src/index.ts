@@ -13,7 +13,8 @@ import {
 import { queueConnection } from "@gettargetrole/core/redis";
 import { closeDb } from "@gettargetrole/db";
 import { autoPrepareCandidates, createJobAlerts } from "@gettargetrole/jobs/alerts";
-import { companiesDueForSync, syncCompany } from "@gettargetrole/jobs/ingest";
+import { importYcCompanies, resolveCompanyRequests } from "@gettargetrole/jobs/companies";
+import { companiesDueForSync, pruneClosedJobs, syncCompany } from "@gettargetrole/jobs/ingest";
 import { Queue, Worker, type Job } from "bullmq";
 import { pollAiBatches, runStaleRequests, submitAiBatches } from "./batches";
 import { aiConfigured, loadWorkerEnv } from "./env";
@@ -62,20 +63,36 @@ async function enqueueAutoPrepare(jobIds: string[]): Promise<number> {
   return candidates.length;
 }
 
+async function enqueueSyncs(companyIds: string[], reason: SyncCompanyJob["reason"]) {
+  await ingestQueue.addBulk(
+    companyIds.map((companyId) => ({
+      name: JOB_NAMES.syncCompany,
+      data: { companyId, reason } satisfies SyncCompanyJob,
+      opts: { deduplication: { id: syncDeduplicationId(companyId) } },
+    })),
+  );
+}
+
 async function handleIngest(job: Job): Promise<unknown> {
   switch (job.name) {
     case JOB_NAMES.enqueueDueSyncs: {
       const staleAfterMs = env.INGEST_INTERVAL_MINUTES * 60_000;
       const due = await companiesDueForSync(staleAfterMs);
-      await ingestQueue.addBulk(
-        due.map((companyId) => ({
-          name: JOB_NAMES.syncCompany,
-          data: { companyId, reason: "schedule" } satisfies SyncCompanyJob,
-          opts: { deduplication: { id: syncDeduplicationId(companyId) } },
-        })),
-      );
+      await enqueueSyncs(due, "schedule");
       return { enqueued: due.length };
     }
+    case JOB_NAMES.resolveCompanyRequests: {
+      const { resolved, added } = await resolveCompanyRequests();
+      // Boards just found get their first sync now rather than at the next schedule.
+      await enqueueSyncs(added, "manual");
+      return { resolved, added: added.length };
+    }
+    case JOB_NAMES.importYcCompanies: {
+      const queued = await importYcCompanies();
+      return { queued };
+    }
+    case JOB_NAMES.pruneClosedJobs:
+      return { deleted: await pruneClosedJobs() };
     case JOB_NAMES.syncCompany: {
       const { companyId } = job.data as SyncCompanyJob;
       const result = await syncCompany(companyId);
@@ -158,6 +175,24 @@ await ingestQueue.upsertJobScheduler(
   "ingest-schedule",
   { every: env.INGEST_INTERVAL_MINUTES * 60_000 },
   { name: JOB_NAMES.enqueueDueSyncs },
+);
+await ingestQueue.upsertJobScheduler(
+  "company-requests-schedule",
+  { every: 10 * 60_000 },
+  // Runs that overlap are safe: each request is claimed by one run.
+  { name: JOB_NAMES.resolveCompanyRequests },
+);
+await ingestQueue.upsertJobScheduler(
+  "prune-schedule",
+  // Daily at 04:00 UTC.
+  { pattern: "0 4 * * *" },
+  { name: JOB_NAMES.pruneClosedJobs },
+);
+await ingestQueue.upsertJobScheduler(
+  "yc-import-schedule",
+  // Mondays at 05:00 UTC.
+  { pattern: "0 5 * * 1" },
+  { name: JOB_NAMES.importYcCompanies },
 );
 await notificationsQueue.upsertJobScheduler(
   "follow-up-schedule",

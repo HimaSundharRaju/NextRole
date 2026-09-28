@@ -100,7 +100,16 @@ export const profiles = pgTable(
 /* Companies & jobs (ingested from public ATS job boards)                                     */
 /* ------------------------------------------------------------------------------------------ */
 
-export const ATS_PROVIDERS = ["greenhouse", "lever", "ashby", "smartrecruiters"] as const;
+export const ATS_PROVIDERS = [
+  "greenhouse",
+  "lever",
+  "ashby",
+  "smartrecruiters",
+  "workday",
+  "oracle",
+  "eightfold",
+  "amazon",
+] as const;
 export type AtsProvider = (typeof ATS_PROVIDERS)[number];
 
 export const companies = pgTable(
@@ -118,10 +127,50 @@ export const companies = pgTable(
     lastSyncStatus: text("last_sync_status", { enum: ["ok", "error"] }),
     lastSyncError: text("last_sync_error"),
     openJobCount: integer("open_job_count").notNull().default(0),
+    /**
+     * Minutes between syncs. Null uses the provider's default (boards that list thousands of jobs
+     * sync less often) or the worker's interval.
+     */
+    syncIntervalMinutes: integer("sync_interval_minutes"),
+    /** Failed syncs in a row; each one doubles the wait before the next, up to a day. */
+    syncFailures: integer("sync_failures").notNull().default(0),
     createdAt,
     updatedAt,
   },
   (table) => [uniqueIndex("companies_ats_board_uq").on(table.ats, table.boardToken)],
+).enableRLS();
+
+export const COMPANY_REQUEST_STATUSES = ["pending", "added", "tracked", "not_found"] as const;
+export type CompanyRequestStatus = (typeof COMPANY_REQUEST_STATUSES)[number];
+export const COMPANY_REQUEST_SOURCES = ["user", "admin", "yc"] as const;
+
+/**
+ * Companies to look for: asked for by users or admins, or found in public lists such as YC's
+ * hiring companies. Discovery works through the pending ones, adds each job board it finds
+ * ("added"), and notes when a company is already tracked or has no board it can read.
+ */
+export const companyRequests = pgTable(
+  "company_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    source: text("source", { enum: COMPANY_REQUEST_SOURCES }).notNull().default("user"),
+    /** The company's name; empty when only a link was given. */
+    name: text("name").notNull().default(""),
+    /** A careers page or website; empty when only a name was given. */
+    url: text("url").notNull().default(""),
+    status: text("status", { enum: COMPANY_REQUEST_STATUSES }).notNull().default("pending"),
+    /** When a discovery run took it; another run leaves it alone for a while. */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    companyId: uuid("company_id").references(() => companies.id, { onDelete: "set null" }),
+    note: text("note").notNull().default(""),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    index("company_requests_status_idx").on(table.status, table.createdAt),
+    index("company_requests_user_idx").on(table.userId, table.createdAt),
+  ],
 ).enableRLS();
 
 export const SALARY_PERIODS = ["year", "month", "hour"] as const;

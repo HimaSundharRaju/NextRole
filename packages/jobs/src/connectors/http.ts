@@ -16,14 +16,22 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export interface RequestOptions {
+  attempts?: number;
+  timeoutMs?: number;
+  /** A JSON body, sent with POST. */
+  body?: unknown;
+}
+
 /**
- * GET a JSON document with a timeout and bounded exponential backoff on transient failures.
- * 404s raise BoardNotFoundError so a misconfigured board is reported rather than retried.
+ * GET (or, with `body`, POST) a JSON document with a timeout and bounded exponential backoff on
+ * transient failures. 404s raise BoardNotFoundError so a misconfigured board is reported rather
+ * than retried.
  */
 export async function getJson<T>(
   url: string,
   context: ConnectorContext,
-  { attempts = 3, timeoutMs = 20_000 }: { attempts?: number; timeoutMs?: number } = {},
+  { attempts = 3, timeoutMs = 20_000, body }: RequestOptions = {},
 ): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -31,7 +39,13 @@ export async function getJson<T>(
     const signal = context.signal ? AbortSignal.any([context.signal, timeout]) : timeout;
     try {
       const response = await context.fetch(url, {
-        headers: { accept: "application/json", "user-agent": USER_AGENT },
+        method: body === undefined ? "GET" : "POST",
+        headers: {
+          accept: "application/json",
+          "user-agent": USER_AGENT,
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
         signal,
       });
       if (response.status === 404) throw new BoardNotFoundError(url);
