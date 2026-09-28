@@ -1,5 +1,5 @@
 import "server-only";
-import type { Plan, Role } from "@gettargetrole/db";
+import { PLANS, type Plan, type Role } from "@gettargetrole/db/schema";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
@@ -17,7 +17,7 @@ export interface SessionUser {
 
 function toSessionUser(user: Record<string, unknown>): SessionUser {
   const role = user.role === "admin" || user.role === "specialist" ? user.role : "user";
-  const plan = user.plan === "pro" || user.plan === "concierge" ? user.plan : "free";
+  const plan = PLANS.includes(user.plan as Plan) ? (user.plan as Plan) : "free";
   const onboardedAt = user.onboardedAt ? new Date(user.onboardedAt as string | Date) : null;
   return {
     id: String(user.id),

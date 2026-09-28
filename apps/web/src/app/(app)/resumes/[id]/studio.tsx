@@ -27,6 +27,7 @@ import {
   saveResume,
   saveResumeSettings,
 } from "../actions";
+import type { UnitAllowance } from "@/lib/plans";
 import { AtsPanel } from "./ats-panel";
 import { HistoryPanel, type RevisionItem } from "./history-panel";
 import { ResumeEditor } from "./resume-editor";
@@ -44,6 +45,7 @@ export function ResumeStudio({
   messages,
   revisions,
   job,
+  studioAllowance,
 }: {
   resumeId: string;
   title: string;
@@ -54,6 +56,7 @@ export function ResumeStudio({
   messages: ChatMessage[];
   revisions: RevisionItem[];
   job: { id: string; title: string; company: string; description: string } | null;
+  studioAllowance: UnitAllowance;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -214,6 +217,7 @@ export function ResumeStudio({
                 resumeId={resumeId}
                 initialMessages={messages}
                 hasJob={Boolean(job)}
+                allowance={studioAllowance}
                 onResume={(next) => replaceResume(next)}
                 onComplete={(changed) => {
                   if (changed) router.refresh();

@@ -44,6 +44,8 @@ export const jobFiltersSchema = z.object({
   workplace: z.enum(["any", "remote", "hybrid", "onsite"]).optional().catch(undefined),
   posted: z.enum(["any", "24h", "3d", "7d", "30d"]).optional().catch(undefined),
   sort: z.enum(["match", "newest"]).optional().catch(undefined),
+  /** Hide jobs that match the user's resume less well than this. */
+  minMatch: z.enum(["60", "70", "80"]).optional().catch(undefined),
   company: z.string().trim().max(100).optional().catch(undefined),
   page: z.coerce.number().int().min(1).max(100).optional().catch(undefined),
   /** ISO country code, e.g. "US". */
@@ -219,7 +221,7 @@ export async function searchJobs(userId: string, chosen: JobFilters): Promise<Jo
     match: quickMatch(signals, row),
   });
 
-  if (sort === "newest") {
+  if (sort === "newest" && !filters.minMatch) {
     const rows = await base
       .orderBy(desc(jobs.firstSeenAt))
       .limit(PAGE_SIZE)
@@ -234,11 +236,16 @@ export async function searchJobs(userId: string, chosen: JobFilters): Promise<Jo
     };
   }
 
-  const ranking = filters.q
-    ? sql`ts_rank(${jobs.searchVector}, websearch_to_tsquery('english', ${filters.q})) desc`
-    : desc(jobs.firstSeenAt);
+  // Match scores come from the resume, not SQL, so ranking and a minimum match work on the most
+  // relevant (or newest) candidates.
+  const ranking =
+    filters.q && sort === "match"
+      ? sql`ts_rank(${jobs.searchVector}, websearch_to_tsquery('english', ${filters.q})) desc`
+      : desc(jobs.firstSeenAt);
   const candidates = await base.orderBy(ranking).limit(MATCH_CANDIDATES);
-  const scored = candidates.map(score).sort((a, b) => b.match.score - a.match.score);
+  const minMatch = Number(filters.minMatch ?? 0);
+  const scored = candidates.map(score).filter((job) => job.match.score >= minMatch);
+  if (sort === "match") scored.sort((a, b) => b.match.score - a.match.score);
   const considered = scored.length;
   return {
     items: scored.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { fetchNotifications, markNotificationsRead } from "@/app/(app)/shell-actions";
 import { Avatar } from "@/components/ui/misc";
 import { authClient } from "@/lib/auth-client";
+import { PLANS } from "@/lib/plans";
 import { cn, initials, timeAgo } from "@/lib/utils";
 
 type NotificationItem = {
@@ -156,7 +157,9 @@ export function UserMenu({ name, email, plan }: { name: string; email: string; p
           <div className="border-b border-border px-4 py-3">
             <p className="truncate text-sm font-medium">{name}</p>
             <p className="truncate text-xs text-muted-foreground">{email}</p>
-            <p className="mt-1 text-xs capitalize text-primary">{plan} plan</p>
+            <p className="mt-1 text-xs text-primary">
+              {PLANS[plan as keyof typeof PLANS]?.name ?? plan} plan
+            </p>
           </div>
           <Link
             href="/settings"

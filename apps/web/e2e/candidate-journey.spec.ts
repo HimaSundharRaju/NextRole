@@ -1,19 +1,23 @@
 import { expect, test } from "@playwright/test";
-import { signUpAndOnboard, uniqueEmail } from "./helpers";
+import { clickAiButton, setPlan, signUpAndOnboard, uniqueEmail } from "./helpers";
 
 test("candidate finds a job, builds an apply kit, applies and tracks it", async ({ page }) => {
-  await signUpAndOnboard(page, "Asha Verma", uniqueEmail("asha"));
+  const email = uniqueEmail("asha");
+  await signUpAndOnboard(page, "Asha Verma", email);
   await expect(page.getByRole("heading", { name: /Welcome back, Asha/ })).toBeVisible();
+  // Tailoring, cover letters and outreach come with paid plans.
+  await setPlan(email, "pro");
 
   await page.goto("/jobs");
   await page.getByRole("link", { name: "Senior Backend Engineer, Payments" }).click();
   await expect(page.getByRole("heading", { name: "Apply kit" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Analyze my fit with AI" }).click();
+  await clickAiButton(page, "Analyze my fit with AI", "Analyze anyway");
   await expect(page.getByText("AI assessment")).toBeVisible();
 
-  await page.getByRole("button", { name: "Tailor my resume" }).click();
+  await clickAiButton(page, "Tailor my resume", "Tailor anyway");
   await expect(page.getByText("What changed")).toBeVisible();
+  await expect(page.getByText("99 of 100 left this month")).toBeVisible();
 
   await page.getByRole("button", { name: "Write cover letter" }).click();
   await expect(page.getByLabel("Cover letter")).toContainText("Dear Hiring Team");
@@ -76,4 +80,45 @@ test("users can export their data", async ({ page }) => {
   const data = await response.json();
   expect(data.user.name).toBe("Data Owner");
   expect(data.resumes).toHaveLength(1);
+});
+
+test("a job found elsewhere gets a kit from its pasted description", async ({ page }) => {
+  const email = uniqueEmail("pasted");
+  await signUpAndOnboard(page, "Priya Nair", email);
+  await setPlan(email, "plus");
+
+  await page.goto("/applications");
+  await page.getByRole("link", { name: "Tailor to a job description" }).click();
+  await page.getByLabel("Company").fill("Initech");
+  await page.getByLabel("Job title").fill("Platform Engineer");
+  await page
+    .getByLabel("Job description")
+    .fill(
+      "Initech is hiring a Platform Engineer to run our Kubernetes clusters on AWS. " +
+        "You will build internal tooling in Go and Python, own our Terraform modules, and " +
+        "improve reliability with better observability. You have 4+ years of backend or " +
+        "infrastructure experience and enjoy mentoring teammates.",
+    );
+  await page.getByRole("button", { name: "Continue to the apply kit" }).click();
+  await page.waitForURL(/\/applications\/[0-9a-f-]+$/);
+
+  await page.getByRole("button", { name: "Tailor my resume" }).click();
+  await expect(page.getByText("What changed")).toBeVisible();
+  await expect(page.getByText("39 of 40 left this month")).toBeVisible();
+  await page.getByRole("button", { name: "Write cover letter" }).click();
+  await expect(page.getByLabel("Cover letter")).toContainText("Initech");
+});
+
+test("the free plan shows the job board and offers tailoring as an upgrade", async ({ page }) => {
+  await signUpAndOnboard(page, "Sam Lee", uniqueEmail("free"));
+  await page.goto("/jobs");
+  await page.getByRole("link", { name: "Senior Backend Engineer, Payments" }).click();
+  await expect(page.getByRole("button", { name: "Tailor my resume" })).toBeDisabled();
+  await expect(
+    page.getByText("Tailored resumes aren't included in the Free plan.", { exact: false }),
+  ).toBeVisible();
+
+  await page.goto("/settings#plan");
+  await expect(page.getByRole("heading", { name: "Plan & usage" })).toBeVisible();
+  await expect(page.getByText("Auto-prepare is part of Pro", { exact: false })).toBeVisible();
 });

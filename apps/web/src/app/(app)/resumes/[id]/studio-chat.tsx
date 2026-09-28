@@ -4,6 +4,8 @@ import type { Resume } from "@gettargetrole/resume/schema";
 import { ArrowUp, RotateCcw, Sparkles, Wand2 } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { AllowanceNote } from "@/components/usage/usage-bars";
+import type { UnitAllowance } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 import { clearStudioChat } from "../actions";
 
@@ -54,16 +56,20 @@ export function StudioChat({
   resumeId,
   initialMessages,
   hasJob,
+  allowance,
   onResume,
   onComplete,
 }: {
   resumeId: string;
   initialMessages: ChatMessage[];
   hasJob: boolean;
+  /** Studio messages left this month on the user's plan. */
+  allowance: UnitAllowance;
   onResume: (resume: Resume, summary: string) => void;
   onComplete?: (changed: boolean) => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+  const [left, setLeft] = useState(allowance.left);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +85,7 @@ export function StudioChat({
 
   async function send(text: string) {
     const message = text.trim();
-    if (!message || streaming) return;
+    if (!message || streaming || left === 0) return;
     setError(null);
     setInput("");
     idRef.current += 1;
@@ -117,6 +123,7 @@ export function StudioChat({
           patchAssistant((item) => ({ ...item, edit: event.summary || "Updated your resume" }));
         } else if (event.type === "done") {
           patchAssistant((item) => ({ ...item, content: event.reply || item.content }));
+          setLeft((count) => Math.max(0, count - 1));
           onComplete?.(event.changed);
         } else if (event.type === "error") {
           throw new Error(event.message);
@@ -226,13 +233,23 @@ export function StudioChat({
           <Button
             type="submit"
             size="icon"
-            disabled={!input.trim() || streaming}
+            disabled={!input.trim() || streaming || left === 0}
             aria-label="Send message"
             loading={streaming}
           >
             {streaming ? null : <ArrowUp className="h-4 w-4" />}
           </Button>
         </form>
+        <div className="mt-2">
+          <AllowanceNote
+            allowance={{
+              ...allowance,
+              left,
+              used: allowance.limit - left,
+              blocked: left > 0 ? null : allowance.blocked,
+            }}
+          />
+        </div>
         {messages.length > 0 && !streaming ? (
           <button
             type="button"

@@ -1,5 +1,14 @@
 import { createLogger } from "@gettargetrole/core/logger";
-import { getDb, jobs, notifications, profiles, type Database } from "@gettargetrole/db";
+import {
+  AUTO_PREPARE_DAILY_MAX,
+  getDb,
+  jobs,
+  notifications,
+  PLAN_ORDER,
+  profiles,
+  users,
+  type Database,
+} from "@gettargetrole/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { quickMatch } from "./match";
 
@@ -93,15 +102,16 @@ export interface AutoPrepareCandidate {
 }
 
 /**
- * Users with auto-prepare on whose profile matches a new job at or above their minimum score,
- * best matches first. Scoring is the same deterministic match as alerts, so it costs no AI tokens;
- * users who need sponsorship skip jobs that rule it out.
+ * Users with auto-prepare on, on a plan that includes it, whose profile matches a new job at or
+ * above their minimum score, best matches first. Scoring is the same deterministic match as
+ * alerts, so it costs no AI tokens; users who need sponsorship skip jobs that rule it out.
  */
 export async function autoPrepareCandidates(
   jobIds: string[],
   db: Database = getDb(),
 ): Promise<AutoPrepareCandidate[]> {
   if (jobIds.length === 0) return [];
+  const plansWithAuto = PLAN_ORDER.filter((plan) => AUTO_PREPARE_DAILY_MAX[plan] > 0);
   const found: AutoPrepareCandidate[] = [];
   for (const job of await openJobs(jobIds, db)) {
     if (job.skills.length === 0) continue;
@@ -118,9 +128,11 @@ export async function autoPrepareCandidates(
         needsSponsorship: profiles.needsSponsorship,
       })
       .from(profiles)
+      .innerJoin(users, eq(users.id, profiles.userId))
       .where(
         and(
           eq(profiles.autoPrepareEnabled, true),
+          inArray(users.plan, plansWithAuto),
           sql`${profiles.skills} && ${sql.param(job.skills)}::text[]`,
         ),
       );

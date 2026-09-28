@@ -14,6 +14,42 @@ import {
 
 const httpsUrl = z.union([z.literal(""), z.url({ protocol: /^https?$/ }).max(1000)]);
 
+const jobDescription = z
+  .string()
+  .trim()
+  .min(200, "Paste the full job description (at least a few paragraphs)")
+  .max(20_000, "That's longer than a job description — paste up to 20,000 characters");
+
+/** Starts an application for a job found elsewhere, from its pasted description. */
+export const createFromJobDescription = authedAction(
+  z.object({
+    companyName: z.string().trim().min(1, "Company is required").max(120),
+    jobTitle: z.string().trim().min(1, "Job title is required").max(160),
+    jobUrl: httpsUrl,
+    location: z.string().trim().max(120),
+    jobDescription,
+  }),
+  async (input, user) => {
+    const application = await createExternalApplication(
+      user.id,
+      { ...input, status: "saved", notes: "" },
+      user.id,
+    );
+    revalidatePath("/applications");
+    return { id: application.id };
+  },
+);
+
+/** Adds the job description to an application tracked by hand, so the apply kit can use it. */
+export const saveJobDescription = authedAction(
+  z.object({ applicationId: z.uuid(), jobDescription }),
+  async ({ applicationId, jobDescription }, user) => {
+    await updateApplication(user.id, applicationId, { jobDescription });
+    revalidatePath(`/applications/${applicationId}`);
+    return null;
+  },
+);
+
 export const addApplication = authedAction(
   z.object({
     companyName: z.string().trim().min(1, "Company is required").max(120),

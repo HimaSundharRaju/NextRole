@@ -12,6 +12,8 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Alert } from "@/components/ui/misc";
 import { useToast } from "@/components/ui/toast";
+import { AllowanceNote } from "@/components/usage/usage-bars";
+import type { UnitAllowance } from "@/lib/plans";
 import { STATUS_META } from "@/lib/statuses";
 import { moveApplication, removeApplication, updateApplicationDetails } from "../actions";
 
@@ -126,9 +128,11 @@ export function NotesCard({
 export function InterviewPrepCard({
   applicationId,
   initial,
+  allowance,
 }: {
   applicationId: string;
   initial: InterviewPrep | null;
+  allowance: UnitAllowance;
 }) {
   const [prep, setPrep] = useState(initial);
   const [error, setError] = useState<string | null>(null);
@@ -144,6 +148,7 @@ export function InterviewPrepCard({
             size="sm"
             variant={prep ? "secondary" : "primary"}
             loading={pending}
+            disabled={allowance.left === 0}
             onClick={() =>
               startTransition(async () => {
                 setError(null);
@@ -159,6 +164,7 @@ export function InterviewPrepCard({
       />
       <CardBody className="space-y-4 text-sm">
         {error ? <Alert>{error}</Alert> : null}
+        <AllowanceNote allowance={allowance} />
         {prep ? (
           <>
             <ol className="space-y-4">

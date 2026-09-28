@@ -73,10 +73,14 @@ candidate asks for it on a single job.
 Every job can be applied to manually: the job page's apply kit tailors the main resume, writes a
 cover letter and drafts answers, and the candidate submits on the employer's site and marks the
 application applied. Nothing is ever submitted for them; employers' application forms have no API
-that would allow it.
+that would allow it. Jobs found elsewhere (LinkedIn, Indeed…) get the same kit from a pasted job
+description: it is stored on the application (`applications.job_description`), and resumes
+tailored to it are reused through `resumes.application_id`. On jobs below a 70% match, tailoring
+and AI fit analysis ask for confirmation, since a tailored resume rarely rescues a weak match.
 
-Auto-prepare does the same preparation in the background (`apps/worker/src/prepare.ts`). It is
-off by default; in Settings the user sets a minimum match score (default 80) and a daily limit
+Auto-prepare does the same preparation in the background (`apps/worker/src/prepare.ts`) on plans
+that include it (Pro and Concierge; the daily limit is capped at the plan's maximum and there is a
+monthly allowance). It is off by default; in Settings the user sets a minimum match score (default 80) and a daily limit
 (default 3). For each strong new match the worker:
 
 1. Skips the job if auto-prepare is off, the job has closed, there is no main resume, or the
@@ -132,9 +136,14 @@ prep and the Studio chat. Its production implementation calls the Anthropic Type
   fit analysis as made from an earlier version.
 - **Untrusted content.** Resumes, job descriptions and uploaded documents are wrapped in tagged
   blocks, and the prompts instruct the model to treat them as data, never as instructions.
-- **Metering and budgets.** Each call records its tokens and estimated cost in `ai_usage`. Before
-  a call, the user's spend this month is checked against their plan's budget
-  (`packages/db/src/plans.ts`), in the web app and the worker alike.
+- **Metering, allowances and budgets.** Each call records its tokens and estimated cost in
+  `ai_usage`. Plans (`packages/db/src/plans.ts`) set monthly allowances in units users
+  understand: imports, tailored resumes, cover letters, answers, outreach drafts, fit analyses,
+  interview prep, Studio messages and auto-prepared applications. Every AI entry point goes
+  through `aiFor(user, unit)`, which checks the allowance and the plan's spend cap, and records a
+  row in `usage_events` only when a new result is saved, so reused results and failed calls are
+  free. The spend cap sits just above the cost of using every allowance and only stops outliers.
+  The dashboard, settings and each AI button show what's left this month.
 - **Testing.** `AI_PROVIDER=mock` swaps in a deterministic provider for local development and the
   end-to-end suite. The configuration refuses it when `NODE_ENV=production`.
 

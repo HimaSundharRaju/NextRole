@@ -13,7 +13,9 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
+import { USAGE_UNITS } from "../plans";
 import { users } from "./auth";
 
 const createdAt = timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -260,6 +262,10 @@ export const resumes = pgTable(
     title: text("title").notNull(),
     kind: text("kind", { enum: RESUME_KINDS }).notNull().default("master"),
     jobId: uuid("job_id").references(() => jobs.id, { onDelete: "set null" }),
+    /** For resumes tailored to a pasted job description: the application it belongs to. */
+    applicationId: uuid("application_id").references((): AnyPgColumn => applications.id, {
+      onDelete: "set null",
+    }),
     content: jsonb("content").$type<Resume>().notNull(),
     settings: jsonb("settings").$type<ResumeSettings>().notNull(),
     isPrimary: boolean("is_primary").notNull().default(false),
@@ -273,6 +279,7 @@ export const resumes = pgTable(
   },
   (table) => [
     index("resumes_user_updated_idx").on(table.userId, table.updatedAt.desc()),
+    index("resumes_application_idx").on(table.applicationId),
     uniqueIndex("resumes_one_primary_per_user_uq")
       .on(table.userId)
       .where(sql`is_primary`),
@@ -368,6 +375,8 @@ export const applications = pgTable(
     answers: jsonb("answers").$type<ApplicationAnswer[]>().notNull().default([]),
     receipt: jsonb("receipt").$type<SubmissionReceipt>(),
     notes: text("notes").notNull().default(""),
+    /** The pasted job description, for applications to jobs that aren't on the job board. */
+    jobDescription: text("job_description").notNull().default(""),
     appliedAt: timestamp("applied_at", { withTimezone: true }),
     nextActionAt: timestamp("next_action_at", { withTimezone: true }),
     createdByUserId: text("created_by_user_id").references(() => users.id, {
@@ -481,6 +490,23 @@ export const aiUsage = pgTable(
     createdAt,
   },
   (table) => [index("ai_usage_user_created_idx").on(table.userId, table.createdAt)],
+).enableRLS();
+
+/**
+ * One row per AI-made artifact counted against the user's plan (a tailored resume, a cover
+ * letter, a Studio message…). Reused results and failed calls aren't recorded.
+ */
+export const usageEvents = pgTable(
+  "usage_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: userRef(),
+    unit: text("unit", { enum: USAGE_UNITS }).notNull(),
+    /** What the unit was spent on, such as a job or resume id. */
+    ref: text("ref").notNull().default(""),
+    createdAt,
+  },
+  (table) => [index("usage_events_user_unit_idx").on(table.userId, table.unit, table.createdAt)],
 ).enableRLS();
 
 export const auditLogs = pgTable(

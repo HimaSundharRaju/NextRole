@@ -26,15 +26,24 @@ export function resumeHash(content: Resume): string {
     .digest("hex");
 }
 
-/** The newest tailored resume for a job made from this exact main resume, if any. */
-export async function findTailoredResume(userId: string, jobId: string, sourceHash: string) {
+/** What a resume is tailored to: a job on the board, or an application with a pasted description. */
+export type TailorTarget = { jobId: string } | { applicationId: string };
+
+function targetCondition(target: TailorTarget) {
+  return "jobId" in target
+    ? eq(resumes.jobId, target.jobId)
+    : eq(resumes.applicationId, target.applicationId);
+}
+
+/** The newest tailored resume for a target made from this exact main resume, if any. */
+export async function findTailoredResume(userId: string, target: TailorTarget, sourceHash: string) {
   const [row] = await getDb()
     .select()
     .from(resumes)
     .where(
       and(
         eq(resumes.userId, userId),
-        eq(resumes.jobId, jobId),
+        targetCondition(target),
         eq(resumes.kind, "tailored"),
         eq(resumes.sourceHash, sourceHash),
       ),
@@ -46,7 +55,7 @@ export async function findTailoredResume(userId: string, jobId: string, sourceHa
 
 export async function saveTailoredResume(input: {
   userId: string;
-  jobId: string;
+  target: TailorTarget;
   title: string;
   content: Resume;
   settings: ResumeSettings;
@@ -62,7 +71,8 @@ export async function saveTailoredResume(input: {
         userId: input.userId,
         title: input.title.slice(0, 120),
         kind: "tailored",
-        jobId: input.jobId,
+        jobId: "jobId" in input.target ? input.target.jobId : null,
+        applicationId: "applicationId" in input.target ? input.target.applicationId : null,
         content,
         settings: input.settings,
         sourceHash: input.sourceHash,

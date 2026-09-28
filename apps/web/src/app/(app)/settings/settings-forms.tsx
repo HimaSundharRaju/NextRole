@@ -107,13 +107,31 @@ export function AboutForm({ initial }: { initial: AboutInput }) {
 export function AutoPrepareForm({
   initial,
   hasResume,
+  planDailyMax,
 }: {
   initial: AutoPrepareInput;
   hasResume: boolean;
+  /** The most the plan allows a day; 0 when the plan doesn't include auto-prepare. */
+  planDailyMax: number;
 }) {
   const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [enabled, setEnabled] = useState(initial.autoPrepareEnabled);
+  const dailyOptions = [
+    ...new Set([...AUTO_PREPARE_LIMITS.filter((limit) => limit < planDailyMax), planDailyMax]),
+  ];
+
+  if (planDailyMax === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Auto-prepare is part of Pro: your best new matches get a tailored resume and cover letter
+        every day, ready for you to review and submit.{" "}
+        <a href="#plan" className="font-medium text-primary">
+          Compare plans
+        </a>
+      </p>
+    );
+  }
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -170,9 +188,9 @@ export function AutoPrepareForm({
           <Select
             id="autoPrepareDailyLimit"
             name="autoPrepareDailyLimit"
-            defaultValue={String(initial.autoPrepareDailyLimit)}
+            defaultValue={String(Math.min(initial.autoPrepareDailyLimit, planDailyMax))}
           >
-            {AUTO_PREPARE_LIMITS.map((limit) => (
+            {dailyOptions.map((limit) => (
               <option key={limit} value={limit}>
                 Up to {limit} a day
               </option>

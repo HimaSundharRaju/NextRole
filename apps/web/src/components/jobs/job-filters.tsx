@@ -32,6 +32,7 @@ export function JobFilters({
     workplace?: string;
     posted?: string;
     sort?: string;
+    minMatch?: string;
     company?: string;
     country?: string;
     region?: string;
@@ -73,7 +74,7 @@ export function JobFilters({
           Search
         </Button>
       </div>
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
         <Select
           name="workplace"
           defaultValue={filters.workplace ?? "any"}
@@ -118,6 +119,17 @@ export function JobFilters({
         >
           <option value="match">Best match</option>
           <option value="newest">Newest</option>
+        </Select>
+        <Select
+          name="minMatch"
+          defaultValue={filters.minMatch ?? ""}
+          onChange={submitOnChange}
+          aria-label="Minimum match"
+        >
+          <option value="">Any match</option>
+          <option value="60">60%+ match</option>
+          <option value="70">70%+ match</option>
+          <option value="80">80%+ match</option>
         </Select>
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">

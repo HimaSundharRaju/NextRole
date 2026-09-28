@@ -16,7 +16,7 @@ export const generateResume = authedAction(
       .max(20_000),
   }),
   async (input, user) => {
-    const { ai, ctx } = await aiFor(user);
+    const { ai, ctx, charge } = await aiFor(user, "import");
     const result = await ai.generateResume(
       { ...input, profile: await candidateProfile(user.id) },
       ctx,
@@ -28,6 +28,7 @@ export const generateResume = authedAction(
       note: "Generated with AI",
       makePrimary: true,
     });
+    await charge(resume.id);
     return { id: resume.id, suggestions: result.suggestions };
   },
   { rateLimit: "aiHeavy" },

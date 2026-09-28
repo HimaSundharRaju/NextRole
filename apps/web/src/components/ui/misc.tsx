@@ -69,7 +69,15 @@ export function Stat({
   );
 }
 
-export function ProgressBar({ value, className }: { value: number; className?: string }) {
+export function ProgressBar({
+  value,
+  className,
+  tone = "primary",
+}: {
+  value: number;
+  className?: string;
+  tone?: "primary" | "warning" | "danger";
+}) {
   const clamped = Math.max(0, Math.min(100, value));
   return (
     <div
@@ -80,7 +88,10 @@ export function ProgressBar({ value, className }: { value: number; className?: s
       aria-valuemax={100}
     >
       <div
-        className="h-full rounded-full bg-primary transition-all"
+        className={cn(
+          "h-full rounded-full transition-all",
+          { primary: "bg-primary", warning: "bg-warning", danger: "bg-danger" }[tone],
+        )}
         style={{ width: `${clamped}%` }}
       />
     </div>

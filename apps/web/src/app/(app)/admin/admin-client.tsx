@@ -6,6 +6,7 @@ import { useTransition, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
+import { PLANS } from "@/lib/plans";
 import {
   addCompany,
   assignSpecialist,
@@ -147,12 +148,17 @@ export function UserControls({
         className="h-8 w-32 text-xs"
         aria-label="Plan"
         onChange={(event) =>
-          run(() => setUserPlan({ userId, plan: event.target.value as "free" }), "Plan updated.")
+          run(
+            () => setUserPlan({ userId, plan: event.target.value as keyof typeof PLANS }),
+            "Plan updated.",
+          )
         }
       >
-        <option value="free">Starter</option>
-        <option value="pro">Pro</option>
-        <option value="concierge">Concierge</option>
+        {Object.values(PLANS).map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.name}
+          </option>
+        ))}
       </Select>
       {!isSelf ? (
         <Button

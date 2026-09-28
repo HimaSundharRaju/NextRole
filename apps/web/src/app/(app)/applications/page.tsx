@@ -1,4 +1,7 @@
+import { FileText } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
+import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/misc";
 import { listApplications } from "@/server/data/applications";
 import { requireOnboardedUser } from "@/server/session";
@@ -15,6 +18,11 @@ export default async function ApplicationsPage() {
       <PageHeader
         title="Applications"
         description="Drag cards between stages. We remind you to follow up a week after you apply."
+        actions={
+          <Link href="/applications/new" className={buttonVariants({ variant: "secondary" })}>
+            <FileText className="h-4 w-4" aria-hidden /> Tailor to a job description
+          </Link>
+        }
       />
       <ApplicationBoard
         items={applications.map((item) => ({

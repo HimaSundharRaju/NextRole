@@ -5,7 +5,7 @@ import { boolean, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
  * field names; the SQL column names are snake_case.
  */
 
-export const PLANS = ["free", "pro", "concierge"] as const;
+export const PLANS = ["free", "plus", "pro", "concierge"] as const;
 export type Plan = (typeof PLANS)[number];
 
 export const ROLES = ["user", "specialist", "admin"] as const;

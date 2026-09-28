@@ -1,5 +1,6 @@
 "use server";
 
+import type { JobContext } from "@gettargetrole/ai";
 import { ValidationError } from "@gettargetrole/core/errors";
 import {
   findTailoredResume,
@@ -8,6 +9,7 @@ import {
   resumeHash,
   saveTailoredResume,
   type TailorNotes,
+  type TailorTarget,
 } from "@gettargetrole/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -28,6 +30,22 @@ import { getPrimaryResume, getResume } from "@/server/data/resumes";
 import type { SessionUser } from "@/server/session";
 
 const jobIdSchema = z.object({ jobId: z.uuid() });
+
+/**
+ * The apply kit works on a job from the board or on an application whose job description was
+ * pasted in. Exactly one of the two ids is given.
+ */
+function kitSchema<T extends z.ZodRawShape>(shape: T) {
+  return z.object({ jobId: z.uuid().optional(), applicationId: z.uuid().optional(), ...shape });
+}
+
+interface KitTarget {
+  application: ApplicationRow;
+  job: JobContext;
+  /** The job on the board, when the kit is for one. */
+  jobId: string | null;
+  tailorTarget: TailorTarget;
+}
 
 async function primaryResumeOrThrow(userId: string) {
   const primary = await getPrimaryResume(userId);
@@ -58,8 +76,37 @@ async function loadJobAndApplication(user: SessionUser, jobId: string) {
   return { detail, application, job: jobContextOf(detail.job, detail.company.name) };
 }
 
-function refresh(jobId: string, applicationId?: string) {
-  revalidatePath(`/jobs/${jobId}`);
+async function loadKitTarget(
+  user: SessionUser,
+  input: { jobId?: string; applicationId?: string },
+): Promise<KitTarget> {
+  if (Boolean(input.jobId) === Boolean(input.applicationId)) {
+    throw new ValidationError("Choose a job or an application.");
+  }
+  if (input.jobId) {
+    const { application, job } = await loadJobAndApplication(user, input.jobId);
+    return { application, job, jobId: input.jobId, tailorTarget: { jobId: input.jobId } };
+  }
+  const application = await getApplication(user.id, input.applicationId!);
+  if (application.jobId) return loadKitTarget(user, { jobId: application.jobId });
+  if (!application.jobDescription.trim()) {
+    throw new ValidationError("Paste the job description first.");
+  }
+  return {
+    application,
+    job: {
+      title: application.jobTitle,
+      company: application.companyName,
+      location: application.location,
+      description: application.jobDescription,
+    },
+    jobId: null,
+    tailorTarget: { applicationId: application.id },
+  };
+}
+
+function refresh(jobId: string | null, applicationId?: string) {
+  if (jobId) revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/applications");
   if (applicationId) revalidatePath(`/applications/${applicationId}`);
 }
@@ -81,7 +128,7 @@ export const analyzeFit = authedAction(
   async ({ jobId }, user) => {
     const detail = await getJobDetail(user.id, jobId);
     const primary = await primaryResumeOrThrow(user.id);
-    const { ai, ctx } = await aiFor(user);
+    const { ai, ctx, charge } = await aiFor(user, "fit");
     const result = await ai.analyzeFit(
       {
         resume: primary.content,
@@ -109,6 +156,7 @@ export const analyzeFit = authedAction(
         target: [jobMatches.userId, jobMatches.jobId],
         set: { ...values, createdAt: new Date() },
       });
+    await charge(jobId);
     refresh(jobId);
     return result;
   },
@@ -116,23 +164,22 @@ export const analyzeFit = authedAction(
 );
 
 export const tailorResumeForJob = authedAction(
-  z.object({
-    jobId: z.uuid(),
+  kitSchema({
     instructions: z.string().trim().max(1000).optional(),
     /** Make a new version even when one from the current main resume exists. */
     force: z.boolean().optional(),
   }),
-  async ({ jobId, instructions, force }, user) => {
+  async ({ instructions, force, ...ids }, user) => {
     const primary = await primaryResumeOrThrow(user.id);
-    const { detail, application, job } = await loadJobAndApplication(user, jobId);
+    const { application, job, jobId, tailorTarget } = await loadKitTarget(user, ids);
     const sourceHash = resumeHash(primary.content);
     // A version made from this exact main resume is reused, which costs no tokens.
     const existing =
-      force || instructions ? null : await findTailoredResume(user.id, jobId, sourceHash);
+      force || instructions ? null : await findTailoredResume(user.id, tailorTarget, sourceHash);
     let resumeId = existing?.id;
     let notes: TailorNotes | null = existing?.tailorNotes ?? null;
     if (!resumeId) {
-      const { ai, ctx } = await aiFor(user);
+      const { ai, ctx, charge } = await aiFor(user, "tailor");
       const result = await ai.tailorResume({ resume: primary.content, job, instructions }, ctx);
       notes = {
         summaryOfChanges: result.summaryOfChanges,
@@ -142,15 +189,16 @@ export const tailorResumeForJob = authedAction(
       };
       const created = await saveTailoredResume({
         userId: user.id,
-        jobId,
-        title: `${detail.company.name} — ${detail.job.title}`,
+        target: tailorTarget,
+        title: `${job.company} — ${job.title}`,
         content: result.resume,
         settings: primary.settings,
         sourceHash,
         notes,
-        note: `Tailored for ${detail.job.title} at ${detail.company.name}`,
+        note: `Tailored for ${job.title} at ${job.company}`,
       });
       resumeId = created.id;
+      await charge(resumeId);
       await addEvent(application.id, user.id, "kit_generated", { part: "resume", resumeId });
     }
     await updateApplication(user.id, application.id, {
@@ -172,16 +220,17 @@ export const tailorResumeForJob = authedAction(
 );
 
 export const writeCoverLetter = authedAction(
-  z.object({ jobId: z.uuid(), recipientName: z.string().trim().max(100).optional() }),
-  async ({ jobId, recipientName }, user) => {
-    const { application, job } = await loadJobAndApplication(user, jobId);
+  kitSchema({ recipientName: z.string().trim().max(100).optional() }),
+  async ({ recipientName, ...ids }, user) => {
+    const { application, job, jobId } = await loadKitTarget(user, ids);
     const resume = await resumeForApplication(user, application);
-    const { ai, ctx } = await aiFor(user);
+    const { ai, ctx, charge } = await aiFor(user, "letter");
     const letter = await ai.writeCoverLetter(
       { resume: resume.content, job, profile: await candidateProfile(user.id), recipientName },
       ctx,
     );
     await updateApplication(user.id, application.id, { coverLetter: letter.body });
+    await charge(application.id);
     await addEvent(application.id, user.id, "kit_generated", { part: "cover_letter" });
     refresh(jobId, application.id);
     return letter;
@@ -190,17 +239,16 @@ export const writeCoverLetter = authedAction(
 );
 
 export const answerApplicationQuestions = authedAction(
-  z.object({
-    jobId: z.uuid(),
+  kitSchema({
     questions: z
       .array(z.string().trim().min(3).max(500))
       .min(1, "Add at least one question")
       .max(15),
   }),
-  async ({ jobId, questions }, user) => {
-    const { application, job } = await loadJobAndApplication(user, jobId);
+  async ({ questions, ...ids }, user) => {
+    const { application, job, jobId } = await loadKitTarget(user, ids);
     const resume = await resumeForApplication(user, application);
-    const { ai, ctx } = await aiFor(user);
+    const { ai, ctx, charge } = await aiFor(user, "answers");
     const result = await ai.answerQuestions(
       { resume: resume.content, job, profile: await candidateProfile(user.id), questions },
       ctx,
@@ -211,6 +259,7 @@ export const answerApplicationQuestions = authedAction(
       .map(([question, answer]) => ({ question, answer }))
       .slice(-30);
     await updateApplication(user.id, application.id, { answers });
+    await charge(application.id);
     await addEvent(application.id, user.id, "kit_generated", {
       part: "answers",
       count: result.answers.length,
@@ -222,16 +271,15 @@ export const answerApplicationQuestions = authedAction(
 );
 
 export const draftOutreach = authedAction(
-  z.object({
-    jobId: z.uuid(),
+  kitSchema({
     recipientName: z.string().trim().max(100).optional(),
     recipientTitle: z.string().trim().max(100).optional(),
     recipientEmail: z.union([z.email(), z.literal("")]).optional(),
   }),
-  async ({ jobId, recipientName, recipientTitle, recipientEmail }, user) => {
-    const { application, job } = await loadJobAndApplication(user, jobId);
+  async ({ recipientName, recipientTitle, recipientEmail, ...ids }, user) => {
+    const { application, job, jobId } = await loadKitTarget(user, ids);
     const resume = await resumeForApplication(user, application);
-    const { ai, ctx } = await aiFor(user);
+    const { ai, ctx, charge } = await aiFor(user, "outreach");
     const draft = await ai.draftOutreach(
       {
         resume: resume.content,
@@ -260,6 +308,7 @@ export const draftOutreach = authedAction(
       subject: draft.followUp.subject,
       body: draft.followUp.body,
     });
+    await charge(application.id);
     await addEvent(application.id, user.id, "outreach_drafted", {});
     refresh(jobId, application.id);
     revalidatePath("/outreach");
@@ -273,12 +322,12 @@ export const prepareInterview = authedAction(
   async ({ applicationId }, user) => {
     const application = await getApplication(user.id, applicationId);
     const resume = await resumeForApplication(user, application);
-    let description = "";
+    let description = application.jobDescription;
     if (application.jobId) {
       const detail = await getJobDetail(user.id, application.jobId).catch(() => null);
-      description = detail?.job.descriptionText ?? "";
+      description = detail?.job.descriptionText || description;
     }
-    const { ai, ctx } = await aiFor(user);
+    const { ai, ctx, charge } = await aiFor(user, "interview");
     const prep = await ai.prepareInterview(
       {
         resume: resume.content,
@@ -291,6 +340,7 @@ export const prepareInterview = authedAction(
       },
       ctx,
     );
+    await charge(application.id);
     await addEvent(application.id, user.id, "kit_generated", { part: "interview", prep });
     revalidatePath(`/applications/${application.id}`);
     return prep;
