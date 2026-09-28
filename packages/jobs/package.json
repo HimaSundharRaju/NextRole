@@ -13,7 +13,8 @@
     "./alerts": "./src/alerts.ts",
     "./discovery": "./src/discovery.ts",
     "./companies": "./src/companies.ts",
-    "./feeds": "./src/feeds.ts"
+    "./feeds": "./src/feeds.ts",
+    "./ghosts": "./src/ghosts.ts"
   },
   "scripts": {
     "lint": "eslint src",

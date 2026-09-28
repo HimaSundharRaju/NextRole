@@ -30,6 +30,7 @@ interface UsajobsDescriptor {
     RateIntervalCode?: string;
   }>;
   PublicationStartDate?: string;
+  ApplicationCloseDate?: string;
   UserArea?: {
     Details?: {
       JobSummary?: string;
@@ -129,6 +130,7 @@ export function mapUsajobs(id: string, job: UsajobsDescriptor): NormalizedJob {
     descriptionHtml: html,
     applyUrl: job.ApplyURI?.[0] ?? job.PositionURI ?? "https://www.usajobs.gov/",
     postedAt: job.PublicationStartDate ? new Date(job.PublicationStartDate) : null,
+    expiresAt: job.ApplicationCloseDate ? new Date(job.ApplicationCloseDate) : null,
     salary: payOf(job),
     placeHints: (job.PositionLocation ?? []).map((place) => ({
       country: place.CountryCode,

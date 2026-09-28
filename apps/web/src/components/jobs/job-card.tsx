@@ -2,7 +2,7 @@ import { skillLabel } from "@gettargetrole/resume/skills";
 import { Building2, Clock, ExternalLink, MapPin } from "lucide-react";
 import Link from "next/link";
 import { Badge, MatchBadge } from "@/components/ui/badge";
-import { EMPLOYMENT_TYPE_LABEL, FEED_CREDIT } from "@/lib/job-labels";
+import { EMPLOYMENT_TYPE_LABEL, FEED_CREDIT, ghostWarnings } from "@/lib/job-labels";
 import { formatSalary, timeAgo } from "@/lib/utils";
 import type { JobListItem } from "@/server/data/jobs";
 import { SaveJobButton } from "./save-job-button";
@@ -27,6 +27,33 @@ export function JobTermsBadges({
       {job.visaSponsorship === "yes" ? <Badge tone="success">Sponsors visas</Badge> : null}
       {job.visaSponsorship === "no" ? <Badge tone="warning">No visa sponsorship</Badge> : null}
       {job.citizenshipRequired ? <Badge tone="warning">Citizens / clearance only</Badge> : null}
+    </>
+  );
+}
+
+/** Signs this may be a ghost job, and a stronger label when they add up. */
+export function GhostBadges({
+  job,
+}: {
+  job: Pick<
+    JobListItem,
+    "ghostReasons" | "repostCount" | "postedAt" | "firstSeenAt" | "likelyGhost"
+  >;
+}) {
+  const warnings = ghostWarnings(job);
+  if (warnings.length === 0) return null;
+  return (
+    <>
+      {job.likelyGhost ? (
+        <Badge tone="danger" title={`Likely not being hired for: ${warnings.join(", ")}`}>
+          Likely ghost job
+        </Badge>
+      ) : null}
+      {warnings.map((warning) => (
+        <Badge key={warning} tone="warning">
+          {warning}
+        </Badge>
+      ))}
     </>
   );
 }
@@ -130,6 +157,7 @@ export function JobCard({ job, compact = false }: { job: JobListItem; compact?: 
         ) : null}
         {salary ? <Badge tone="outline">{salary}</Badge> : null}
         <JobTermsBadges job={job} />
+        <GhostBadges job={job} />
         {job.applicationStatus ? (
           <Badge tone="primary">
             {STATUS_LABEL[job.applicationStatus] ?? job.applicationStatus}

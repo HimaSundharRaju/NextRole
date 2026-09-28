@@ -1,4 +1,9 @@
-import type { EmploymentType, Seniority } from "@gettargetrole/db/schema";
+import type {
+  EmploymentType,
+  GhostReason,
+  JobReportReason,
+  Seniority,
+} from "@gettargetrole/db/schema";
 
 export const EMPLOYMENT_TYPE_LABEL: Record<EmploymentType, string> = {
   full_time: "Full-time",
@@ -58,6 +63,8 @@ export interface FeedCredit {
   url: string;
   /** The feed shares only the start of each description. */
   snippet: boolean;
+  /** The feed is the job's official listing, so its listing shows the job is open. */
+  official: boolean;
 }
 
 /** How jobs from feeds are credited; Adzuna's terms ask for "Jobs by Adzuna" with each one. */
@@ -67,11 +74,51 @@ export const FEED_CREDIT: Partial<Record<string, FeedCredit>> = {
     site: "USAJOBS",
     url: "https://www.usajobs.gov/",
     snippet: false,
+    official: true,
   },
   adzuna: {
     label: "Jobs by Adzuna",
     site: "Adzuna",
     url: "https://www.adzuna.com/",
     snippet: true,
+    official: false,
   },
 };
+
+export const JOB_REPORT_REASON_LABEL: Record<JobReportReason, string> = {
+  closed: "It's filled or no longer open",
+  no_reply: "I applied and never heard back",
+  not_real: "It looks fake or misleading",
+  other: "Something else",
+};
+
+const DAY_MS = 86_400_000;
+
+/** The signs of a ghost job a post shows, in plain words. */
+export function ghostWarnings(
+  job: {
+    ghostReasons: GhostReason[];
+    repostCount: number;
+    postedAt: Date | null;
+    firstSeenAt: Date;
+  },
+  now = Date.now(),
+): string[] {
+  const months = Math.floor((now - (job.postedAt ?? job.firstSeenAt).getTime()) / (30 * DAY_MS));
+  return job.ghostReasons.flatMap((reason) => {
+    switch (reason) {
+      case "open_60d":
+      case "open_120d":
+        return [`Open ${months}+ months`];
+      case "reposted":
+        return job.repostCount > 0 ? [`Reposted ${job.repostCount}×`] : [];
+      case "evergreen":
+        return ["Talent pool, not one opening"];
+      case "reported":
+        return ["Reported by job seekers"];
+    }
+  });
+}
+
+/** A job its board listed this recently counts as checked and still open. */
+export const VERIFIED_OPEN_MS = 2 * DAY_MS;

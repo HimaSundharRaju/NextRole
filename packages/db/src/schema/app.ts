@@ -210,6 +210,19 @@ const annualized = (column: "salary_min" | "salary_max"): SQL =>
     `case salary_period when 'hour' then ${column}::bigint * 2080 when 'month' then ${column}::bigint * 12 else ${column}::bigint end`,
   );
 
+/**
+ * Why a job may be a ghost job, one that isn't really being hired for: open for months,
+ * reposted after closing, a talent pool rather than an opening, or reported by job seekers.
+ */
+export const GHOST_REASONS = [
+  "open_60d",
+  "open_120d",
+  "reposted",
+  "evergreen",
+  "reported",
+] as const;
+export type GhostReason = (typeof GHOST_REASONS)[number];
+
 export const jobs = pgTable(
   "jobs",
   {
@@ -282,6 +295,19 @@ export const jobs = pgTable(
         onDelete: "set null",
       },
     ),
+    /**
+     * How likely the job is a ghost job, 0 to 100, and why (packages/jobs/src/ghosts.ts). Search
+     * hides 60 and up unless asked, and alerts and auto-prepare skip them.
+     */
+    ghostScore: integer("ghost_score").notNull().default(0),
+    ghostReasons: text("ghost_reasons", { enum: GHOST_REASONS })
+      .array()
+      .notNull()
+      .default(emptyTextArray),
+    /** Times the employer closed this role and posted it again, in the half year before. */
+    repostCount: integer("repost_count").notNull().default(0),
+    /** When applications close, for boards that say; the job closes then. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
     postedAt: timestamp("posted_at", { withTimezone: true }),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
@@ -309,6 +335,8 @@ export const jobs = pgTable(
       .on(table.fingerprint)
       .where(sql`closed_at is null`),
     index("jobs_duplicate_of_idx").on(table.duplicateOf),
+    // Earlier postings of a role, open or closed, for finding reposts.
+    index("jobs_company_fingerprint_idx").on(table.companyId, table.fingerprint),
   ],
 ).enableRLS();
 
@@ -317,6 +345,27 @@ export const jobEmployerName = () => sql<string>`coalesce(${jobs.employerName}, 
 
 export const MATCH_VERDICTS = ["strong", "good", "stretch", "poor"] as const;
 export type MatchVerdict = (typeof MATCH_VERDICTS)[number];
+
+export const JOB_REPORT_REASONS = ["closed", "no_reply", "not_real", "other"] as const;
+export type JobReportReason = (typeof JOB_REPORT_REASONS)[number];
+
+/** A job seeker's report that a job isn't really open; one per user and job. */
+export const jobReports = pgTable(
+  "job_reports",
+  {
+    userId: userRef(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "cascade" }),
+    reason: text("reason", { enum: JOB_REPORT_REASONS }).notNull(),
+    note: text("note").notNull().default(""),
+    createdAt,
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.jobId] }),
+    index("job_reports_job_idx").on(table.jobId),
+  ],
+).enableRLS();
 
 /** The AI's fit analysis of a job against the user's resume (cached per user+job). */
 export const jobMatches = pgTable(

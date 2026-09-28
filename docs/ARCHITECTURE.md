@@ -89,9 +89,13 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    changes. The job board filters on required years, and the match score uses the post's level
    and years instead of guessing from the title. Feeds that share only a snippet of each post
    (Adzuna) aren't enriched or auto-prepared: there's too little to go on.
-6. **Alert.** New jobs are scored against each candidate's profile, and strong matches create
-   notifications. Candidates who need sponsorship aren't alerted about posts that rule it out.
-7. **Auto-prepare.** For users who turned it on, new jobs at or above their minimum match are
+6. **Score ghost jobs.** Each sync scores the company's open jobs for signs that no one is being
+   hired (`ghosts.ts`, below), and a job listed past its closing date (USAJOBS gives one) is
+   closed rather than reopened.
+7. **Alert.** New jobs are scored against each candidate's profile, and strong matches create
+   notifications. Candidates who need sponsorship aren't alerted about posts that rule it out,
+   and nobody is alerted about likely ghost jobs.
+8. **Auto-prepare.** For users who turned it on, new jobs at or above their minimum match are
    queued on the `auto-prepare` queue, strongest matches first (see below).
 
 **Staffing agencies.** Companies can be marked as staffing agencies (Bullhorn boards always
@@ -100,6 +104,29 @@ and a "Contract roles (W-2 / C2C)" shortcut filters to contract arrangements. Di
 staffing firms' Bullhorn career portals from the settings file (`app.json`) next to the page.
 Few staffing firms publish a public feed (most use systems such as JobDiva or iCIMS without
 one), so they can be added one by one as they turn up.
+
+**Ghost jobs** (`ghosts.ts`). Nothing proves a post is a ghost job, so each sign adds points
+(`jobs.ghost_score`, out of 100, with `ghost_reasons`), and only several together, or a strong
+one, reach the likely-ghost line of 60:
+
+| Sign                                                                                     | Points                 |
+| ---------------------------------------------------------------------------------------- | ---------------------- |
+| Open 60+ days (120+ days), from the board's posting date or else first sighting          | 20 (35)                |
+| Reposted: the role closed and came back within 180 days, with no other opening of it     | 15 per repost, up to 2 |
+| A talent pool or general application, by its title or enrichment's quoted evergreen flag | 60                     |
+| Reported by job seekers ("filled", "never heard back", "looks fake")                     | 20 per person, up to 3 |
+
+A role with another opening still up is a team hiring several people, so it isn't counted as a
+repost. Likely ghost jobs are hidden from search unless asked for, and alerts and auto-prepare
+skip them (so no AI is spent on them). Signs below the line push a job down the best-match
+ranking and show as warnings ("Open 4+ months", "Reposted 2×"). A job page says when the job's
+board last listed it ("Verified open · checked 12 min ago"). Every day the worker rescores all
+open jobs, since they age without a sync, and closes jobs past their closing date.
+
+Feed jobs need no separate expiry: USAJOBS lists every open announcement with its closing date,
+and Adzuna is read a week back, so its jobs close within three weeks of being posted. The plan's
+weekly HEAD check of feed links was dropped: USAJOBS doesn't need it, and Adzuna's links are
+click-tracked redirects, where automated requests could count as clicks.
 
 **Job feeds** (`feeds.ts`). Feeds carry many employers' jobs, each job naming its employer
 (`jobs.employer_name`), which the board, the job page and the AI's cover letters use in place

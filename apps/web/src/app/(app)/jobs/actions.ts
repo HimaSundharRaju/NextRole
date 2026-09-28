@@ -5,12 +5,14 @@ import { ValidationError } from "@gettargetrole/core/errors";
 import {
   findTailoredResume,
   getDb,
+  JOB_REPORT_REASONS,
   jobMatches,
   resumeHash,
   saveTailoredResume,
   type TailorNotes,
   type TailorTarget,
 } from "@gettargetrole/db";
+import { reportJob as recordJobReport, withdrawJobReport } from "@gettargetrole/jobs/ghosts";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { authedAction } from "@/server/action";
@@ -376,3 +378,28 @@ export const markApplied = authedAction(
     return null;
   },
 );
+
+/** A job seeker's report that a job isn't really open; enough of them hide it for everyone. */
+export const reportJob = authedAction(
+  z.object({
+    jobId: z.uuid(),
+    reason: z.enum(JOB_REPORT_REASONS),
+    note: z.string().trim().max(500).optional(),
+  }),
+  async ({ jobId, reason, note }, user) => {
+    // Checks the job exists and can be seen.
+    await getJobDetail(user.id, jobId);
+    await recordJobReport({ userId: user.id, jobId, reason, note });
+    revalidatePath(`/jobs/${jobId}`);
+    revalidatePath("/jobs");
+    return null;
+  },
+  { rateLimit: "jobReport" },
+);
+
+export const withdrawReport = authedAction(jobIdSchema, async ({ jobId }, user) => {
+  await withdrawJobReport({ userId: user.id, jobId });
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/jobs");
+  return null;
+});

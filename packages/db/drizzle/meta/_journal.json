@@ -71,6 +71,13 @@
       "when": 1790530344310,
       "tag": "0009_job_feeds",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790531786644,
+      "tag": "0010_ghost_jobs",
+      "breakpoints": true
     }
   ]
 }

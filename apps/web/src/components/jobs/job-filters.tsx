@@ -36,6 +36,7 @@ export function JobFilters({
     minMatch?: string;
     maxYears?: string;
     employer?: string;
+    ghosts?: string;
     company?: string;
     country?: string;
     region?: string;
@@ -254,6 +255,17 @@ export function JobFilters({
           Contract roles (W-2 / C2C)
         </Link>
       </fieldset>
+      <label className="flex w-fit cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+        <input
+          type="checkbox"
+          name="ghosts"
+          value="show"
+          defaultChecked={filters.ghosts === "show"}
+          onChange={submitOnChange}
+          className="accent-primary"
+        />
+        Show likely ghost jobs: open for months, reposted, a talent pool or reported by job seekers
+      </label>
     </Form>
   );
 }
