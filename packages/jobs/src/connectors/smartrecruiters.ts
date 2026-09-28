@@ -68,6 +68,13 @@ export function mapSmartRecruitersPosting(
     applyUrl: postingUrl(company, posting.id),
     postedAt: posting.releasedDate ? new Date(posting.releasedDate) : null,
     salary: null,
+    placeHints: [
+      {
+        country: posting.location?.country,
+        region: posting.location?.region,
+        city: posting.location?.city,
+      },
+    ],
     needsHydration: true,
   };
 }

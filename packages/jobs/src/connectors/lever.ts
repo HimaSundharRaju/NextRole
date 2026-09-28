@@ -15,6 +15,8 @@ interface LeverPosting {
   additional?: string;
   lists?: Array<{ text?: string; content?: string }>;
   workplaceType?: string;
+  /** ISO code of the primary location's country. */
+  country?: string;
   categories?: {
     team?: string;
     department?: string;
@@ -69,6 +71,7 @@ export function mapLeverPosting(posting: LeverPosting): NormalizedJob {
     applyUrl: posting.applyUrl ?? posting.hostedUrl,
     postedAt: posting.createdAt ? new Date(posting.createdAt) : null,
     salary: salaryFrom(posting, text),
+    placeHints: posting.country ? [{ country: posting.country }] : [],
   };
 }
 

@@ -9,6 +9,7 @@ import { cn, plural } from "@/lib/utils";
 import {
   jobFiltersSchema,
   listCompaniesForFilter,
+  locationFacets,
   searchJobs,
   type JobFilters as Filters,
 } from "@/server/data/jobs";
@@ -19,8 +20,8 @@ export const metadata: Metadata = { title: "Jobs" };
 function pageHref(filters: Filters, page: number): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries({ ...filters, page })) {
-    if (value !== undefined && value !== "" && !(key === "page" && value === 1))
-      params.set(key, String(value));
+    if (value === undefined || value === "" || (key === "page" && value === 1)) continue;
+    for (const item of [value].flat()) params.append(key, String(item));
   }
   const query = params.toString();
   return query ? `/jobs?${query}` : "/jobs";
@@ -33,14 +34,24 @@ export default async function JobsPage({
 }) {
   const user = await requireOnboardedUser();
   const raw = await searchParams;
-  const filters = jobFiltersSchema.parse(
+  const parsed = jobFiltersSchema.parse(
     Object.fromEntries(
-      Object.entries(raw).map(([key, value]) => [key, Array.isArray(value) ? value[0] : value]),
+      Object.entries(raw).map(([key, value]) => [
+        key,
+        // Employment types repeat (?type=w2&type=c2c); every other filter takes one value.
+        Array.isArray(value) && key !== "type" ? value[0] : value,
+      ]),
     ),
   );
-  const [result, companies] = await Promise.all([
+  // A state left over from another country no longer applies.
+  const filters =
+    parsed.region && !parsed.region.startsWith(`${parsed.country}-`)
+      ? { ...parsed, region: undefined }
+      : parsed;
+  const [result, companies, facets] = await Promise.all([
     searchJobs(user.id, filters),
     listCompaniesForFilter(),
+    locationFacets(filters.country),
   ]);
   const page = result.page;
 
@@ -50,7 +61,13 @@ export default async function JobsPage({
         title="Jobs"
         description="Live roles pulled straight from company career pages, ranked against your resume."
       />
-      <JobFilters filters={filters} companies={companies} />
+      <JobFilters
+        filters={filters}
+        visa={result.visa}
+        companies={companies}
+        countries={facets.countries}
+        regions={facets.regions}
+      />
 
       <p className="mt-5 text-sm text-muted-foreground">
         {result.total === 0

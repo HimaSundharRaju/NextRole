@@ -50,11 +50,15 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    recorded on the company.
 3. **Normalize.** Postings are mapped to one shape: title, location, workplace type, salary
    range and period, and apply URL. Descriptions are sanitized against a strict HTML allowlist,
-   and skills are extracted with the shared taxonomy in `packages/resume`.
+   and skills are extracted with the shared taxonomy in `packages/resume`. Deterministic parsers
+   add the fields the job-board filters use, without AI calls: countries and states
+   (`locations.ts`, from board-supplied addresses or the location text), employment types
+   including explicit W-2, C2C and 1099 arrangements (`employment.ts`), and what the post says
+   about visa sponsorship and citizenship or clearance (`visa.ts`, explicit statements only).
 4. **Upsert.** Jobs are upserted on `(company, external id)`. A content hash means an unchanged
    posting only updates `last_seen_at`. Jobs that disappear from a board are marked closed.
 5. **Alert.** New jobs are scored against each candidate's profile, and strong matches create
-   notifications.
+   notifications. Candidates who need sponsorship aren't alerted about posts that rule it out.
 
 Matching (`packages/jobs/src/match.ts`) is deterministic and costs nothing to run, so the whole
 feed can be ranked. The score is skill overlap (50%), title similarity to the target roles (30%)

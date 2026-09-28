@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ApplyKit } from "@/components/jobs/apply-kit";
 import { FitPanel } from "@/components/jobs/fit-panel";
+import { JobTermsBadges } from "@/components/jobs/job-card";
 import { SaveJobButton } from "@/components/jobs/save-job-button";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -70,7 +71,7 @@ export default async function JobPage({ params }: Props) {
                 {job.workplaceType}
               </Badge>
             ) : null}
-            {job.employmentType ? <Badge tone="outline">{job.employmentType}</Badge> : null}
+            <JobTermsBadges job={job} showFullTime />
             {salary ? <Badge tone="outline">{salary}</Badge> : null}
             {job.department ? <Badge tone="outline">{job.department}</Badge> : null}
           </div>

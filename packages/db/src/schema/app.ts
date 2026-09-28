@@ -120,6 +120,28 @@ export const companies = pgTable(
 
 export const SALARY_PERIODS = ["year", "month", "hour"] as const;
 
+/** W-2, C2C and 1099 are US contract arrangements, set only when a post says so. */
+export const EMPLOYMENT_TYPES = [
+  "full_time",
+  "part_time",
+  "contract",
+  "internship",
+  "temporary",
+  "w2",
+  "c2c",
+  "1099",
+] as const;
+export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];
+
+export const VISA_SPONSORSHIP = ["yes", "no", "unknown"] as const;
+export type VisaSponsorship = (typeof VISA_SPONSORSHIP)[number];
+
+/** A salary bound converted to a yearly amount (2,080 working hours, 12 months). */
+const annualized = (column: "salary_min" | "salary_max"): SQL =>
+  sql.raw(
+    `case salary_period when 'hour' then ${column}::bigint * 2080 when 'month' then ${column}::bigint * 12 else ${column}::bigint end`,
+  );
+
 export const jobs = pgTable(
   "jobs",
   {
@@ -143,6 +165,26 @@ export const jobs = pgTable(
     salaryMax: integer("salary_max"),
     salaryCurrency: text("salary_currency"),
     salaryPeriod: text("salary_period", { enum: SALARY_PERIODS }),
+    salaryAnnualMin: bigint("salary_annual_min", { mode: "number" }).generatedAlwaysAs(
+      (): SQL => annualized("salary_min"),
+    ),
+    salaryAnnualMax: bigint("salary_annual_max", { mode: "number" }).generatedAlwaysAs(
+      (): SQL => annualized("salary_max"),
+    ),
+    /** ISO 3166-1 codes of every country the post names or its board reports ("US", "IN"). */
+    countries: text("countries").array().notNull().default(emptyTextArray),
+    /** ISO 3166-2 codes of states and provinces ("US-CA", "CA-ON"). */
+    regions: text("regions").array().notNull().default(emptyTextArray),
+    employmentTypes: text("employment_types", { enum: EMPLOYMENT_TYPES })
+      .array()
+      .notNull()
+      .default(emptyTextArray),
+    /** What the post says about visa sponsorship; "unknown" when it says nothing. */
+    visaSponsorship: text("visa_sponsorship", { enum: VISA_SPONSORSHIP })
+      .notNull()
+      .default("unknown"),
+    /** The post requires citizenship or a security clearance. */
+    citizenshipRequired: boolean("citizenship_required").notNull().default(false),
     postedAt: timestamp("posted_at", { withTimezone: true }),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
@@ -162,6 +204,9 @@ export const jobs = pgTable(
       .where(sql`closed_at is null`),
     index("jobs_search_idx").using("gin", table.searchVector),
     index("jobs_skills_idx").using("gin", table.skills),
+    index("jobs_countries_idx").using("gin", table.countries),
+    index("jobs_regions_idx").using("gin", table.regions),
+    index("jobs_employment_types_idx").using("gin", table.employmentTypes),
   ],
 ).enableRLS();
 

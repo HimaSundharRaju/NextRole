@@ -15,6 +15,13 @@
       "when": 1790314101948,
       "tag": "0001_enable_row_level_security",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790386827828,
+      "tag": "0002_job_filters",
+      "breakpoints": true
     }
   ]
 }
