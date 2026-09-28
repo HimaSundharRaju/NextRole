@@ -13,12 +13,14 @@ import {
   EMPLOYMENT_TYPES,
   enrichmentBatches,
   getDb,
+  jobEmployerName,
   jobs,
+  SNIPPET_PROVIDERS,
   type Database,
   type DbExecutor,
   type EmploymentType,
 } from "@gettargetrole/db";
-import { and, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
 
 const log = createLogger("enrichment");
 
@@ -172,7 +174,7 @@ export async function submitEnrichmentBatch(options: EnrichmentOptions): Promise
         title: jobs.title,
         location: jobs.location,
         descriptionText: jobs.descriptionText,
-        companyName: companies.name,
+        companyName: jobEmployerName(),
       })
       .from(jobs)
       .innerJoin(companies, eq(jobs.companyId, companies.id))
@@ -181,6 +183,7 @@ export async function submitEnrichmentBatch(options: EnrichmentOptions): Promise
           isNull(jobs.closedAt),
           isNull(jobs.enrichmentBatchId),
           ne(jobs.descriptionText, ""),
+          notInArray(jobs.source, [...SNIPPET_PROVIDERS]),
           sql`${jobs.enrichedHash} is distinct from ${jobs.contentHash}`,
         ),
       )
@@ -239,7 +242,7 @@ export async function pollEnrichmentBatches(options: EnrichmentOptions): Promise
       .returning({ id: enrichmentBatches.id });
     if (!claimed) continue;
     const posts = await db
-      .select({ job: jobs, companyName: companies.name })
+      .select({ job: jobs, companyName: jobEmployerName() })
       .from(jobs)
       .innerJoin(companies, eq(jobs.companyId, companies.id))
       .where(eq(jobs.enrichmentBatchId, batch.id));

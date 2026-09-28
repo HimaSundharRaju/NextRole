@@ -64,6 +64,13 @@
       "when": 1790482088059,
       "tag": "0008_staffing_agencies",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790530344310,
+      "tag": "0009_job_feeds",
+      "breakpoints": true
     }
   ]
 }

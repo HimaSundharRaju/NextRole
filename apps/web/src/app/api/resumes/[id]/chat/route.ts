@@ -2,7 +2,7 @@ import type { StudioEvent } from "@gettargetrole/ai";
 import { ValidationError } from "@gettargetrole/core/errors";
 import { createLogger } from "@gettargetrole/core/logger";
 import { enforceRateLimit } from "@gettargetrole/core/rate-limit";
-import { companies, getDb, jobs } from "@gettargetrole/db";
+import { companies, getDb, jobEmployerName, jobs } from "@gettargetrole/db";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { aiFor } from "@/server/ai";
@@ -28,7 +28,7 @@ async function jobContextFor(jobId: string | null) {
       title: jobs.title,
       location: jobs.location,
       description: jobs.descriptionText,
-      company: companies.name,
+      company: jobEmployerName(),
     })
     .from(jobs)
     .innerJoin(companies, eq(jobs.companyId, companies.id))

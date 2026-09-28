@@ -21,6 +21,8 @@ export interface RequestOptions {
   timeoutMs?: number;
   /** A JSON body, sent with POST. */
   body?: unknown;
+  /** Extra headers, such as an API key; they can replace the defaults. */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -31,7 +33,7 @@ export interface RequestOptions {
 export async function getJson<T>(
   url: string,
   context: ConnectorContext,
-  { attempts = 3, timeoutMs = 20_000, body }: RequestOptions = {},
+  { attempts = 3, timeoutMs = 20_000, body, headers: extra = {} }: RequestOptions = {},
 ): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -44,6 +46,7 @@ export async function getJson<T>(
           accept: "application/json",
           "user-agent": USER_AGENT,
           ...(body === undefined ? {} : { "content-type": "application/json" }),
+          ...extra,
         },
         body: body === undefined ? undefined : JSON.stringify(body),
         signal,

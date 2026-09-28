@@ -50,3 +50,28 @@ export interface JobEnrichmentView {
   education?: string | null;
   quotes?: Partial<Record<string, string>>;
 }
+
+export interface FeedCredit {
+  /** The credit shown with each of the feed's jobs. */
+  label: string;
+  site: string;
+  url: string;
+  /** The feed shares only the start of each description. */
+  snippet: boolean;
+}
+
+/** How jobs from feeds are credited; Adzuna's terms ask for "Jobs by Adzuna" with each one. */
+export const FEED_CREDIT: Partial<Record<string, FeedCredit>> = {
+  usajobs: {
+    label: "via USAJOBS",
+    site: "USAJOBS",
+    url: "https://www.usajobs.gov/",
+    snippet: false,
+  },
+  adzuna: {
+    label: "Jobs by Adzuna",
+    site: "Adzuna",
+    url: "https://www.adzuna.com/",
+    snippet: true,
+  },
+};

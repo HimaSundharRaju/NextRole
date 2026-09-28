@@ -12,7 +12,8 @@
     "./ingest": "./src/ingest.ts",
     "./alerts": "./src/alerts.ts",
     "./discovery": "./src/discovery.ts",
-    "./companies": "./src/companies.ts"
+    "./companies": "./src/companies.ts",
+    "./feeds": "./src/feeds.ts"
   },
   "scripts": {
     "lint": "eslint src",

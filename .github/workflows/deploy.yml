@@ -42,6 +42,8 @@ jobs:
       ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      USAJOBS_API_KEY: ${{ secrets.USAJOBS_API_KEY }}
+      ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
       SMTP_URL: ${{ secrets.SMTP_URL }}
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
@@ -53,6 +55,8 @@ jobs:
       ENRICH_JOBS: ${{ vars.ENRICH_JOBS }}
       ENRICH_DAILY_BUDGET_USD: ${{ vars.ENRICH_DAILY_BUDGET_USD }}
       ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
+      USAJOBS_EMAIL: ${{ vars.USAJOBS_EMAIL }}
+      ADZUNA_APP_ID: ${{ vars.ADZUNA_APP_ID }}
       WRANGLER_SEND_METRICS: "false"
     steps:
       - name: Check configuration
@@ -106,7 +110,8 @@ jobs:
             require("node:fs").writeFileSync(file, JSON.stringify(values), { mode: 0o600 });
           ' "$secrets_file" APP_URL DATABASE_URL DATABASE_CA_CERT REDIS_URL BETTER_AUTH_SECRET ENCRYPTION_KEY \
             ANTHROPIC_API_KEY OPENAI_API_KEY SMTP_URL GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET EMAIL_FROM \
-            AI_MODEL AI_BATCH ENRICH_JOBS ENRICH_DAILY_BUDGET_USD ANTHROPIC_BASE_URL
+            AI_MODEL AI_BATCH ENRICH_JOBS ENRICH_DAILY_BUDGET_USD ANTHROPIC_BASE_URL \
+            USAJOBS_API_KEY USAJOBS_EMAIL ADZUNA_APP_ID ADZUNA_APP_KEY
           # No routes or custom domains are passed, so the deploy never changes any domain's DNS
           # or routes. The custom domain is attached once in the Cloudflare dashboard.
           pnpm exec wrangler deploy --secrets-file "$secrets_file"

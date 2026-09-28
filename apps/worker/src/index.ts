@@ -14,6 +14,7 @@ import { queueConnection } from "@gettargetrole/core/redis";
 import { closeDb } from "@gettargetrole/db";
 import { autoPrepareCandidates, createJobAlerts } from "@gettargetrole/jobs/alerts";
 import { importYcCompanies, resolveCompanyRequests } from "@gettargetrole/jobs/companies";
+import { ensureFeedSources } from "@gettargetrole/jobs/feeds";
 import { companiesDueForSync, pruneClosedJobs, syncCompany } from "@gettargetrole/jobs/ingest";
 import { Queue, Worker, type Job } from "bullmq";
 import { pollAiBatches, runStaleRequests, submitAiBatches } from "./batches";
@@ -182,6 +183,8 @@ for (const worker of workers) {
   worker.on("error", (error) => log.error({ queue: worker.name, err: error }, "worker error"));
 }
 
+// Feeds whose keys were just set get their first sync now; ones whose keys went are closed.
+await enqueueSyncs(await ensureFeedSources(), "manual");
 await ingestQueue.upsertJobScheduler(
   "ingest-schedule",
   { every: env.INGEST_INTERVAL_MINUTES * 60_000 },

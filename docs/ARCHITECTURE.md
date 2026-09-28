@@ -52,7 +52,8 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    Greenhouse, Lever, Ashby and SmartRecruiters for most companies; Workday, Oracle
    Recruiting Cloud, Eightfold (both of its APIs) and amazon.jobs for large employers; and
    Bullhorn's public jobs API for staffing firms, whose roles at their clients are often
-   contracts (W-2, C2C) with an hourly rate, required years and a sponsorship flag. Boards
+   contracts (W-2, C2C) with an hourly rate, required years and a sponsorship flag. Feeds of
+   many employers' jobs are read the same way, each as one board (see below). Boards
    that state years or sponsorship outright have those stored ahead of anything read from
    the text. Every
    request goes through one per-host limiter (at most 2 at a time and 60 a minute, paused after a 429) and identifies itself as `GetTargetRoleBot`; the endpoints used are ones the sites'
@@ -72,7 +73,11 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    request is only marked as still open. Jobs that disappear from a board are closed, but only
    when the board listed everything: a listing that is partial (a capped search, a page that
    failed) closes nothing, and neither does one with under a fifth of the board's usual jobs,
-   which is flagged on the company until the drop has lasted three syncs.
+   which is flagged on the company until the drop has lasted three syncs. Each job gets a
+   fingerprint (employer, title and first place, normalized, so "Amazon.com Services LLC" is
+   "Amazon"), and a feed's copy of a job the employer lists itself points to the employer's
+   listing (`duplicate_of`); the board and alerts show only the employer's. Two feeds carrying
+   the same ad show the copy seen first. A copy stands on its own again when the listing closes.
 5. **Enrich.** Every 15 minutes the worker sends open posts that aren't enriched (or changed
    since) to GPT-4o-mini in a half-price batch, newest first, within `ENRICH_DAILY_BUDGET_USD`
    (default $2, about 7,000 posts). The model reads the facts the parsers miss: required years,
@@ -82,7 +87,8 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    word (or whose number isn't in its quote) is dropped. The board's data and the parsers win;
    enrichment only fills what they left unknown, and keeps its additions until the post
    changes. The job board filters on required years, and the match score uses the post's level
-   and years instead of guessing from the title.
+   and years instead of guessing from the title. Feeds that share only a snippet of each post
+   (Adzuna) aren't enriched or auto-prepared: there's too little to go on.
 6. **Alert.** New jobs are scored against each candidate's profile, and strong matches create
    notifications. Candidates who need sponsorship aren't alerted about posts that rule it out.
 7. **Auto-prepare.** For users who turned it on, new jobs at or above their minimum match are
@@ -94,6 +100,25 @@ and a "Contract roles (W-2 / C2C)" shortcut filters to contract arrangements. Di
 staffing firms' Bullhorn career portals from the settings file (`app.json`) next to the page.
 Few staffing firms publish a public feed (most use systems such as JobDiva or iCIMS without
 one), so they can be added one by one as they turn up.
+
+**Job feeds** (`feeds.ts`). Feeds carry many employers' jobs, each job naming its employer
+(`jobs.employer_name`), which the board, the job page and the AI's cover letters use in place
+of the feed's name. When the worker starts, it adds each feed whose keys are set and turns off
+each one whose keys aren't, closing its jobs, since a feed's terms can require its jobs to come
+down when access ends. A feed an admin turned off stays off.
+
+- **USAJOBS** (`USAJOBS_API_KEY`, `USAJOBS_EMAIL`): federal IT, computer science, computer
+  engineering and data science jobs (series 2210, 1550, 0854 and 1560), every 6 hours. The key
+  is free and the API may be used commercially.
+- **Adzuna** (`ADZUNA_APP_ID`, `ADZUNA_APP_KEY`): the newest week of US IT jobs and, read
+  separately, IT contracts, every 6 hours (at most 10 pages each, well inside the free tier's 250
+  requests a day). Its terms allow commercial use without a license only for a 14-day trial, so
+  it stays off until Adzuna licenses the site. Each job is credited "Jobs by Adzuna" with a link
+  to Adzuna, applying goes through Adzuna's link, and only pay the ad states is shown, not
+  Adzuna's estimates.
+- **Not read:** LinkedIn, Indeed, Dice, Monster and Wellfound (their terms forbid it); Google
+  Careers, Remotive and Arbeitnow (their robots.txt disallows the pages or APIs a connector
+  would read). Apple's careers site is left for a later change.
 
 **Finding more companies** (`discovery.ts`, `companies.ts`). Users ask for a missing company
 on the jobs page, by name or careers link; admins add one from any link to its board, careers

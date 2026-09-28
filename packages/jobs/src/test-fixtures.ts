@@ -361,3 +361,137 @@ export const bullhornDirectHire = {
   employmentType: "Direct Hire",
   publishedCategory: { id: 1057638, name: "Medical/Health" },
 };
+
+/** USAJOBS search (developer.usajobs.gov/api-reference/get-api-search), two federal IT posts. */
+export const usajobsSearch = {
+  LanguageCode: "EN",
+  SearchResult: {
+    SearchResultCount: 2,
+    SearchResultCountAll: 2,
+    SearchResultItems: [
+      {
+        MatchedObjectId: "812345600",
+        MatchedObjectDescriptor: {
+          PositionID: "VHA-26-12345",
+          PositionTitle: "IT Specialist (INFOSEC)",
+          PositionURI: "https://www.usajobs.gov:443/job/812345600",
+          ApplyURI: ["https://www.usajobs.gov:443/job/812345600/apply"],
+          PositionLocationDisplay: "Washington, District of Columbia",
+          PositionLocation: [
+            {
+              LocationName: "Washington, District of Columbia",
+              CountryCode: "United States",
+              CountrySubDivisionCode: "District of Columbia",
+              CityName: "Washington, District of Columbia",
+            },
+          ],
+          OrganizationName: "Veterans Health Administration",
+          DepartmentName: "Department of Veterans Affairs",
+          JobCategory: [{ Name: "Information Technology Management", Code: "2210" }],
+          PositionSchedule: [{ Name: "Full-time", Code: "1" }],
+          PositionOfferingType: [{ Name: "Permanent", Code: "15317" }],
+          QualificationSummary:
+            "You need one year of specialized experience securing networks & systems <at GS-12>.",
+          PositionRemuneration: [
+            {
+              MinimumRange: "117962.0",
+              MaximumRange: "153354.0",
+              RateIntervalCode: "PA",
+              Description: "Per Year",
+            },
+          ],
+          PublicationStartDate: "2026-09-20T00:00:00.0000",
+          ApplicationCloseDate: "2026-10-04T23:59:59.9970",
+          UserArea: {
+            Details: {
+              JobSummary: "Protect the VA's networks.\n\nJoin a team of 40 engineers.",
+              MajorDuties: ["Run vulnerability scans.", "Lead incident response."],
+              Education: "",
+              Requirements: "U.S. Citizenship is required. A background check is required.",
+              TeleworkEligible: true,
+              RemoteIndicator: false,
+            },
+          },
+        },
+      },
+      {
+        MatchedObjectId: "812345601",
+        MatchedObjectDescriptor: {
+          PositionTitle: "Data Scientist",
+          PositionURI: "https://www.usajobs.gov:443/job/812345601",
+          ApplyURI: ["https://www.usajobs.gov:443/job/812345601/apply"],
+          PositionLocationDisplay: "Multiple Locations",
+          PositionLocation: [
+            {
+              LocationName: "Denver, Colorado",
+              CountryCode: "United States",
+              CountrySubDivisionCode: "Colorado",
+              CityName: "Denver, Colorado",
+            },
+            {
+              LocationName: "Austin, Texas",
+              CountryCode: "United States",
+              CountrySubDivisionCode: "Texas",
+              CityName: "Austin, Texas",
+            },
+          ],
+          OrganizationName: "Census Bureau",
+          DepartmentName: "Department of Commerce",
+          PositionSchedule: [{ Name: "Part-time" }],
+          PositionOfferingType: [{ Name: "Temporary" }],
+          PositionRemuneration: [
+            { MinimumRange: "45.10", MaximumRange: "58.63", RateIntervalCode: "PH" },
+          ],
+          PublicationStartDate: "2026-09-22T00:00:00.0000",
+          UserArea: { Details: { JobSummary: "Model survey data.", RemoteIndicator: true } },
+        },
+      },
+    ],
+  },
+};
+
+/** Adzuna search (developer.adzuna.com/docs/search): a stated salary and a predicted one. */
+export const adzunaSearch = {
+  count: 2,
+  mean: 131000,
+  __CLASS__: "Adzuna::API::Response::JobSearchResults",
+  results: [
+    {
+      id: "4812345678",
+      adref: "eyJhbGciOiJIUzI1NiJ9.eyJzIjoiYWJjIn0.c2lnbmF0dXJl",
+      title: "Senior Software Engineer, Payments",
+      description:
+        "Acme is hiring a Senior Software Engineer for payments. You'll build services in Go & Kubernetes with <5 ms latency…",
+      created: "2026-09-25T14:03:11Z",
+      redirect_url: "https://www.adzuna.com/land/ad/4812345678?se=abc&utm_medium=api&v=DEF",
+      company: { display_name: "Acme, Inc.", __CLASS__: "Adzuna::API::Response::Company" },
+      location: {
+        display_name: "San Francisco, California",
+        area: ["US", "California", "San Francisco County", "San Francisco"],
+        __CLASS__: "Adzuna::API::Response::Location",
+      },
+      salary_min: 180000,
+      salary_max: 220000,
+      salary_is_predicted: "0",
+      contract_type: "permanent",
+      contract_time: "full_time",
+      category: { tag: "it-jobs", label: "IT Jobs", __CLASS__: "Adzuna::API::Response::Category" },
+      __CLASS__: "Adzuna::API::Response::Job",
+    },
+    {
+      id: 4812345679,
+      title: "Java Developer (W2 Contract)",
+      description: "12-month W2 contract for a Java developer, remote within the US…",
+      created: "2026-09-26T09:15:00Z",
+      redirect_url: "https://www.adzuna.com/land/ad/4812345679?se=def&utm_medium=api&v=GHI",
+      company: { display_name: "Globex Staffing LLC" },
+      location: { display_name: "Austin, Texas", area: ["US", "Texas", "Travis County", "Austin"] },
+      salary_min: 95000,
+      salary_max: 95000,
+      salary_is_predicted: "1",
+      contract_type: "contract",
+      contract_time: "full_time",
+      category: { tag: "it-jobs", label: "IT Jobs" },
+    },
+  ],
+};

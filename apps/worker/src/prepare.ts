@@ -17,6 +17,7 @@ import {
   companies,
   findTailoredResume,
   getDb,
+  jobEmployerName,
   jobs,
   MONTHLY_AI_BUDGET_USD,
   monthlyAiSpendMicroUsd,
@@ -323,7 +324,7 @@ export async function autoPrepare(
   if (!primary) return skip("no_resume");
 
   const [posting] = await db
-    .select({ job: jobs, companyName: companies.name })
+    .select({ job: jobs, companyName: jobEmployerName() })
     .from(jobs)
     .innerJoin(companies, eq(jobs.companyId, companies.id))
     .where(eq(jobs.id, jobId))
