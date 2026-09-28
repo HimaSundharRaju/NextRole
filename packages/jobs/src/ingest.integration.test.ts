@@ -1,4 +1,4 @@
-import type * as DbModule from "@nextrole/db";
+import type * as DbModule from "@gettargetrole/db";
 import type * as DrizzleModule from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type * as AlertsModule from "./alerts";
@@ -19,9 +19,9 @@ describe.skipIf(!TEST_DATABASE_URL)("job ingestion (Postgres integration)", () =
 
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_DATABASE_URL;
-    const { runMigrations } = await import("@nextrole/db/migrate");
+    const { runMigrations } = await import("@gettargetrole/db/migrate");
     await runMigrations();
-    db = await import("@nextrole/db");
+    db = await import("@gettargetrole/db");
     ingest = await import("./ingest");
     alerts = await import("./alerts");
     drizzle = await import("drizzle-orm");

@@ -11,7 +11,7 @@ import {
 
 describe("forwardToOrigin", () => {
   it("replaces client-supplied forwarding headers with Cloudflare's client IP", () => {
-    const request = new Request("https://nextrole.example.com/api/auth/sign-in/email", {
+    const request = new Request("https://gettargetrole.example.com/api/auth/sign-in/email", {
       method: "POST",
       headers: {
         "cf-connecting-ip": "203.0.113.7",
@@ -25,7 +25,7 @@ describe("forwardToOrigin", () => {
     expect(forwarded.headers.get("x-forwarded-for")).toBe("203.0.113.7");
     expect(forwarded.headers.get("x-real-ip")).toBe("203.0.113.7");
     expect(forwarded.headers.get("x-forwarded-proto")).toBe("https");
-    expect(forwarded.headers.get("x-forwarded-host")).toBe("nextrole.example.com");
+    expect(forwarded.headers.get("x-forwarded-host")).toBe("gettargetrole.example.com");
     expect(forwarded.headers.get("cookie")).toBe("session=abc");
     expect(forwarded.method).toBe("POST");
     expect(forwarded.url).toBe(request.url);
@@ -33,7 +33,9 @@ describe("forwardToOrigin", () => {
 
   it("drops spoofable headers when Cloudflare reports no client IP", () => {
     const forwarded = forwardToOrigin(
-      new Request("https://nextrole.example.com/", { headers: { "x-forwarded-for": "1.2.3.4" } }),
+      new Request("https://gettargetrole.example.com/", {
+        headers: { "x-forwarded-for": "1.2.3.4" },
+      }),
     );
     expect(forwarded.headers.has("x-forwarded-for")).toBe(false);
     expect(forwarded.headers.has("x-real-ip")).toBe(false);
@@ -41,22 +43,26 @@ describe("forwardToOrigin", () => {
 });
 
 describe("canonicalRedirect", () => {
-  const appUrl = "https://nextrole.hearthspace.in";
+  const appUrl = "https://gettargetrole.hearthspace.in";
 
   it("sends other addresses to the same path on APP_URL", () => {
     for (const other of [
-      "https://nextrole.acct.workers.dev/jobs?q=go",
+      "https://gettargetrole.acct.workers.dev/jobs?q=go",
       "https://old.example.com/jobs?q=go",
     ]) {
       const response = canonicalRedirect(new Request(other, { method: "POST" }), appUrl);
       expect(response?.status).toBe(308);
-      expect(response?.headers.get("location")).toBe("https://nextrole.hearthspace.in/jobs?q=go");
+      expect(response?.headers.get("location")).toBe(
+        "https://gettargetrole.hearthspace.in/jobs?q=go",
+      );
     }
   });
 
   it("leaves APP_URL itself, local development and a missing APP_URL alone", () => {
     expect(canonicalRedirect(new Request(`${appUrl}/jobs`), appUrl)).toBeNull();
-    expect(canonicalRedirect(new Request("http://nextrole.hearthspace.in/"), appUrl)).toBeNull();
+    expect(
+      canonicalRedirect(new Request("http://gettargetrole.hearthspace.in/"), appUrl),
+    ).toBeNull();
     expect(canonicalRedirect(new Request("http://localhost:8787/"), appUrl)).toBeNull();
     expect(canonicalRedirect(new Request("https://x.workers.dev/"), undefined)).toBeNull();
     expect(canonicalRedirect(new Request("https://x.workers.dev/"), "not a url")).toBeNull();
@@ -65,13 +71,13 @@ describe("canonicalRedirect", () => {
 
 describe("httpsRedirect", () => {
   it("sends plain-HTTP visits to HTTPS", () => {
-    const response = httpsRedirect(new Request("http://nextrole.example.com/jobs?q=go"));
+    const response = httpsRedirect(new Request("http://gettargetrole.example.com/jobs?q=go"));
     expect(response?.status).toBe(301);
-    expect(response?.headers.get("location")).toBe("https://nextrole.example.com/jobs?q=go");
+    expect(response?.headers.get("location")).toBe("https://gettargetrole.example.com/jobs?q=go");
   });
 
   it("leaves HTTPS and local development alone", () => {
-    expect(httpsRedirect(new Request("https://nextrole.example.com/"))).toBeNull();
+    expect(httpsRedirect(new Request("https://gettargetrole.example.com/"))).toBeNull();
     expect(httpsRedirect(new Request("http://localhost:8787/"))).toBeNull();
   });
 });

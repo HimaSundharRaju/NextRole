@@ -1,6 +1,6 @@
 "use client";
 
-import type { ApplicationStatus } from "@nextrole/db/schema";
+import type { ApplicationStatus } from "@gettargetrole/db/schema";
 import { useRouter } from "next/navigation";
 import { useTransition, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";

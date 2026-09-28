@@ -1,5 +1,5 @@
-import { AiRefusalError, ExternalServiceError } from "@nextrole/core/errors";
-import { SAMPLE_JOB_DESCRIPTION, SAMPLE_RESUME } from "@nextrole/resume/fixtures";
+import { AiRefusalError, ExternalServiceError } from "@gettargetrole/core/errors";
+import { SAMPLE_JOB_DESCRIPTION, SAMPLE_RESUME } from "@gettargetrole/resume/fixtures";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AnthropicProvider, applyResumeChanges, UPDATE_RESUME_TOOL } from "./anthropic-provider";
 import { RESULT_TOOL_NAME } from "./client";

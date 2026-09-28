@@ -1,6 +1,6 @@
 "use server";
 
-import { ConflictError, ValidationError } from "@nextrole/core/errors";
+import { ConflictError, ValidationError } from "@gettargetrole/core/errors";
 import {
   ATS_PROVIDERS,
   companies,
@@ -11,7 +11,7 @@ import {
   slugify,
   specialistAssignments,
   users,
-} from "@nextrole/db";
+} from "@gettargetrole/db";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";

@@ -54,19 +54,19 @@ importers:
 
   apps/web:
     dependencies:
-      '@nextrole/ai':
+      '@gettargetrole/ai':
         specifier: workspace:*
         version: link:../../packages/ai
-      '@nextrole/core':
+      '@gettargetrole/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@nextrole/db':
+      '@gettargetrole/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@nextrole/jobs':
+      '@gettargetrole/jobs':
         specifier: workspace:*
         version: link:../../packages/jobs
-      '@nextrole/resume':
+      '@gettargetrole/resume':
         specifier: workspace:*
         version: link:../../packages/resume
       better-auth:
@@ -173,16 +173,16 @@ importers:
         specifier: 4.6.5
         version: 4.6.5
     devDependencies:
-      '@nextrole/core':
+      '@gettargetrole/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@nextrole/db':
+      '@gettargetrole/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@nextrole/jobs':
+      '@gettargetrole/jobs':
         specifier: workspace:*
         version: link:../../packages/jobs
-      '@nextrole/resume':
+      '@gettargetrole/resume':
         specifier: workspace:*
         version: link:../../packages/resume
       '@types/node':
@@ -212,10 +212,10 @@ importers:
       '@anthropic-ai/sdk':
         specifier: 0.128.0
         version: 0.128.0(zod@4.6.5)
-      '@nextrole/core':
+      '@gettargetrole/core':
         specifier: workspace:*
         version: link:../core
-      '@nextrole/resume':
+      '@gettargetrole/resume':
         specifier: workspace:*
         version: link:../resume
       mammoth:
@@ -280,7 +280,7 @@ importers:
 
   packages/db:
     dependencies:
-      '@nextrole/resume':
+      '@gettargetrole/resume':
         specifier: workspace:*
         version: link:../resume
       drizzle-orm:
@@ -317,13 +317,13 @@ importers:
 
   packages/jobs:
     dependencies:
-      '@nextrole/core':
+      '@gettargetrole/core':
         specifier: workspace:*
         version: link:../core
-      '@nextrole/db':
+      '@gettargetrole/db':
         specifier: workspace:*
         version: link:../db
-      '@nextrole/resume':
+      '@gettargetrole/resume':
         specifier: workspace:*
         version: link:../resume
       drizzle-orm:

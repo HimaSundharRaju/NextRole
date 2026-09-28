@@ -92,7 +92,7 @@ jobs:
           echo "ENCRYPTION_KEY=$encryption_key" >> "$GITHUB_ENV"
       - run: pnpm db:migrate
       - run: pnpm db:seed -- --demo
-      - run: pnpm --filter @nextrole/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @gettargetrole/web exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -119,6 +119,6 @@ jobs:
           context: .
           file: apps/${{ matrix.app }}/Dockerfile
           push: false
-          tags: nextrole-${{ matrix.app }}:ci
+          tags: gettargetrole-${{ matrix.app }}:ci
           cache-from: type=gha,scope=${{ matrix.app }}
           cache-to: type=gha,mode=max,scope=${{ matrix.app }}

@@ -11,10 +11,10 @@ import {
   resumeMessages,
   resumes,
   users,
-} from "@nextrole/db";
+} from "@gettargetrole/db";
 import { eq, inArray } from "drizzle-orm";
 
-/** Everything NextRole stores about a user, for data portability requests. */
+/** Everything GetTargetRole stores about a user, for data portability requests. */
 export async function exportUserData(userId: string) {
   const db = getDb();
   const [user] = await db

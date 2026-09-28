@@ -1,5 +1,5 @@
 {
-  "name": "@nextrole/worker",
+  "name": "@gettargetrole/worker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -21,10 +21,10 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@nextrole/core": "workspace:*",
-    "@nextrole/db": "workspace:*",
-    "@nextrole/jobs": "workspace:*",
-    "@nextrole/resume": "workspace:*",
+    "@gettargetrole/core": "workspace:*",
+    "@gettargetrole/db": "workspace:*",
+    "@gettargetrole/jobs": "workspace:*",
+    "@gettargetrole/resume": "workspace:*",
     "@types/node": "26.6.2",
     "eslint": "9.39.5",
     "tsup": "8.5.1",

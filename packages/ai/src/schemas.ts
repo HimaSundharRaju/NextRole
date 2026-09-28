@@ -7,7 +7,7 @@ import {
   resumeBasicsSchema,
   resumeSchema,
   skillGroupSchema,
-} from "@nextrole/resume/schema";
+} from "@gettargetrole/resume/schema";
 import { z } from "zod";
 
 export const importResultSchema = z.object({

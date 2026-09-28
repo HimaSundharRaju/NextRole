@@ -1,6 +1,6 @@
-# NextRole architecture
+# GetTargetRole architecture
 
-This document explains how NextRole is put together: its components, the data model, the job
+This document explains how GetTargetRole is put together: its components, the data model, the job
 pipeline, the Claude integration and the security model. For setup and deployment, see the
 [README](../README.md).
 

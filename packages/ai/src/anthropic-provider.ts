@@ -6,9 +6,9 @@ import type {
   BetaMessageParam,
   BetaTool,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { ValidationError } from "@nextrole/core/errors";
-import { createLogger } from "@nextrole/core/logger";
-import { normalizeResume, type Resume } from "@nextrole/resume/schema";
+import { ValidationError } from "@gettargetrole/core/errors";
+import { createLogger } from "@gettargetrole/core/logger";
+import { normalizeResume, type Resume } from "@gettargetrole/resume/schema";
 import mammoth from "mammoth";
 import { z } from "zod";
 import {

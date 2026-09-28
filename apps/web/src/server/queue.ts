@@ -4,8 +4,8 @@ import {
   QUEUE_NAMES,
   syncDeduplicationId,
   type SyncCompanyJob,
-} from "@nextrole/core/queues";
-import { queueConnection } from "@nextrole/core/redis";
+} from "@gettargetrole/core/queues";
+import { queueConnection } from "@gettargetrole/core/redis";
 import { Queue } from "bullmq";
 
 let ingestQueue: Queue | undefined;

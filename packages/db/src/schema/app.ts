@@ -1,4 +1,4 @@
-import type { Resume, ResumeSettings } from "@nextrole/resume/schema";
+import type { Resume, ResumeSettings } from "@gettargetrole/resume/schema";
 import { sql, type SQL } from "drizzle-orm";
 import {
   bigint,

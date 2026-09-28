@@ -63,7 +63,7 @@ const STEPS = [
   },
   {
     title: "Apply with a tailored kit",
-    body: "Review your tailored resume, cover letter and answers, submit, and let NextRole track the follow-up.",
+    body: "Review your tailored resume, cover letter and answers, submit, and let GetTargetRole track the follow-up.",
   },
 ];
 
@@ -124,8 +124,8 @@ export default async function LandingPage() {
                 Land your next role <span className="text-primary">before the crowd applies.</span>
               </h1>
               <p className="mt-5 max-w-xl text-lg text-muted-foreground">
-                NextRole finds jobs the minute they go live, writes a tailored resume for each one,
-                drafts your outreach and tracks every application — in one place.
+                GetTargetRole finds jobs the minute they go live, writes a tailored resume for each
+                one, drafts your outreach and tracks every application — in one place.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <Link
@@ -196,8 +196,8 @@ export default async function LandingPage() {
               Everything your search needs, working together
             </h2>
             <p className="mt-3 max-w-2xl text-muted-foreground">
-              Most tools do one piece: find jobs, write resumes, or track applications. NextRole
-              connects them, so each step makes the next one faster.
+              Most tools do one piece: find jobs, write resumes, or track applications.
+              GetTargetRole connects them, so each step makes the next one faster.
             </p>
             <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {FEATURES.map(({ icon: Icon, title, body }) => (
@@ -235,7 +235,7 @@ export default async function LandingPage() {
               <div>
                 <h3 className="font-semibold">Honest by design</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  NextRole never invents experience, titles or numbers. Every AI change is
+                  GetTargetRole never invents experience, titles or numbers. Every AI change is
                   versioned, and each application keeps a receipt of exactly what you sent. Your
                   data is encrypted in transit, never sold, and you can export or delete it any
                   time.
@@ -300,7 +300,7 @@ export default async function LandingPage() {
       <footer className="border-t border-border py-10">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 text-sm text-muted-foreground sm:flex-row sm:px-6">
           <Logo />
-          <p>© {new Date().getFullYear()} NextRole. Built with Claude.</p>
+          <p>© {new Date().getFullYear()} GetTargetRole. Built with Claude.</p>
         </div>
       </footer>
     </div>

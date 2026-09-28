@@ -5,13 +5,13 @@ import {
   type Resume,
   type ResumeSettings,
   type SectionKey,
-} from "@nextrole/resume/schema";
+} from "@gettargetrole/resume/schema";
 import {
   MUTED_COLOR,
   TEMPLATE_THEMES,
   TEXT_COLOR,
   type TemplateTheme,
-} from "@nextrole/resume/theme";
+} from "@gettargetrole/resume/theme";
 import type { CSSProperties, ReactNode } from "react";
 
 /*

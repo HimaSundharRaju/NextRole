@@ -1,5 +1,5 @@
 {
-  "name": "@nextrole/web",
+  "name": "@gettargetrole/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,11 +13,11 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@nextrole/ai": "workspace:*",
-    "@nextrole/core": "workspace:*",
-    "@nextrole/db": "workspace:*",
-    "@nextrole/jobs": "workspace:*",
-    "@nextrole/resume": "workspace:*",
+    "@gettargetrole/ai": "workspace:*",
+    "@gettargetrole/core": "workspace:*",
+    "@gettargetrole/db": "workspace:*",
+    "@gettargetrole/jobs": "workspace:*",
+    "@gettargetrole/resume": "workspace:*",
     "better-auth": "1.7.6",
     "bullmq": "6.3.8",
     "class-variance-authority": "0.7.1",

@@ -32,7 +32,7 @@ export function Logo({ href = "/", className }: { href?: string; className?: str
       className={cn("inline-flex items-center gap-2 font-semibold tracking-tight", className)}
     >
       <LogoMark />
-      <span className="text-lg">NextRole</span>
+      <span className="text-lg">GetTargetRole</span>
     </Link>
   );
 }

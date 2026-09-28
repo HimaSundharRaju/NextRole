@@ -1,6 +1,6 @@
 "use server";
 
-import { ValidationError } from "@nextrole/core/errors";
+import { ValidationError } from "@gettargetrole/core/errors";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { aboutSchema, preferencesSchema } from "@/lib/validation";

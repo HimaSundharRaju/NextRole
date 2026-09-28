@@ -1,6 +1,6 @@
 import "server-only";
-import { NotFoundError } from "@nextrole/core/errors";
-import { applications, getDb, outreachMessages } from "@nextrole/db";
+import { NotFoundError } from "@gettargetrole/core/errors";
+import { applications, getDb, outreachMessages } from "@gettargetrole/db";
 import { and, desc, eq } from "drizzle-orm";
 
 export async function listOutreach(userId: string) {

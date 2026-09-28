@@ -1,4 +1,4 @@
-import { REMOTE_PREFERENCES, SENIORITY_LEVELS } from "@nextrole/db/schema";
+import { REMOTE_PREFERENCES, SENIORITY_LEVELS } from "@gettargetrole/db/schema";
 import { z } from "zod";
 
 const shortList = z.array(z.string().trim().min(1).max(80)).max(10);

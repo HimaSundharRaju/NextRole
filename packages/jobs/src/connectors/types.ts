@@ -1,4 +1,4 @@
-import type { AtsProvider, WorkplaceType } from "@nextrole/db/schema";
+import type { AtsProvider, WorkplaceType } from "@gettargetrole/db/schema";
 
 export interface NormalizedSalary {
   min: number | null;

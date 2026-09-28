@@ -1,4 +1,4 @@
-import { applications, getDb, notifications, type Database } from "@nextrole/db";
+import { applications, getDb, notifications, type Database } from "@gettargetrole/db";
 import { and, inArray, isNotNull, lte } from "drizzle-orm";
 
 const ACTIVE_STATUSES = ["applied", "screening", "interviewing", "offer"] as const;

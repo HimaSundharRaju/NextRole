@@ -1,9 +1,9 @@
 import "server-only";
-import { getServerEnv } from "@nextrole/core/env";
-import { createLogger } from "@nextrole/core/logger";
-import { sendEmail } from "@nextrole/core/mailer";
-import { getRedis } from "@nextrole/core/redis";
-import { accounts, getDb, profiles, sessions, users, verifications } from "@nextrole/db";
+import { getServerEnv } from "@gettargetrole/core/env";
+import { createLogger } from "@gettargetrole/core/logger";
+import { sendEmail } from "@gettargetrole/core/mailer";
+import { getRedis } from "@gettargetrole/core/redis";
+import { accounts, getDb, profiles, sessions, users, verifications } from "@gettargetrole/db";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
@@ -43,7 +43,7 @@ function createAuth() {
   const isProduction = env.NODE_ENV === "production";
 
   return betterAuth({
-    appName: "NextRole",
+    appName: "GetTargetRole",
     baseURL,
     secret: env.BETTER_AUTH_SECRET,
     trustedOrigins: [env.APP_URL],
@@ -70,7 +70,7 @@ function createAuth() {
       sendResetPassword: async ({ user, url }) => {
         await sendEmail({
           to: user.email,
-          subject: "Reset your NextRole password",
+          subject: "Reset your GetTargetRole password",
           text: `Hi ${user.name},\n\nReset your password here (link valid for 1 hour):\n${url}\n\nIf you didn't request this, you can ignore this email.`,
         });
       },
@@ -81,8 +81,8 @@ function createAuth() {
       sendVerificationEmail: async ({ user, url }) => {
         await sendEmail({
           to: user.email,
-          subject: "Verify your email for NextRole",
-          text: `Hi ${user.name},\n\nConfirm your email address to finish setting up NextRole:\n${url}`,
+          subject: "Verify your email for GetTargetRole",
+          text: `Hi ${user.name},\n\nConfirm your email address to finish setting up GetTargetRole:\n${url}`,
         });
       },
     },

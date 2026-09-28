@@ -1,9 +1,9 @@
-// NextRole on Cloudflare: this Worker receives all traffic and forwards it to the web containers.
+// GetTargetRole on Cloudflare: this Worker receives all traffic and forwards it to the web containers.
 // A second container runs the background worker. Postgres and Redis are external managed
 // services. Secrets are uploaded by .github/workflows/deploy.yml (see docs/DEPLOY_CLOUDFLARE.md).
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "nextrole",
+  "name": "gettargetrole",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-20",
   "workers_dev": true,
@@ -12,7 +12,7 @@
   "containers": [
     {
       // Next.js server (apps/web/Dockerfile), built from the repository root.
-      "name": "nextrole-web",
+      "name": "gettargetrole-web",
       "class_name": "WebContainer",
       "image": "../web/Dockerfile",
       "image_build_context": "../..",
@@ -22,7 +22,7 @@
     },
     {
       // Background worker (apps/worker/Dockerfile).
-      "name": "nextrole-jobs",
+      "name": "gettargetrole-jobs",
       "class_name": "JobsContainer",
       "image": "../worker/Dockerfile",
       "image_build_context": "../..",

@@ -1,8 +1,8 @@
 "use client";
 
-import { analyzeResume } from "@nextrole/resume/ats";
-import type { Resume } from "@nextrole/resume/schema";
-import { skillLabel } from "@nextrole/resume/skills";
+import { analyzeResume } from "@gettargetrole/resume/ats";
+import type { Resume } from "@gettargetrole/resume/schema";
+import { skillLabel } from "@gettargetrole/resume/skills";
 import { AlertTriangle, CheckCircle2, Info } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Badge, scoreTone } from "@/components/ui/badge";

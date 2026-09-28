@@ -1,7 +1,7 @@
 import "server-only";
-import { getServerEnv } from "@nextrole/core/env";
-import { isAppError, RateLimitError } from "@nextrole/core/errors";
-import { createLogger } from "@nextrole/core/logger";
+import { getServerEnv } from "@gettargetrole/core/env";
+import { isAppError, RateLimitError } from "@gettargetrole/core/errors";
+import { createLogger } from "@gettargetrole/core/logger";
 import { NextResponse } from "next/server";
 
 const log = createLogger("api");

@@ -1,7 +1,7 @@
-import { ValidationError } from "@nextrole/core/errors";
-import { enforceRateLimit } from "@nextrole/core/rate-limit";
-import { renderResumeDocx } from "@nextrole/resume/docx";
-import { renderResumePdf } from "@nextrole/resume/pdf";
+import { ValidationError } from "@gettargetrole/core/errors";
+import { enforceRateLimit } from "@gettargetrole/core/rate-limit";
+import { renderResumeDocx } from "@gettargetrole/resume/docx";
+import { renderResumePdf } from "@gettargetrole/resume/pdf";
 import { z } from "zod";
 import { getResume } from "@/server/data/resumes";
 import { errorResponse, unauthorized } from "@/server/http";

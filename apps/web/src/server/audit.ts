@@ -1,6 +1,6 @@
 import "server-only";
-import { createLogger } from "@nextrole/core/logger";
-import { auditLogs, getDb } from "@nextrole/db";
+import { createLogger } from "@gettargetrole/core/logger";
+import { auditLogs, getDb } from "@gettargetrole/db";
 import { headers } from "next/headers";
 
 const log = createLogger("audit");

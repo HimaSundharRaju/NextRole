@@ -1,4 +1,4 @@
-import type { WorkplaceType } from "@nextrole/db/schema";
+import type { WorkplaceType } from "@gettargetrole/db/schema";
 import { inferWorkplaceType, parseSalaryFromText } from "../normalize";
 import { htmlToText } from "../sanitize";
 import { getJson } from "./http";

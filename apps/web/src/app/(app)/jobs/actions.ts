@@ -1,7 +1,7 @@
 "use server";
 
-import { ValidationError } from "@nextrole/core/errors";
-import { getDb, jobMatches } from "@nextrole/db";
+import { ValidationError } from "@gettargetrole/core/errors";
+import { getDb, jobMatches } from "@gettargetrole/db";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { authedAction } from "@/server/action";

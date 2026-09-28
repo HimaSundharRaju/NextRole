@@ -1,4 +1,4 @@
-import type { AtsProvider } from "@nextrole/db/schema";
+import type { AtsProvider } from "@gettargetrole/db/schema";
 import { ashby } from "./ashby";
 import { greenhouse } from "./greenhouse";
 import { lever } from "./lever";

@@ -1,12 +1,18 @@
 import "server-only";
-import { NotFoundError } from "@nextrole/core/errors";
-import { getDb, resumeMessages, resumeRevisions, resumes, type RevisionSource } from "@nextrole/db";
+import { NotFoundError } from "@gettargetrole/core/errors";
+import {
+  getDb,
+  resumeMessages,
+  resumeRevisions,
+  resumes,
+  type RevisionSource,
+} from "@gettargetrole/db";
 import {
   DEFAULT_RESUME_SETTINGS,
   normalizeResume,
   type Resume,
   type ResumeSettings,
-} from "@nextrole/resume/schema";
+} from "@gettargetrole/resume/schema";
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { syncProfileSkills } from "./profile";
 

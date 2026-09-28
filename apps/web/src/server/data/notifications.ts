@@ -1,5 +1,5 @@
 import "server-only";
-import { getDb, notifications } from "@nextrole/db";
+import { getDb, notifications } from "@gettargetrole/db";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
 export async function unreadNotificationCount(userId: string): Promise<number> {

@@ -42,6 +42,6 @@ describe("helpers", () => {
   });
 
   it("hashes with sha256", () => {
-    expect(sha256("nextrole")).toHaveLength(64);
+    expect(sha256("gettargetrole")).toHaveLength(64);
   });
 });

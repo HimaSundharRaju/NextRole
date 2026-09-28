@@ -8,7 +8,7 @@ import {
   jobs,
   specialistAssignments,
   users,
-} from "@nextrole/db";
+} from "@gettargetrole/db";
 import { and, desc, eq, gte, ilike, isNull, or, sql } from "drizzle-orm";
 import { startOfMonth } from "../ai";
 

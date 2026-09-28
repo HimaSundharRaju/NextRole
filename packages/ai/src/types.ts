@@ -1,4 +1,4 @@
-import type { Resume } from "@nextrole/resume/schema";
+import type { Resume } from "@gettargetrole/resume/schema";
 import type { AiFeature } from "./config";
 import type {
   ApplicationAnswers,

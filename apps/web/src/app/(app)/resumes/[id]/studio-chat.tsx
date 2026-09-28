@@ -1,6 +1,6 @@
 "use client";
 
-import type { Resume } from "@nextrole/resume/schema";
+import type { Resume } from "@gettargetrole/resume/schema";
 import { ArrowUp, RotateCcw, Sparkles, Wand2 } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";

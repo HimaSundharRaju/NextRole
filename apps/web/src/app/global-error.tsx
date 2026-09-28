@@ -18,7 +18,7 @@ export default function GlobalError({
         }}
       >
         <div style={{ textAlign: "center" }}>
-          <h1 style={{ fontSize: "1.25rem" }}>NextRole is having trouble loading</h1>
+          <h1 style={{ fontSize: "1.25rem" }}>GetTargetRole is having trouble loading</h1>
           <p style={{ color: "#5b6477" }}>Please refresh the page in a moment.</p>
           <button
             type="button"

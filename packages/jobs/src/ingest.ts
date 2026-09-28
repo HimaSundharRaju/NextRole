@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { createLogger } from "@nextrole/core/logger";
-import { companies, getDb, jobs, type Database } from "@nextrole/db";
-import { findSkills } from "@nextrole/resume/skills";
+import { createLogger } from "@gettargetrole/core/logger";
+import { companies, getDb, jobs, type Database } from "@gettargetrole/db";
+import { findSkills } from "@gettargetrole/resume/skills";
 import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { getConnector } from "./connectors";
 import type { Fetcher, NormalizedJob } from "./connectors/types";

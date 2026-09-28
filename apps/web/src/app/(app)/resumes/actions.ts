@@ -1,6 +1,6 @@
 "use server";
 
-import { emptyResume, resumeSchema, resumeSettingsSchema } from "@nextrole/resume/schema";
+import { emptyResume, resumeSchema, resumeSettingsSchema } from "@gettargetrole/resume/schema";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { authedAction } from "@/server/action";

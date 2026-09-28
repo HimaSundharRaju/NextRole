@@ -1,16 +1,16 @@
 import { createServer } from "node:http";
-import { createLogger } from "@nextrole/core/logger";
+import { createLogger } from "@gettargetrole/core/logger";
 import {
   JOB_NAMES,
   QUEUE_NAMES,
   syncDeduplicationId,
   type CreateJobAlertsJob,
   type SyncCompanyJob,
-} from "@nextrole/core/queues";
-import { queueConnection } from "@nextrole/core/redis";
-import { closeDb } from "@nextrole/db";
-import { createJobAlerts } from "@nextrole/jobs/alerts";
-import { companiesDueForSync, syncCompany } from "@nextrole/jobs/ingest";
+} from "@gettargetrole/core/queues";
+import { queueConnection } from "@gettargetrole/core/redis";
+import { closeDb } from "@gettargetrole/db";
+import { createJobAlerts } from "@gettargetrole/jobs/alerts";
+import { companiesDueForSync, syncCompany } from "@gettargetrole/jobs/ingest";
 import { Queue, Worker, type Job } from "bullmq";
 import { loadWorkerEnv } from "./env";
 import { createFollowUpReminders } from "./reminders";

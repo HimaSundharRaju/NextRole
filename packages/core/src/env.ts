@@ -47,7 +47,7 @@ export const serverEnvSchema = z
     ANTHROPIC_API_KEY: z.string().optional(),
 
     SMTP_URL: z.string().optional(),
-    EMAIL_FROM: z.string().default("NextRole <no-reply@nextrole.app>"),
+    EMAIL_FROM: z.string().default("GetTargetRole <no-reply@gettargetrole.app>"),
 
     INGEST_INTERVAL_MINUTES: z.coerce.number().int().min(1).default(10),
   })

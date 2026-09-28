@@ -1,6 +1,6 @@
-import type { ResumeSource } from "@nextrole/ai";
-import { ValidationError } from "@nextrole/core/errors";
-import { enforceRateLimit } from "@nextrole/core/rate-limit";
+import type { ResumeSource } from "@gettargetrole/ai";
+import { ValidationError } from "@gettargetrole/core/errors";
+import { enforceRateLimit } from "@gettargetrole/core/rate-limit";
 import { NextResponse } from "next/server";
 import { aiFor } from "@/server/ai";
 import { recordAudit } from "@/server/audit";

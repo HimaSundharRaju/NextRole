@@ -1,4 +1,4 @@
-import type * as DbModule from "@nextrole/db";
+import type * as DbModule from "@gettargetrole/db";
 import type * as DrizzleModule from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type * as RemindersModule from "./reminders";
@@ -13,9 +13,9 @@ describe.skipIf(!TEST_DATABASE_URL)("follow-up reminders (Postgres integration)"
 
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_DATABASE_URL;
-    const { runMigrations } = await import("@nextrole/db/migrate");
+    const { runMigrations } = await import("@gettargetrole/db/migrate");
     await runMigrations();
-    db = await import("@nextrole/db");
+    db = await import("@gettargetrole/db");
     drizzle = await import("drizzle-orm");
     reminders = await import("./reminders");
     await db.getDb().execute(drizzle.sql`TRUNCATE users, notifications RESTART IDENTITY CASCADE`);

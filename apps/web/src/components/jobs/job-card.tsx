@@ -1,4 +1,4 @@
-import { skillLabel } from "@nextrole/resume/skills";
+import { skillLabel } from "@gettargetrole/resume/skills";
 import { Building2, Clock, MapPin } from "lucide-react";
 import Link from "next/link";
 import { Badge, MatchBadge } from "@/components/ui/badge";

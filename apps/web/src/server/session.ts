@@ -1,5 +1,5 @@
 import "server-only";
-import type { Plan, Role } from "@nextrole/db";
+import type { Plan, Role } from "@gettargetrole/db";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";

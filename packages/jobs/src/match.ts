@@ -1,4 +1,4 @@
-import type { RemotePreference, Seniority, WorkplaceType } from "@nextrole/db/schema";
+import type { RemotePreference, Seniority, WorkplaceType } from "@gettargetrole/db/schema";
 import { annualize } from "./normalize";
 
 /**

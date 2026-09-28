@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
-import { findSkills } from "@nextrole/resume/skills";
+import { findSkills } from "@gettargetrole/resume/skills";
 import { sql } from "drizzle-orm";
 import { getDb } from "./client";
 import { companies, jobs, type AtsProvider } from "./schema";
 import { slugify } from "./slug";
 
 /**
- * Public job boards NextRole ingests out of the box. Admins can add more from the admin console;
+ * Public job boards GetTargetRole ingests out of the box. Admins can add more from the admin console;
  * a wrong board token only marks that company's sync as failed.
  */
 export const DEFAULT_COMPANIES: Array<{
@@ -78,7 +78,7 @@ const DEMO_COMPANY = {
   name: "Northwind Labs (demo)",
   slug: "northwind-labs-demo",
   ats: "greenhouse" as const,
-  boardToken: "nextrole-demo",
+  boardToken: "gettargetrole-demo",
   website: "https://example.com",
 };
 

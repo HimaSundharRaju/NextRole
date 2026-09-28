@@ -8,7 +8,7 @@ import {
   type Project,
   type Resume,
   type SkillGroup,
-} from "@nextrole/resume/schema";
+} from "@gettargetrole/resume/schema";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";

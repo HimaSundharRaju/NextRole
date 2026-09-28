@@ -1,6 +1,6 @@
 "use client";
 
-import type { ApplicationStatus } from "@nextrole/db/schema";
+import type { ApplicationStatus } from "@gettargetrole/db/schema";
 import { CalendarClock, Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";

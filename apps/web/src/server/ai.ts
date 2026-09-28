@@ -1,7 +1,7 @@
 import "server-only";
-import { getAi, type AiCallContext, type AiProvider, type UsageRecord } from "@nextrole/ai";
-import { QuotaExceededError } from "@nextrole/core/errors";
-import { aiUsage, getDb } from "@nextrole/db";
+import { getAi, type AiCallContext, type AiProvider, type UsageRecord } from "@gettargetrole/ai";
+import { QuotaExceededError } from "@gettargetrole/core/errors";
+import { aiUsage, getDb } from "@gettargetrole/db";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { PLANS } from "@/lib/plans";
 import type { SessionUser } from "./session";

@@ -1,5 +1,5 @@
-import type { Resume } from "@nextrole/resume/schema";
-import { resumeToPlainText } from "@nextrole/resume/text";
+import type { Resume } from "@gettargetrole/resume/schema";
+import { resumeToPlainText } from "@gettargetrole/resume/text";
 import type { CandidateProfile, JobContext } from "./types";
 import { wrapUntrusted } from "./untrusted";
 

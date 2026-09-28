@@ -1,4 +1,4 @@
-import type { ApplicationStatus } from "@nextrole/db/schema";
+import type { ApplicationStatus } from "@gettargetrole/db/schema";
 
 export const STATUS_META: Record<
   ApplicationStatus,
