@@ -4,6 +4,7 @@ import { transformJSONSchema } from "@anthropic-ai/sdk/lib/transform-json-schema
 import type {
   BetaContentBlockParam,
   BetaMessage,
+  BetaTextBlockParam,
   BetaTool,
   BetaToolUseBlock,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
@@ -193,6 +194,13 @@ export function mapAnthropicError(error: unknown): Error {
 export interface StructuredCall<S extends z.ZodType> {
   feature: AiFeature;
   system: string;
+  /**
+   * Blocks that repeat across a user's calls, such as their resume and profile. They go first,
+   * followed by a cache breakpoint, so the next call for another job reads them from the prompt
+   * cache instead of paying for them again.
+   */
+  stable?: BetaTextBlockParam[];
+  /** Blocks that change per call: the job, the request. */
   content: BetaContentBlockParam[];
   schema: S;
   ctx: AiCallContext;
@@ -204,6 +212,17 @@ export interface StructuredCall<S extends z.ZodType> {
    * `schema` either way.
    */
   viaTool?: boolean;
+}
+
+/**
+ * Marks the end of `blocks` as a prompt-cache breakpoint. Prefixes below the model's minimum
+ * (4,096 tokens on claude-haiku-4-5, 512 on claude-opus-5) are simply not cached.
+ */
+export function cacheable(blocks: BetaTextBlockParam[]): BetaTextBlockParam[] {
+  const last = blocks.at(-1);
+  return last
+    ? [...blocks.slice(0, -1), { ...last, cache_control: { type: "ephemeral" } }]
+    : blocks;
 }
 
 /** The tool that carries the result of a `viaTool` call. */
@@ -250,7 +269,7 @@ export async function runStructured<S extends z.ZodType>(
         ...params,
         ...output,
         system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-        messages: [{ role: "user", content: call.content }],
+        messages: [{ role: "user", content: [...cacheable(call.stable ?? []), ...call.content] }],
       },
       { signal: call.ctx.signal },
     );

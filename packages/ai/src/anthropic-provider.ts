@@ -4,6 +4,7 @@ import type {
   BetaContentBlockParam,
   BetaMessage,
   BetaMessageParam,
+  BetaTextBlockParam,
   BetaTool,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { ValidationError } from "@gettargetrole/core/errors";
@@ -13,6 +14,7 @@ import mammoth from "mammoth";
 import { z } from "zod";
 import {
   assertUsable,
+  cacheable,
   getAnthropic,
   mapAnthropicError,
   modelParams,
@@ -42,7 +44,7 @@ import {
   interviewPrepSchema,
   outreachDraftSchema,
   resumeChangesSchema,
-  tailorResultSchema,
+  tailorOutputSchema,
   type ResumeChanges,
 } from "./schemas";
 import type { AiProvider, ChatTurn, ResumeSource, StudioEvent } from "./types";
@@ -52,9 +54,10 @@ const log = createLogger("ai-studio");
 
 const MAX_TEXT_RESUME_CHARS = 60_000;
 const MAX_HISTORY_TURNS = 24;
+const HISTORY_DROP_TURNS = 12;
 const LINKEDIN_NOTE_LIMIT = 300;
 
-const text = (value: string): BetaContentBlockParam => ({ type: "text", text: value });
+const text = (value: string): BetaTextBlockParam => ({ type: "text", text: value });
 
 export async function resumeSourceToContent(
   source: ResumeSource,
@@ -99,8 +102,11 @@ export async function resumeSourceToContent(
   return [text(wrapUntrusted("document", cleaned)), instruction];
 }
 
-/** Merges a Studio edit into the resume: non-null sections replace the existing ones. */
-export function applyResumeChanges(resume: Resume, changes: ResumeChanges): Resume {
+/** Merges an edit into the resume: sections that are set replace the existing ones. */
+export function applyResumeChanges(
+  resume: Resume,
+  changes: Partial<Omit<ResumeChanges, "change_summary">>,
+): Resume {
   return normalizeResume({
     basics: changes.basics ?? resume.basics,
     summary: changes.summary ?? resume.summary,
@@ -125,12 +131,23 @@ export const UPDATE_RESUME_TOOL: BetaTool = {
   eager_input_streaming: true,
 };
 
+/**
+ * The recent conversation, with a cache breakpoint on its last turn so the next message reads the
+ * earlier turns from the prompt cache. Old turns drop off in blocks of HISTORY_DROP_TURNS, so the
+ * start of the window, and with it the cached prefix, stays put between drops.
+ */
 function historyToMessages(history: ChatTurn[]): BetaMessageParam[] {
-  const recent = history.slice(-MAX_HISTORY_TURNS);
+  const overflow = history.length - MAX_HISTORY_TURNS;
+  const start = overflow > 0 ? Math.ceil(overflow / HISTORY_DROP_TURNS) * HISTORY_DROP_TURNS : 0;
+  const recent = history.slice(start);
   const firstUser = recent.findIndex((turn) => turn.role === "user");
-  return firstUser === -1
-    ? []
-    : recent.slice(firstUser).map((turn) => ({ role: turn.role, content: turn.content }));
+  if (firstUser === -1) return [];
+  const turns = recent.slice(firstUser);
+  return turns.map((turn, index) => ({
+    role: turn.role,
+    content:
+      index === turns.length - 1 && turn.content ? cacheable([text(turn.content)]) : turn.content,
+  }));
 }
 
 export class AnthropicProvider implements AiProvider {
@@ -173,24 +190,29 @@ export class AnthropicProvider implements AiProvider {
     input: Parameters<AiProvider["tailorResume"]>[0],
     ctx: Parameters<AiProvider["tailorResume"]>[1],
   ) {
-    const result = await runStructured({
-      feature: "tailor",
-      system: TAILOR_SYSTEM,
-      content: [
-        text(jobBlock(input.job)),
-        text(resumeJson(input.resume)),
-        text(
-          input.instructions
-            ? `Tailor my resume for this job. Extra instructions from me: ${input.instructions}`
-            : "Tailor my resume for this job.",
-        ),
-      ],
-      schema: tailorResultSchema,
-      // A whole resume plus the change notes is too large for a structured output's grammar.
-      viaTool: true,
-      ctx,
+    const { headline, summaryOfChanges, addedKeywords, missingKeywords, suggestions, ...sections } =
+      await runStructured({
+        feature: "tailor",
+        system: TAILOR_SYSTEM,
+        stable: [text(resumeJson(input.resume))],
+        content: [
+          text(jobBlock(input.job)),
+          text(
+            input.instructions
+              ? `Tailor my resume for this job. Extra instructions from me: ${input.instructions}`
+              : "Tailor my resume for this job.",
+          ),
+        ],
+        schema: tailorOutputSchema,
+        // A resume's worth of sections plus notes is too large for a structured output's grammar.
+        viaTool: true,
+        ctx,
+      });
+    const resume = applyResumeChanges(input.resume, {
+      ...sections,
+      basics: headline ? { ...input.resume.basics, headline } : null,
     });
-    return { ...result, resume: normalizeResume(result.resume) };
+    return { resume, summaryOfChanges, addedKeywords, missingKeywords, suggestions };
   }
 
   async analyzeFit(
@@ -200,12 +222,8 @@ export class AnthropicProvider implements AiProvider {
     const result = await runStructured({
       feature: "match",
       system: MATCH_SYSTEM,
-      content: [
-        text(jobBlock(input.job)),
-        text(resumeText(input.resume)),
-        text(profileBlock(input.profile)),
-        text("How well do I fit this job?"),
-      ],
+      stable: [text(resumeText(input.resume)), text(profileBlock(input.profile))],
+      content: [text(jobBlock(input.job)), text("How well do I fit this job?")],
       schema: fitAnalysisSchema,
       ctx,
       maxTokens: 16_000,
@@ -220,10 +238,9 @@ export class AnthropicProvider implements AiProvider {
     return runStructured({
       feature: "cover_letter",
       system: COVER_LETTER_SYSTEM,
+      stable: [text(resumeText(input.resume)), text(profileBlock(input.profile))],
       content: [
         text(jobBlock(input.job)),
-        text(resumeText(input.resume)),
-        text(profileBlock(input.profile)),
         text(
           input.recipientName
             ? `Write my cover letter, addressed to ${input.recipientName}.`
@@ -246,10 +263,9 @@ export class AnthropicProvider implements AiProvider {
     return runStructured({
       feature: "answers",
       system: ANSWERS_SYSTEM,
+      stable: [text(resumeText(input.resume)), text(profileBlock(input.profile))],
       content: [
         text(jobBlock(input.job)),
-        text(resumeText(input.resume)),
-        text(profileBlock(input.profile)),
         text(`Answer these application questions for me:\n${questions}`),
       ],
       schema: applicationAnswersSchema,
@@ -268,12 +284,8 @@ export class AnthropicProvider implements AiProvider {
     const draft = await runStructured({
       feature: "outreach",
       system: OUTREACH_SYSTEM,
-      content: [
-        text(jobBlock(input.job)),
-        text(resumeText(input.resume)),
-        text(profileBlock(input.profile)),
-        text(`${recipient} Draft my outreach.`),
-      ],
+      stable: [text(resumeText(input.resume)), text(profileBlock(input.profile))],
+      content: [text(jobBlock(input.job)), text(`${recipient} Draft my outreach.`)],
       schema: outreachDraftSchema,
       ctx,
       maxTokens: 16_000,
@@ -288,11 +300,8 @@ export class AnthropicProvider implements AiProvider {
     return runStructured({
       feature: "interview",
       system: INTERVIEW_SYSTEM,
-      content: [
-        text(jobBlock(input.job)),
-        text(resumeText(input.resume)),
-        text("Prepare me for interviews."),
-      ],
+      stable: [text(resumeText(input.resume))],
+      content: [text(jobBlock(input.job)), text("Prepare me for interviews.")],
       schema: interviewPrepSchema,
       ctx,
     });

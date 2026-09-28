@@ -4,9 +4,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AnthropicProvider, applyResumeChanges, UPDATE_RESUME_TOOL } from "./anthropic-provider";
 import { RESULT_TOOL_NAME } from "./client";
 import { estimateCostMicroUsd, modelCapabilities } from "./config";
+import { withoutBoilerplate } from "./context";
 import { startFakeAnthropic } from "./fake-anthropic";
 import { MockProvider } from "./mock-provider";
-import type { FitAnalysis, ResumeChanges, TailorResult } from "./schemas";
+import type { FitAnalysis, ResumeChanges, TailorOutput } from "./schemas";
 import type { StudioEvent, UsageRecord } from "./types";
 import { wrapUntrusted } from "./untrusted";
 
@@ -45,6 +46,28 @@ describe("applyResumeChanges", () => {
     const updated = applyResumeChanges(SAMPLE_RESUME, { ...noChanges, summary: "New summary." });
     expect(updated.summary).toBe("New summary.");
     expect(updated.experience).toEqual(SAMPLE_RESUME.experience);
+  });
+});
+
+describe("withoutBoilerplate", () => {
+  it("drops legal notices but keeps the job and the company's own words", () => {
+    const description = [
+      "What you'll do",
+      "• Coordinate reasonable accommodations for candidates during interviews.",
+      "• Ensure our ranking models do not discriminate against protected groups.",
+      "Stripe is an equal opportunity employer. We look for people who are excited by hard problems.",
+      "We are committed to providing reasonable accommodations to applicants with disabilities.",
+      "Background checks will follow applicable law, and applicants with arrest or conviction records will be considered.",
+      "Candidate Privacy Policy",
+    ].join("\n");
+    expect(withoutBoilerplate(description)).toBe(
+      [
+        "What you'll do",
+        "• Coordinate reasonable accommodations for candidates during interviews.",
+        "• Ensure our ranking models do not discriminate against protected groups.",
+        "We look for people who are excited by hard problems.",
+      ].join("\n"),
+    );
   });
 });
 
@@ -153,9 +176,11 @@ describe("AnthropicProvider against a fake Messages API", () => {
     usage.length = 0;
   });
 
-  it("tailors through the result tool, with refusal fallbacks and a cached system prompt", async () => {
-    const tailored: TailorResult = {
-      resume: { ...SAMPLE_RESUME, summary: "Tailored summary." },
+  it("tailors through the result tool, with refusal fallbacks and cached prompt prefixes", async () => {
+    // Only what changed comes back; everything else is copied from the original.
+    const tailored: TailorOutput = {
+      headline: "Staff Backend Engineer, Payments",
+      summary: "Tailored summary.",
       summaryOfChanges: ["Rewrote the summary"],
       addedKeywords: ["grpc"],
       missingKeywords: ["prometheus"],
@@ -168,6 +193,12 @@ describe("AnthropicProvider against a fake Messages API", () => {
 
     const result = await provider.tailorResume({ resume: SAMPLE_RESUME, job }, ctx);
     expect(result.resume.summary).toBe("Tailored summary.");
+    expect(result.resume.basics).toEqual({
+      ...SAMPLE_RESUME.basics,
+      headline: "Staff Backend Engineer, Payments",
+    });
+    expect(result.resume.experience).toEqual(SAMPLE_RESUME.experience);
+    expect(result.resume.education).toEqual(SAMPLE_RESUME.education);
     expect(result.missingKeywords).toEqual(["prometheus"]);
 
     const [request] = fake.requests;
@@ -187,9 +218,14 @@ describe("AnthropicProvider against a fake Messages API", () => {
     expect(tools[0]).toMatchObject({ name: RESULT_TOOL_NAME, input_schema: { type: "object" } });
     expect(tools[0]).not.toHaveProperty("strict");
     expect(JSON.stringify(request?.body.system)).toContain(RESULT_TOOL_NAME);
-    const content = JSON.stringify(request?.body.messages);
-    expect(content).toContain("<job_description>");
-    expect(content).toContain("<resume>");
+    // The resume is the same for every job, so it goes first with a cache breakpoint after it.
+    const [message] = request?.body.messages as Array<{
+      content: Array<{ text: string; cache_control?: unknown }>;
+    }>;
+    expect(message!.content[0]!.text).toContain("<resume>");
+    expect(message!.content[0]!.cache_control).toEqual({ type: "ephemeral" });
+    expect(message!.content[1]!.text).toContain("<job_description>");
+    expect(message!.content[1]).not.toHaveProperty("cache_control");
 
     expect(usage).toHaveLength(1);
     expect(usage[0]).toMatchObject({
@@ -204,8 +240,7 @@ describe("AnthropicProvider against a fake Messages API", () => {
     const model = "claude-opus-5-5";
     process.env.AI_MODEL = model;
     try {
-      const tailored: TailorResult = {
-        resume: SAMPLE_RESUME,
+      const tailored: TailorOutput = {
         summaryOfChanges: [],
         addedKeywords: [],
         missingKeywords: [],
@@ -361,6 +396,28 @@ describe("AnthropicProvider against a fake Messages API", () => {
     }
     expect(events.some((event) => event.type === "resume")).toBe(false);
     expect(events.at(-1)?.type).toBe("error");
+  });
+
+  it("reads earlier Studio turns from the prompt cache, dropping old turns in blocks", async () => {
+    const history = Array.from({ length: 30 }, (_, index) => ({
+      role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      content: `turn ${index}`,
+    }));
+    fake.enqueue({ blocks: [{ type: "text", text: "Sure." }], stopReason: "end_turn" });
+    for await (const event of provider.studioChat(
+      { resume: SAMPLE_RESUME, history, message: "Next" },
+      ctx,
+    )) {
+      void event;
+    }
+    const messages = fake.requests[0]!.body.messages as Array<{ role: string; content: unknown }>;
+    // 30 turns is 6 over the 24-turn window, so the first block of 12 turns is dropped.
+    expect(messages).toHaveLength(30 - 12 + 1);
+    expect(messages[0]).toEqual({ role: "user", content: "turn 12" });
+    expect(messages.at(-2)).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "turn 29", cache_control: { type: "ephemeral" } }],
+    });
   });
 });
 
