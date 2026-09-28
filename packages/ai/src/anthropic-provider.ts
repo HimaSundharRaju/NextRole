@@ -7,10 +7,7 @@ import type {
   BetaTextBlockParam,
   BetaTool,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
-import { ValidationError } from "@gettargetrole/core/errors";
 import { createLogger } from "@gettargetrole/core/logger";
-import { normalizeResume, type Resume } from "@gettargetrole/resume/schema";
-import mammoth from "mammoth";
 import { z } from "zod";
 import {
   assertUsable,
@@ -22,101 +19,42 @@ import {
   runStructured,
   textOf,
 } from "./client";
-import { configuredModel } from "./config";
-import { jobBlock, profileBlock, resumeJson, resumeText } from "./context";
+import { configuredModel, type AiFeature } from "./config";
+import { STUDIO_SYSTEM } from "./prompts";
 import {
-  ANSWERS_SYSTEM,
-  COVER_LETTER_SYSTEM,
-  GENERATE_SYSTEM,
-  IMPORT_SYSTEM,
-  INTERVIEW_SYSTEM,
-  MATCH_SYSTEM,
-  OUTREACH_SYSTEM,
-  STUDIO_SYSTEM,
-  TAILOR_SYSTEM,
-} from "./prompts";
-import {
-  applicationAnswersSchema,
-  coverLetterSchema,
-  fitAnalysisSchema,
-  generateResultSchema,
-  importResultSchema,
-  interviewPrepSchema,
-  outreachDraftSchema,
-  resumeChangesSchema,
-  tailorOutputSchema,
-  type ResumeChanges,
-} from "./schemas";
-import type { AiProvider, ChatTurn, ResumeSource, StudioEvent } from "./types";
-import { wrapUntrusted } from "./untrusted";
+  answersRequest,
+  applyResumeChanges,
+  coverLetterRequest,
+  fitRequest,
+  generateRequest,
+  importRequest,
+  interviewRequest,
+  outreachRequest,
+  recentHistory,
+  studioTurnParts,
+  tailorRequest,
+  type FeatureRequest,
+  type RequestPart,
+} from "./requests";
+import { resumeChangesSchema } from "./schemas";
+import type { AiCallContext, AiProvider, ChatTurn, StudioEvent } from "./types";
 
 const log = createLogger("ai-studio");
 
-const MAX_TEXT_RESUME_CHARS = 60_000;
-const MAX_HISTORY_TURNS = 24;
-const HISTORY_DROP_TURNS = 12;
-const LINKEDIN_NOTE_LIMIT = 300;
-
 const text = (value: string): BetaTextBlockParam => ({ type: "text", text: value });
 
-export async function resumeSourceToContent(
-  source: ResumeSource,
-): Promise<BetaContentBlockParam[]> {
-  const instruction = text("Convert this resume into the structured format.");
-  if (source.kind === "pdf") {
-    return [
-      {
+function toBlock(part: RequestPart): BetaContentBlockParam {
+  return part.type === "text"
+    ? text(part.text)
+    : {
         type: "document",
         source: {
           type: "base64",
           media_type: "application/pdf",
-          data: source.data.toString("base64"),
+          data: part.data.toString("base64"),
         },
-        title: source.fileName,
-      },
-      instruction,
-    ];
-  }
-  let raw = source.kind === "text" ? source.text : "";
-  if (source.kind === "docx") {
-    try {
-      raw = (await mammoth.extractRawText({ buffer: source.data })).value;
-    } catch {
-      throw new ValidationError(
-        "We couldn't read that Word file. Try saving it again as .docx or upload a PDF.",
-      );
-    }
-  }
-  const cleaned = raw
-    .replace(/\r\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  if (cleaned.length < 50) {
-    throw new ValidationError("That file doesn't contain enough readable text to import.");
-  }
-  if (cleaned.length > MAX_TEXT_RESUME_CHARS) {
-    throw new ValidationError(
-      "That resume is too long to import. Please upload a shorter version.",
-    );
-  }
-  return [text(wrapUntrusted("document", cleaned)), instruction];
-}
-
-/** Merges an edit into the resume: sections that are set replace the existing ones. */
-export function applyResumeChanges(
-  resume: Resume,
-  changes: Partial<Omit<ResumeChanges, "change_summary">>,
-): Resume {
-  return normalizeResume({
-    basics: changes.basics ?? resume.basics,
-    summary: changes.summary ?? resume.summary,
-    experience: changes.experience ?? resume.experience,
-    education: changes.education ?? resume.education,
-    skills: changes.skills ?? resume.skills,
-    projects: changes.projects ?? resume.projects,
-    certifications: changes.certifications ?? resume.certifications,
-    customSections: changes.customSections ?? resume.customSections,
-  });
+        title: part.fileName,
+      };
 }
 
 export const UPDATE_RESUME_TOOL: BetaTool = {
@@ -132,17 +70,11 @@ export const UPDATE_RESUME_TOOL: BetaTool = {
 };
 
 /**
- * The recent conversation, with a cache breakpoint on its last turn so the next message reads the
- * earlier turns from the prompt cache. Old turns drop off in blocks of HISTORY_DROP_TURNS, so the
- * start of the window, and with it the cached prefix, stays put between drops.
+ * The recent conversation (see `recentHistory`), with a cache breakpoint on its last turn so the
+ * next message reads the earlier turns from the prompt cache.
  */
 function historyToMessages(history: ChatTurn[]): BetaMessageParam[] {
-  const overflow = history.length - MAX_HISTORY_TURNS;
-  const start = overflow > 0 ? Math.ceil(overflow / HISTORY_DROP_TURNS) * HISTORY_DROP_TURNS : 0;
-  const recent = history.slice(start);
-  const firstUser = recent.findIndex((turn) => turn.role === "user");
-  if (firstUser === -1) return [];
-  const turns = recent.slice(firstUser);
+  const turns = recentHistory(history);
   return turns.map((turn, index) => ({
     role: turn.role,
     content:
@@ -153,172 +85,72 @@ function historyToMessages(history: ChatTurn[]): BetaMessageParam[] {
 export class AnthropicProvider implements AiProvider {
   readonly name = "anthropic" as const;
 
-  get model(): string {
-    return configuredModel();
+  /** `modelOf` picks the Claude model per feature; by default every feature uses AI_MODEL. */
+  constructor(private readonly modelOf: (feature: AiFeature) => string = () => configuredModel()) {}
+
+  modelFor(feature: AiFeature): string {
+    return this.modelOf(feature);
   }
 
-  async importResume(source: ResumeSource, ctx: Parameters<AiProvider["importResume"]>[1]) {
-    const result = await runStructured({
-      feature: "import",
-      system: IMPORT_SYSTEM,
-      content: await resumeSourceToContent(source),
-      schema: importResultSchema,
+  private async run<Output, Result>(
+    request: FeatureRequest<Output, Result>,
+    ctx: AiCallContext,
+  ): Promise<Result> {
+    const output = await runStructured({
+      feature: request.feature,
+      model: this.modelFor(request.feature),
+      system: request.system,
+      stable: request.stable.map(text),
+      content: request.content.map(toBlock),
+      schema: request.schema,
+      viaTool: request.viaTool,
+      maxTokens: request.maxTokens,
       ctx,
     });
-    return { ...result, resume: normalizeResume(result.resume) };
+    return request.finish(output);
   }
 
-  async generateResume(
-    input: Parameters<AiProvider["generateResume"]>[0],
-    ctx: Parameters<AiProvider["generateResume"]>[1],
-  ) {
-    const result = await runStructured({
-      feature: "generate",
-      system: GENERATE_SYSTEM,
-      content: [
-        text(profileBlock(input.profile)),
-        text(wrapUntrusted("background", input.background)),
-        text(`Write my resume for this target role: ${input.targetRole}`),
-      ],
-      schema: generateResultSchema,
-      ctx,
-    });
-    return { ...result, resume: normalizeResume(result.resume) };
+  async importResume(...[source, ctx]: Parameters<AiProvider["importResume"]>) {
+    return this.run(await importRequest(source), ctx);
   }
 
-  async tailorResume(
-    input: Parameters<AiProvider["tailorResume"]>[0],
-    ctx: Parameters<AiProvider["tailorResume"]>[1],
-  ) {
-    const { headline, summaryOfChanges, addedKeywords, missingKeywords, suggestions, ...sections } =
-      await runStructured({
-        feature: "tailor",
-        system: TAILOR_SYSTEM,
-        stable: [text(resumeJson(input.resume))],
-        content: [
-          text(jobBlock(input.job)),
-          text(
-            input.instructions
-              ? `Tailor my resume for this job. Extra instructions from me: ${input.instructions}`
-              : "Tailor my resume for this job.",
-          ),
-        ],
-        schema: tailorOutputSchema,
-        // A resume's worth of sections plus notes is too large for a structured output's grammar.
-        viaTool: true,
-        ctx,
-      });
-    const resume = applyResumeChanges(input.resume, {
-      ...sections,
-      basics: headline ? { ...input.resume.basics, headline } : null,
-    });
-    return { resume, summaryOfChanges, addedKeywords, missingKeywords, suggestions };
+  async generateResume(...[input, ctx]: Parameters<AiProvider["generateResume"]>) {
+    return this.run(generateRequest(input), ctx);
   }
 
-  async analyzeFit(
-    input: Parameters<AiProvider["analyzeFit"]>[0],
-    ctx: Parameters<AiProvider["analyzeFit"]>[1],
-  ) {
-    const result = await runStructured({
-      feature: "match",
-      system: MATCH_SYSTEM,
-      stable: [text(resumeText(input.resume)), text(profileBlock(input.profile))],
-      content: [text(jobBlock(input.job)), text("How well do I fit this job?")],
-      schema: fitAnalysisSchema,
-      ctx,
-      maxTokens: 16_000,
-    });
-    return { ...result, score: Math.max(0, Math.min(100, Math.round(result.score))) };
+  async tailorResume(...[input, ctx]: Parameters<AiProvider["tailorResume"]>) {
+    return this.run(tailorRequest(input), ctx);
   }
 
-  async writeCoverLetter(
-    input: Parameters<AiProvider["writeCoverLetter"]>[0],
-    ctx: Parameters<AiProvider["writeCoverLetter"]>[1],
-  ) {
-    return runStructured({
-      feature: "cover_letter",
-      system: COVER_LETTER_SYSTEM,
-      stable: [text(resumeText(input.resume)), text(profileBlock(input.profile))],
-      content: [
-        text(jobBlock(input.job)),
-        text(
-          input.recipientName
-            ? `Write my cover letter, addressed to ${input.recipientName}.`
-            : "Write my cover letter.",
-        ),
-      ],
-      schema: coverLetterSchema,
-      ctx,
-      maxTokens: 16_000,
-    });
+  async analyzeFit(...[input, ctx]: Parameters<AiProvider["analyzeFit"]>) {
+    return this.run(fitRequest(input), ctx);
   }
 
-  async answerQuestions(
-    input: Parameters<AiProvider["answerQuestions"]>[0],
-    ctx: Parameters<AiProvider["answerQuestions"]>[1],
-  ) {
-    const questions = input.questions
-      .map((question, index) => `${index + 1}. ${question}`)
-      .join("\n");
-    return runStructured({
-      feature: "answers",
-      system: ANSWERS_SYSTEM,
-      stable: [text(resumeText(input.resume)), text(profileBlock(input.profile))],
-      content: [
-        text(jobBlock(input.job)),
-        text(`Answer these application questions for me:\n${questions}`),
-      ],
-      schema: applicationAnswersSchema,
-      ctx,
-      maxTokens: 16_000,
-    });
+  async writeCoverLetter(...[input, ctx]: Parameters<AiProvider["writeCoverLetter"]>) {
+    return this.run(coverLetterRequest(input), ctx);
   }
 
-  async draftOutreach(
-    input: Parameters<AiProvider["draftOutreach"]>[0],
-    ctx: Parameters<AiProvider["draftOutreach"]>[1],
-  ) {
-    const recipient = input.recipient?.name
-      ? `The recipient is ${input.recipient.name}${input.recipient.title ? `, ${input.recipient.title}` : ""}.`
-      : "I don't know the recipient's name yet.";
-    const draft = await runStructured({
-      feature: "outreach",
-      system: OUTREACH_SYSTEM,
-      stable: [text(resumeText(input.resume)), text(profileBlock(input.profile))],
-      content: [text(jobBlock(input.job)), text(`${recipient} Draft my outreach.`)],
-      schema: outreachDraftSchema,
-      ctx,
-      maxTokens: 16_000,
-    });
-    return { ...draft, linkedinNote: draft.linkedinNote.slice(0, LINKEDIN_NOTE_LIMIT) };
+  async answerQuestions(...[input, ctx]: Parameters<AiProvider["answerQuestions"]>) {
+    return this.run(answersRequest(input), ctx);
   }
 
-  async prepareInterview(
-    input: Parameters<AiProvider["prepareInterview"]>[0],
-    ctx: Parameters<AiProvider["prepareInterview"]>[1],
-  ) {
-    return runStructured({
-      feature: "interview",
-      system: INTERVIEW_SYSTEM,
-      stable: [text(resumeText(input.resume))],
-      content: [text(jobBlock(input.job)), text("Prepare me for interviews.")],
-      schema: interviewPrepSchema,
-      ctx,
-    });
+  async draftOutreach(...[input, ctx]: Parameters<AiProvider["draftOutreach"]>) {
+    return this.run(outreachRequest(input), ctx);
+  }
+
+  async prepareInterview(...[input, ctx]: Parameters<AiProvider["prepareInterview"]>) {
+    return this.run(interviewRequest(input), ctx);
   }
 
   async *studioChat(
     input: Parameters<AiProvider["studioChat"]>[0],
     ctx: Parameters<AiProvider["studioChat"]>[1],
   ): AsyncGenerator<StudioEvent> {
-    const latest: BetaContentBlockParam[] = [];
-    if (input.job) latest.push(text(jobBlock(input.job)));
-    if (input.profile) latest.push(text(profileBlock(input.profile)));
-    latest.push(text(resumeJson(input.resume, "current_resume")), text(input.message));
+    const latest = studioTurnParts(input).map(text);
 
     let reply = "";
     let message: BetaMessage;
-    const model = configuredModel();
+    const model = this.modelFor("studio");
     try {
       const stream = getAnthropic().beta.messages.stream(
         {

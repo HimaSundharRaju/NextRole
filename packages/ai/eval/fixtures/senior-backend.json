@@ -1,0 +1,121 @@
+{
+  "basics": {
+    "name": "Priya Raman",
+    "headline": "Senior Software Engineer",
+    "email": "priya.raman@example.com",
+    "phone": "+1 415 555 0142",
+    "location": "San Francisco, CA",
+    "links": [
+      { "label": "LinkedIn", "url": "https://www.linkedin.com/in/priya-raman-example" },
+      { "label": "GitHub", "url": "https://github.com/priya-raman-example" }
+    ]
+  },
+  "summary": "Backend and infrastructure engineer with 9 years of experience building distributed systems, data pipelines and developer platforms at high-growth companies. Led migrations to Kubernetes, cut cloud spend by millions, and mentor engineers across teams.",
+  "experience": [
+    {
+      "company": "Northwind Payments",
+      "title": "Senior Software Engineer, Platform",
+      "location": "San Francisco, CA",
+      "startDate": "Mar 2021",
+      "endDate": "Present",
+      "highlights": [
+        "Led the migration of 140 services from EC2 to Kubernetes (EKS) with zero customer-facing downtime, cutting deploy time from 45 to 8 minutes.",
+        "Designed a multi-region event bus on Kafka handling 2.1M events per second with p99 latency under 40 ms.",
+        "Built a cost-attribution pipeline in Go and BigQuery that surfaced $3.4M in annual cloud savings.",
+        "Introduced Terraform modules and policy-as-code (OPA) adopted by 22 teams, reducing infrastructure incidents by 38%.",
+        "Mentored 6 engineers; two were promoted to senior within 18 months."
+      ]
+    },
+    {
+      "company": "Brightline Analytics",
+      "title": "Software Engineer II, Data Infrastructure",
+      "location": "Seattle, WA",
+      "startDate": "Jun 2018",
+      "endDate": "Feb 2021",
+      "highlights": [
+        "Rebuilt the batch ingestion platform on Spark and Airflow, processing 18 TB per day with 99.95% on-time delivery.",
+        "Shipped a streaming feature store (Flink, Redis) that cut model feature latency from hours to seconds.",
+        "Reduced warehouse query costs 41% by introducing partitioning, clustering and a query linting service.",
+        "Owned on-call for the data platform and wrote runbooks that halved mean time to recovery.",
+        "Partnered with ML teams to productionize 12 models with automated validation and rollback."
+      ]
+    },
+    {
+      "company": "Harbor Health",
+      "title": "Software Engineer, Backend",
+      "location": "Boston, MA",
+      "startDate": "Aug 2016",
+      "endDate": "May 2018",
+      "highlights": [
+        "Built HIPAA-compliant REST and gRPC APIs in Python and Go serving 3M patient records.",
+        "Implemented audit logging and field-level encryption that passed SOC 2 Type II on the first attempt.",
+        "Cut API p95 latency 60% by adding caching, connection pooling and query optimization in PostgreSQL.",
+        "Automated CI/CD with GitHub Actions and blue-green deploys, raising release frequency from weekly to daily."
+      ]
+    },
+    {
+      "company": "Cobalt Labs",
+      "title": "Software Engineering Intern",
+      "location": "Austin, TX",
+      "startDate": "May 2015",
+      "endDate": "Aug 2015",
+      "highlights": [
+        "Prototyped a log search service in Elasticsearch that became the team's default debugging tool.",
+        "Wrote integration tests that raised coverage of the billing service from 48% to 81%."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "institution": "University of Texas at Austin",
+      "degree": "B.S.",
+      "field": "Computer Science",
+      "location": "Austin, TX",
+      "startDate": "2012",
+      "endDate": "2016",
+      "highlights": ["Turing Scholars honors program", "Teaching assistant, Operating Systems"]
+    }
+  ],
+  "skills": [
+    { "name": "Languages", "items": ["Go", "Python", "Java", "TypeScript", "SQL"] },
+    {
+      "name": "Infrastructure",
+      "items": ["Kubernetes", "Terraform", "AWS", "GCP", "Docker", "Helm"]
+    },
+    {
+      "name": "Data",
+      "items": ["Kafka", "Spark", "Flink", "Airflow", "BigQuery", "PostgreSQL", "Redis"]
+    },
+    {
+      "name": "Practices",
+      "items": ["Distributed systems", "Observability", "CI/CD", "Incident response", "Mentoring"]
+    }
+  ],
+  "projects": [
+    {
+      "name": "kube-cost-lens",
+      "link": "https://github.com/priya-raman-example/kube-cost-lens",
+      "description": "Open-source Kubernetes cost explorer.",
+      "highlights": ["1.2k GitHub stars", "Used in production by 30+ companies"],
+      "technologies": ["Go", "Prometheus", "React"]
+    },
+    {
+      "name": "Streaming SQL workshop",
+      "link": "",
+      "description": "Conference workshop on building streaming pipelines.",
+      "highlights": ["Taught 200+ engineers at two regional conferences"],
+      "technologies": ["Flink", "Kafka"]
+    }
+  ],
+  "certifications": [
+    { "name": "Certified Kubernetes Administrator", "issuer": "CNCF", "date": "2022" },
+    {
+      "name": "AWS Certified Solutions Architect – Professional",
+      "issuer": "Amazon Web Services",
+      "date": "2021"
+    }
+  ],
+  "customSections": [
+    { "title": "Speaking", "items": ["KubeCon NA 2023: Migrating 140 services without downtime"] }
+  ]
+}

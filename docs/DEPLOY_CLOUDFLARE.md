@@ -127,17 +127,18 @@ In the repository on GitHub, open **Settings → Secrets and variables → Actio
 | `BETTER_AUTH_SECRET`                       | Output of `openssl rand -base64 48`                                         |
 | `ENCRYPTION_KEY`                           | Output of `openssl rand -base64 32`                                         |
 | `ANTHROPIC_API_KEY`                        | The Anthropic API key                                                       |
+| `OPENAI_API_KEY`                           | Optional: the OpenAI API key, for features routed to OpenAI models          |
 | `SMTP_URL`                                 | The Resend SMTP URL                                                         |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional: enables "Continue with Google"                                    |
 
 **Variables**
 
-| Name                 | Value                                                                                      |
-| -------------------- | ------------------------------------------------------------------------------------------ |
-| `APP_URL`            | The public URL from step 2, for example `https://gettargetrole.hearthspace.in`             |
-| `EMAIL_FROM`         | Sender on your verified domain, for example `GetTargetRole <no-reply@sundhar.io>`          |
-| `AI_MODEL`           | Optional: `claude-sonnet-5` costs about 60% less per call than the default `claude-opus-5` |
-| `ANTHROPIC_BASE_URL` | Optional: route AI calls through Cloudflare AI Gateway (see below)                         |
+| Name                 | Value                                                                              |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| `APP_URL`            | The public URL from step 2, for example `https://gettargetrole.hearthspace.in`     |
+| `EMAIL_FROM`         | Sender on your verified domain, for example `GetTargetRole <no-reply@sundhar.io>`  |
+| `AI_MODEL`           | Optional: puts every feature on one Claude model instead of the per-feature routes |
+| `ANTHROPIC_BASE_URL` | Optional: route AI calls through Cloudflare AI Gateway (see below)                 |
 
 With the GitHub CLI, the two generated secrets can be set without ever displaying them:
 

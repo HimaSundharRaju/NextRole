@@ -1,7 +1,8 @@
 import { AiRefusalError, ExternalServiceError } from "@gettargetrole/core/errors";
 import { SAMPLE_JOB_DESCRIPTION, SAMPLE_RESUME } from "@gettargetrole/resume/fixtures";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { AnthropicProvider, applyResumeChanges, UPDATE_RESUME_TOOL } from "./anthropic-provider";
+import { AnthropicProvider, UPDATE_RESUME_TOOL } from "./anthropic-provider";
+import { applyResumeChanges } from "./requests";
 import { RESULT_TOOL_NAME } from "./client";
 import { estimateCostMicroUsd, modelCapabilities } from "./config";
 import { withoutBoilerplate } from "./context";

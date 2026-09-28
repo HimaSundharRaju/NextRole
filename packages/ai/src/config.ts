@@ -33,9 +33,19 @@ export function configuredModel(): string {
   return process.env.AI_MODEL || DEFAULT_MODEL;
 }
 
-/** The model without its snapshot date: `claude-haiku-4-5-20251001` → `claude-haiku-4-5`. */
+/**
+ * The model without its snapshot date: `claude-haiku-4-5-20251001` → `claude-haiku-4-5`,
+ * `gpt-4o-mini-2024-07-18` → `gpt-4o-mini`.
+ */
 export function baseModelId(model: string): string {
-  return model.replace(/-\d{8}$/, "");
+  return model.replace(/-\d{8}$/, "").replace(/-\d{4}-\d{2}-\d{2}$/, "");
+}
+
+export type AiVendor = "anthropic" | "openai";
+
+/** Which API serves a model: Claude models are Anthropic's, GPT and o-series models OpenAI's. */
+export function vendorOf(model: string): AiVendor {
+  return model.startsWith("claude") ? "anthropic" : "openai";
 }
 
 /** Claude 4.5 and earlier (Haiku 4.5, Sonnet 4.5, ...): no adaptive thinking or effort. */
@@ -91,6 +101,23 @@ const PRICING: Record<string, ModelPricing> = {
   "claude-haiku-4-5": { input: 1, output: 5 },
 };
 
+/**
+ * OpenAI list prices, USD per million tokens. OpenAI prices cached input on its own and has no
+ * cache-write charge.
+ */
+const OPENAI_PRICING: Record<string, ModelPricing & { cachedInput: number }> = {
+  "gpt-5.2": { input: 1.75, cachedInput: 0.175, output: 14 },
+  "gpt-5.1": { input: 1.25, cachedInput: 0.125, output: 10 },
+  "gpt-5": { input: 1.25, cachedInput: 0.125, output: 10 },
+  "gpt-5-mini": { input: 0.25, cachedInput: 0.025, output: 2 },
+  "gpt-5-nano": { input: 0.05, cachedInput: 0.005, output: 0.4 },
+  "gpt-4.1": { input: 2, cachedInput: 0.5, output: 8 },
+  "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, output: 1.6 },
+  "gpt-4.1-nano": { input: 0.1, cachedInput: 0.025, output: 0.4 },
+  "gpt-4o": { input: 2.5, cachedInput: 1.25, output: 10 },
+  "gpt-4o-mini": { input: 0.15, cachedInput: 0.075, output: 0.6 },
+};
+
 const CACHE_READ_MULTIPLIER = 0.1;
 const CACHE_WRITE_MULTIPLIER = 1.25;
 
@@ -101,8 +128,20 @@ export interface TokenCounts {
   cacheWriteTokens: number;
 }
 
-/** Estimated cost in micro-dollars (1e-6 USD). Unknown models are priced like Opus 5. */
+/**
+ * Estimated cost in micro-dollars (1e-6 USD). `inputTokens` excludes cached reads. Unknown models
+ * are priced like Opus 5.
+ */
 export function estimateCostMicroUsd(model: string, tokens: TokenCounts): number {
+  const openai = OPENAI_PRICING[baseModelId(model)];
+  if (openai) {
+    const usd =
+      (tokens.inputTokens * openai.input +
+        tokens.cacheReadTokens * openai.cachedInput +
+        tokens.outputTokens * openai.output) /
+      1_000_000;
+    return Math.round(usd * 1_000_000);
+  }
   const price = PRICING[baseModelId(model)] ?? PRICING[DEFAULT_MODEL]!;
   const usd =
     (tokens.inputTokens * price.input +

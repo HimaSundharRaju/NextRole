@@ -147,7 +147,7 @@ export const analyzeFit = authedAction(
       summary: `${result.summary} ${result.recommendation}`.trim(),
       strengths: result.strengths,
       gaps: result.gaps,
-      model: ai.model,
+      model: ai.modelFor("match"),
     };
     await getDb()
       .insert(jobMatches)

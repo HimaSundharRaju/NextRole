@@ -41,6 +41,7 @@ jobs:
       BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
       ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       SMTP_URL: ${{ secrets.SMTP_URL }}
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
@@ -101,8 +102,8 @@ jobs:
             const values = Object.fromEntries(keys.filter((k) => process.env[k]).map((k) => [k, process.env[k]]));
             require("node:fs").writeFileSync(file, JSON.stringify(values), { mode: 0o600 });
           ' "$secrets_file" APP_URL DATABASE_URL DATABASE_CA_CERT REDIS_URL BETTER_AUTH_SECRET ENCRYPTION_KEY \
-            ANTHROPIC_API_KEY SMTP_URL GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET EMAIL_FROM AI_MODEL \
-            ANTHROPIC_BASE_URL
+            ANTHROPIC_API_KEY OPENAI_API_KEY SMTP_URL GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET EMAIL_FROM \
+            AI_MODEL ANTHROPIC_BASE_URL
           # No routes or custom domains are passed, so the deploy never changes any domain's DNS
           # or routes. The custom domain is attached once in the Cloudflare dashboard.
           pnpm exec wrangler deploy --secrets-file "$secrets_file"

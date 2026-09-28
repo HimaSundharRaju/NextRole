@@ -45,6 +45,8 @@ export const serverEnvSchema = z
     AI_PROVIDER: z.enum(["anthropic", "mock"]).default("anthropic"),
     AI_MODEL: z.string().min(1).default("claude-opus-5"),
     ANTHROPIC_API_KEY: z.string().optional(),
+    /** Enables features routed to OpenAI models; without it they stay on Claude. */
+    OPENAI_API_KEY: z.string().optional(),
 
     SMTP_URL: z.string().optional(),
     EMAIL_FROM: z.string().default("GetTargetRole <no-reply@gettargetrole.app>"),

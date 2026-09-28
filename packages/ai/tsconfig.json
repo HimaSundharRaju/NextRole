@@ -1,4 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src"]
+  "compilerOptions": {
+    // The quality check (eval/) renders resume PDFs with the resume package's JSX renderer.
+    "jsx": "react-jsx"
+  },
+  "include": ["src", "eval"]
 }

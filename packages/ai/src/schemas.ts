@@ -58,6 +58,25 @@ export const tailorOutputSchema = z.object({
 });
 export type TailorOutput = z.infer<typeof tailorOutputSchema>;
 
+/**
+ * `tailorOutputSchema` with every section required but nullable. Strict structured outputs
+ * (OpenAI's) reject optional properties; the result still validates against the original.
+ */
+export const tailorOutputStrictSchema = z.object({
+  headline: z.string().nullable().describe("Headline rewritten for this role; null keeps it"),
+  summary: z.string().nullable(),
+  experience: z.array(experienceSchema).nullable(),
+  education: z.array(educationSchema).nullable(),
+  skills: z.array(skillGroupSchema).nullable(),
+  projects: z.array(projectSchema).nullable(),
+  certifications: z.array(certificationSchema).nullable(),
+  customSections: z.array(customSectionSchema).nullable(),
+  summaryOfChanges: tailorResultSchema.shape.summaryOfChanges,
+  addedKeywords: tailorResultSchema.shape.addedKeywords,
+  missingKeywords: tailorResultSchema.shape.missingKeywords,
+  suggestions: tailorResultSchema.shape.suggestions,
+});
+
 export const fitAnalysisSchema = z.object({
   score: z.number().describe("Fit score from 0 to 100"),
   verdict: z.enum(["strong", "good", "stretch", "poor"]),

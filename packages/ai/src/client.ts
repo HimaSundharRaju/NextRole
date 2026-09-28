@@ -193,6 +193,8 @@ export function mapAnthropicError(error: unknown): Error {
 
 export interface StructuredCall<S extends z.ZodType> {
   feature: AiFeature;
+  /** The Claude model; defaults to AI_MODEL. */
+  model?: string;
   system: string;
   /**
    * Blocks that repeat across a user's calls, such as their resume and profile. They go first,
@@ -245,7 +247,7 @@ function resultTool(schema: z.ZodType): BetaTool {
 export async function runStructured<S extends z.ZodType>(
   call: StructuredCall<S>,
 ): Promise<z.infer<S>> {
-  const model = configuredModel();
+  const model = call.model ?? configuredModel();
   const params = modelParams(model, call.feature);
   const output = call.viaTool
     ? {

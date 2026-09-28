@@ -102,13 +102,29 @@ it the worker logs that auto-prepare is off and skips queueing.
 
 All AI features go through the `AiProvider` interface in `packages/ai`: resume import and
 generation, tailoring, fit analysis, cover letters, application answers, outreach, interview
-prep and the Studio chat. Its production implementation calls the Anthropic TypeScript SDK:
+prep and the Studio chat.
 
-- **Model and reasoning.** The model is set by `AI_MODEL` (default `claude-opus-5`) and runs with
-  adaptive thinking. The effort level is set per feature: `high` for writing that is judged on
-  quality (generation, tailoring) and `medium` for interactive and extraction work. Older models
-  such as `claude-haiku-4-5` don't support adaptive thinking or effort, so requests to them leave
-  both out.
+- **Hybrid routing.** Each feature runs on the cheapest model, Claude or OpenAI, that matched the
+  reference in the quality check below (`DEFAULT_ROUTES` in `routing.ts`). `RoutedProvider` sends
+  each call to its route. When an OpenAI call fails, or `OPENAI_API_KEY` isn't set, the same
+  request runs on the feature's Claude fallback, so users see a result rather than an error.
+  `AI_ROUTE_<FEATURE>` overrides one route (`openai:gpt-5-mini`, `anthropic:claude-sonnet-5`), and
+  `AI_MODEL` puts every feature on one Claude model.
+- **One prompt, two vendors.** `requests.ts` builds every feature's request once (instructions,
+  the parts that repeat across a user's calls, the per-call parts, the schema and how the output
+  becomes the result), and each provider only translates it: `AnthropicProvider` through the
+  Anthropic TypeScript SDK, `OpenAIProvider` through the OpenAI SDK's Responses API. Quality
+  comparisons between models are therefore like for like.
+- **Model and reasoning.** Claude models run with adaptive thinking at a per-feature effort:
+  `high` for writing judged on quality (generation, tailoring), `medium` for interactive and
+  extraction work. Older models such as `claude-haiku-4-5` support neither, so requests to them
+  leave both out. OpenAI reasoning models (GPT-5 family) get a per-feature reasoning effort;
+  GPT-4.x models take none.
+- **OpenAI specifics.** Responses aren't stored on OpenAI's side (`store: false`), since resumes
+  are personal data. A hash of the user id is sent as `prompt_cache_key`, which raises cache hits
+  on the user's resume prefix without revealing the account. Results come back as strict
+  JSON-schema outputs (optional fields sent as nullable) and are validated with the same Zod
+  schemas as Claude's.
 - **Structured outputs.** Every non-chat feature gets JSON that matches a Zod schema, so results
   are typed and validated before they reach the database or the UI. Most features request a
   structured output. Tailoring returns its result through a non-strict `submit_result` tool
@@ -146,6 +162,35 @@ prep and the Studio chat. Its production implementation calls the Anthropic Type
   The dashboard, settings and each AI button show what's left this month.
 - **Testing.** `AI_PROVIDER=mock` swaps in a deterministic provider for local development and the
   end-to-end suite. The configuration refuses it when `NODE_ENV=production`.
+
+### Choosing models: the quality check
+
+`packages/ai/eval` decides the routes. Every candidate model runs the production prompts on the
+same inputs: 20 resume and job pairs (4 synthetic resumes × 5 real public postings, so good fits
+and mismatches), 8 imports (4 PDFs, 4 text) and 15 Studio edits. Automatic checks catch the
+failures that matter most on a resume: changed or invented employers, titles, dates or
+education; technical skills the resume doesn't show; invented numbers; and hard limits such as a
+LinkedIn note over 300 characters. Two judges from different vendors (Claude Sonnet 5 and
+GPT-5-mini) then compare each candidate with the reference, Claude Sonnet 5, blind and in random
+order. A feature moves to a cheaper model only when that model fails no more checks than the
+reference, wins or ties at least half the comparisons with both judges, and answers in under 30
+seconds on average.
+
+Results from September 2026:
+
+| Feature                                | Route             | Evidence                                                                                                                                               |
+| -------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Resume import                          | `gpt-4o-mini`     | Tied the reference on all 8 imports with both judges; $0.0005 against $0.015                                                                           |
+| Fit analysis                           | `gpt-4o-mini`     | Won or tied 7 of 8 comparisons (Claude judge) and 6 of 8 (GPT judge); $0.0004 against $0.012                                                           |
+| Tailoring                              | `claude-sonnet-5` | Cheaper models added technical skills the candidate doesn't have far more often: Sonnet 5 was clean on 15 of 20, Haiku 4.5 on 6, the GPT models on 0–2 |
+| Cover letters, answers, interview prep | `claude-sonnet-5` | Both judges preferred Claude; the GPT models won or tied 0–38% of comparisons                                                                          |
+| Outreach, Studio, generation           | `claude-sonnet-5` | Not judged yet, so they run on the reference                                                                                                           |
+
+Run it with
+`NODE_USE_ENV_PROXY=1 node --env-file=../../.env --import tsx eval/run.mts` from `packages/ai`
+(it needs both API keys). Results are cached under `eval/results/`, so a rerun only pays for what's
+missing, and `--budget` stops the run before it spends more; `--no-spend yes` rebuilds the report
+from the cache.
 
 Resume import accepts PDFs, which are sent to the model as document blocks; Word files, which are
 converted to text with mammoth; and pasted text. The model extracts a structured resume (see
