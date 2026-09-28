@@ -120,7 +120,8 @@ export const UPDATE_RESUME_TOOL: BetaTool = {
   input_schema: transformJSONSchema(
     z.toJSONSchema(resumeChangesSchema),
   ) as BetaTool["input_schema"],
-  strict: true,
+  // Not strict: the API compiles strict schemas into a grammar and rejects this one, with its
+  // eight nullable resume sections, as too large. studioChat validates every input instead.
   eager_input_streaming: true,
 };
 
@@ -185,6 +186,8 @@ export class AnthropicProvider implements AiProvider {
         ),
       ],
       schema: tailorResultSchema,
+      // A whole resume plus the change notes is too large for a structured output's grammar.
+      viaTool: true,
       ctx,
     });
     return { ...result, resume: normalizeResume(result.resume) };

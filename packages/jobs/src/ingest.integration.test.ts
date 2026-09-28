@@ -3,7 +3,7 @@ import type * as DrizzleModule from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type * as AlertsModule from "./alerts";
 import type * as IngestModule from "./ingest";
-import { fakeFetch, greenhouseResponse } from "./test-fixtures";
+import { ashbyResponse, fakeFetch, greenhouseResponse } from "./test-fixtures";
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 
@@ -73,6 +73,42 @@ describe.skipIf(!TEST_DATABASE_URL)("job ingestion (Postgres integration)", () =
 
     const open = await database.select().from(db.jobs).where(drizzle.isNull(db.jobs.closedAt));
     expect(open.map((job) => job.title)).toEqual(["Staff Software Engineer, Payments"]);
+  });
+
+  it("stores decimal pay, such as hourly rates, as whole numbers", async () => {
+    const database = db.getDb();
+    const [company] = await database
+      .insert(db.companies)
+      .values({ name: "Acme Labs", slug: "acme-labs", ats: "ashby", boardToken: "acme-labs" })
+      .returning();
+    const [listed] = ashbyResponse.jobs;
+    const hourly = {
+      jobs: [
+        {
+          ...listed,
+          compensation: {
+            summaryComponents: [
+              {
+                compensationType: "Salary",
+                interval: "1 HOUR",
+                currencyCode: "USD",
+                minValue: 60.58,
+                maxValue: 108.17,
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    await ingest.syncCompany(company!.id, {
+      fetch: fakeFetch({ "https://api.ashbyhq.com/posting-api/job-board/acme-labs": hourly }),
+    });
+    const [job] = await database
+      .select()
+      .from(db.jobs)
+      .where(drizzle.eq(db.jobs.companyId, company!.id));
+    expect(job).toMatchObject({ salaryMin: 61, salaryMax: 108, salaryPeriod: "hour" });
   });
 
   it("records a failed sync on the company", async () => {

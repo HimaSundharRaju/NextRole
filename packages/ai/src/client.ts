@@ -1,12 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
+import { transformJSONSchema } from "@anthropic-ai/sdk/lib/transform-json-schema";
 import type {
   BetaContentBlockParam,
   BetaMessage,
+  BetaTool,
+  BetaToolUseBlock,
 } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { AiRefusalError, ExternalServiceError } from "@nextrole/core/errors";
 import { createLogger } from "@nextrole/core/logger";
-import type { z } from "zod";
+import { z } from "zod";
 import {
   configuredModel,
   estimateCostMicroUsd,
@@ -194,17 +197,50 @@ export interface StructuredCall<S extends z.ZodType> {
   schema: S;
   ctx: AiCallContext;
   maxTokens?: number;
+  /**
+   * Deliver the result as a call to a non-strict tool instead of as a structured output. For
+   * schemas too large for structured outputs, which the API compiles into a grammar and rejects
+   * when it gets too big ("The compiled grammar is too large"). The result is validated against
+   * `schema` either way.
+   */
+  viaTool?: boolean;
+}
+
+/** The tool that carries the result of a `viaTool` call. */
+export const RESULT_TOOL_NAME = "submit_result";
+
+function resultTool(schema: z.ZodType): BetaTool {
+  // Not eager: nothing reads the input before it's complete, and buffering it lets the API
+  // check that it is valid JSON.
+  return {
+    name: RESULT_TOOL_NAME,
+    description: "Submit the finished result.",
+    input_schema: transformJSONSchema(z.toJSONSchema(schema)) as BetaTool["input_schema"],
+  };
 }
 
 /**
- * One Claude call that must return JSON matching `schema` (structured outputs). Streams under
- * the hood so large outputs don't hit HTTP timeouts.
+ * One Claude call that must return JSON matching `schema`, as a structured output or, with
+ * `viaTool`, a tool call. Streams under the hood so large outputs don't hit HTTP timeouts.
  */
 export async function runStructured<S extends z.ZodType>(
   call: StructuredCall<S>,
 ): Promise<z.infer<S>> {
   const model = configuredModel();
   const params = modelParams(model, call.feature);
+  const output = call.viaTool
+    ? {
+        tools: [resultTool(call.schema)],
+        // Require the call: with `auto`, a model can answer in text instead. Models that reject a
+        // forced choice get `auto`, and the system prompt asks for the call.
+        tool_choice: modelCapabilities(model).forcedToolChoice
+          ? { type: "tool" as const, name: RESULT_TOOL_NAME }
+          : { type: "auto" as const },
+      }
+    : { output_config: { ...params.output_config, format: betaZodOutputFormat(call.schema) } };
+  const system = call.viaTool
+    ? `${call.system}\n\nSubmit your result by calling the ${RESULT_TOOL_NAME} tool.`
+    : call.system;
   let message: BetaMessage;
   try {
     const stream = getAnthropic().beta.messages.stream(
@@ -212,8 +248,8 @@ export async function runStructured<S extends z.ZodType>(
         model,
         max_tokens: call.maxTokens ?? 32_000,
         ...params,
-        output_config: { ...params.output_config, format: betaZodOutputFormat(call.schema) },
-        system: [{ type: "text", text: call.system, cache_control: { type: "ephemeral" } }],
+        ...output,
+        system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
         messages: [{ role: "user", content: call.content }],
       },
       { signal: call.ctx.signal },
@@ -227,13 +263,21 @@ export async function runStructured<S extends z.ZodType>(
   assertUsable(message);
 
   let json: unknown;
-  try {
-    json = JSON.parse(textOf(message));
-  } catch {
-    throw new ExternalServiceError(
-      "Claude",
-      "The AI returned an unreadable response. Please try again.",
-    );
+  if (call.viaTool) {
+    // Undefined when Claude didn't call the tool, which validation below reports.
+    json = message.content.find(
+      (block): block is BetaToolUseBlock =>
+        block.type === "tool_use" && block.name === RESULT_TOOL_NAME,
+    )?.input;
+  } else {
+    try {
+      json = JSON.parse(textOf(message));
+    } catch {
+      throw new ExternalServiceError(
+        "Claude",
+        "The AI returned an unreadable response. Please try again.",
+      );
+    }
   }
   const parsed = call.schema.safeParse(json);
   if (!parsed.success) {

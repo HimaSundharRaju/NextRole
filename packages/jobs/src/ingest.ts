@@ -43,6 +43,16 @@ function contentHash(job: NormalizedJob): string {
     .digest("hex");
 }
 
+/**
+ * A salary as its integer column can hold it. Boards send decimals (hourly rates such as 60.58),
+ * which Postgres rejects, failing the whole batch; amounts out of range are dropped.
+ */
+function wholeSalary(amount: number | null | undefined): number | null {
+  if (amount == null || !Number.isFinite(amount)) return null;
+  const rounded = Math.round(amount);
+  return Math.abs(rounded) <= 2_147_483_647 ? rounded : null;
+}
+
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
@@ -136,8 +146,8 @@ export async function syncCompany(
           descriptionText,
           applyUrl: job.applyUrl,
           skills: findSkills(`${job.title}\n${descriptionText}`),
-          salaryMin: job.salary?.min ?? null,
-          salaryMax: job.salary?.max ?? null,
+          salaryMin: wholeSalary(job.salary?.min),
+          salaryMax: wholeSalary(job.salary?.max),
           salaryCurrency: job.salary?.currency ?? null,
           salaryPeriod: job.salary?.period ?? null,
           postedAt: job.postedAt && !Number.isNaN(job.postedAt.getTime()) ? job.postedAt : null,
