@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     template: "%s · GetTargetRole",
   },
   description:
-    "GetTargetRole finds jobs the moment they go live, writes Claude-quality resumes tailored to each role, and tracks every application.",
+    "GetTargetRole finds jobs the moment they go live, writes polished resumes tailored to each role, and tracks every application.",
   applicationName: "GetTargetRole",
 };
 

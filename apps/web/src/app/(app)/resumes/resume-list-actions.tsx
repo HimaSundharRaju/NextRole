@@ -39,7 +39,7 @@ export function NewResumeButtons() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         title="Import a resume"
-        description="PDF, Word or pasted text. Claude transcribes it exactly."
+        description="PDF, Word or pasted text. The AI transcribes it exactly."
       >
         <ResumeImport
           makePrimary={false}

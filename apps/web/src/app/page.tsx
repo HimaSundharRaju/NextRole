@@ -27,8 +27,8 @@ const FEATURES = [
   },
   {
     icon: Sparkles,
-    title: "Claude resume studio",
-    body: "Chat with Claude to write, rewrite and polish your resume while it updates live beside you. Export ATS-safe PDF or Word in one click.",
+    title: "AI resume studio",
+    body: "Chat with the AI to write, rewrite and polish your resume while it updates live beside you. Export ATS-safe PDF or Word in one click.",
   },
   {
     icon: FileText,
@@ -55,7 +55,7 @@ const FEATURES = [
 const STEPS = [
   {
     title: "Import your resume",
-    body: "Upload a PDF or Word file, paste text, or start from scratch with Claude. Set the roles, locations and salary you want.",
+    body: "Upload a PDF or Word file, paste text, or start from scratch with AI. Set the roles, locations and salary you want.",
   },
   {
     title: "Get matched instantly",
@@ -118,7 +118,7 @@ export default async function LandingPage() {
             <div>
               <p className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm">
                 <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden /> Resumes written with
-                Claude
+                AI
               </p>
               <h1 className="mt-5 text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
                 Land your next role <span className="text-primary">before the crowd applies.</span>
@@ -300,7 +300,7 @@ export default async function LandingPage() {
       <footer className="border-t border-border py-10">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 text-sm text-muted-foreground sm:flex-row sm:px-6">
           <Logo />
-          <p>© {new Date().getFullYear()} GetTargetRole. Built with Claude.</p>
+          <p>© {new Date().getFullYear()} GetTargetRole.</p>
         </div>
       </footer>
     </div>

@@ -9,8 +9,8 @@ test("candidate finds a job, builds an apply kit, applies and tracks it", async 
   await page.getByRole("link", { name: "Senior Backend Engineer, Payments" }).click();
   await expect(page.getByRole("heading", { name: "Apply kit" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Analyze my fit with Claude" }).click();
-  await expect(page.getByText("Claude's assessment")).toBeVisible();
+  await page.getByRole("button", { name: "Analyze my fit with AI" }).click();
+  await expect(page.getByText("AI assessment")).toBeVisible();
 
   await page.getByRole("button", { name: "Tailor my resume" }).click();
   await expect(page.getByText("What changed")).toBeVisible();
@@ -21,7 +21,7 @@ test("candidate finds a job, builds an apply kit, applies and tracks it", async 
   await page
     .getByLabel("Application questions")
     .fill("Why do you want to work here?\nDo you require visa sponsorship?");
-  await page.getByRole("button", { name: "Answer with Claude" }).click();
+  await page.getByRole("button", { name: "Answer with AI" }).click();
   await expect(page.getByText("Why do you want to work here?", { exact: true })).toBeVisible();
 
   await page.getByPlaceholder("Name (optional)").fill("Jordan Lee");

@@ -14,9 +14,9 @@ export interface RevisionItem {
 
 const SOURCE_LABEL: Record<string, string> = {
   manual: "You",
-  ai_chat: "Claude (chat)",
-  ai_generate: "Claude",
-  ai_tailor: "Claude (tailoring)",
+  ai_chat: "AI (chat)",
+  ai_generate: "AI",
+  ai_tailor: "AI (tailoring)",
   import: "Import",
   restore: "Restore",
 };
@@ -35,7 +35,7 @@ export function HistoryPanel({
       <EmptyState
         icon={History}
         title="No versions yet"
-        description="Every edit you or Claude make is saved here."
+        description="Every edit, yours or the AI's, is saved here."
       />
     );
   }

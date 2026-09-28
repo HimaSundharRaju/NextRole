@@ -1,7 +1,7 @@
 {
   "name": "gettargetrole",
   "private": true,
-  "description": "GetTargetRole — AI job search platform: real-time job discovery, Claude-powered resumes, tailored apply kits, recruiter outreach and application tracking.",
+  "description": "GetTargetRole — AI job search platform: real-time job discovery, AI-powered resumes, tailored apply kits, recruiter outreach and application tracking.",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=22.12.0"

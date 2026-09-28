@@ -73,7 +73,7 @@ export default async function ResumesPage() {
         <EmptyState
           icon={FileText}
           title="No resumes yet"
-          description="Import your current resume or start a new one with Claude."
+          description="Import your current resume or start a new one with AI."
         />
       ) : (
         <>

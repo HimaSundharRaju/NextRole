@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /*
- * The resume model is shared by the editor, the PDF/DOCX renderers and Claude's structured
+ * The resume model is shared by the editor, the PDF/DOCX renderers and the AI's structured
  * outputs. Every field is required (empty string / empty array when unknown) so the same schema
  * works with strict JSON-schema tool calls, which do not allow optional properties.
  */

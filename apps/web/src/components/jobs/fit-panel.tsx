@@ -61,7 +61,7 @@ export function FitPanel({
               <Badge tone={scoreTone(analysis.score)} className="capitalize">
                 {analysis.verdict} fit
               </Badge>
-              <span className="text-xs text-muted-foreground">Claude&apos;s assessment</span>
+              <span className="text-xs text-muted-foreground">AI assessment</span>
             </div>
             <p>{analysis.summary}</p>
             {analysis.strengths.length ? (
@@ -107,7 +107,7 @@ export function FitPanel({
         {error ? <Alert>{error}</Alert> : null}
         <Button variant="secondary" className="w-full" onClick={run} loading={pending}>
           <Sparkles className="h-4 w-4" aria-hidden />{" "}
-          {analysis ? "Re-analyze with Claude" : "Analyze my fit with Claude"}
+          {analysis ? "Re-analyze with AI" : "Analyze my fit with AI"}
         </Button>
       </CardBody>
     </Card>

@@ -139,7 +139,7 @@ export function assertUsable(message: BetaMessage): void {
   }
   if (message.stop_reason === "max_tokens") {
     throw new ExternalServiceError(
-      "Claude",
+      "The AI service",
       "The AI response was too long and got cut off. Please try again.",
     );
   }
@@ -156,7 +156,7 @@ export function textOf(message: BetaMessage): string {
 export function mapAnthropicError(error: unknown): Error {
   if (error instanceof Anthropic.RateLimitError) {
     return new ExternalServiceError(
-      "Claude",
+      "The AI service",
       "The AI service is busy right now. Please try again in a minute.",
     );
   }
@@ -166,14 +166,14 @@ export function mapAnthropicError(error: unknown): Error {
   ) {
     log.error({ err: error }, "Anthropic credentials rejected");
     return new ExternalServiceError(
-      "Claude",
+      "The AI service",
       "The AI service is not configured correctly. Please contact support.",
     );
   }
   if (error instanceof Anthropic.BadRequestError) {
     log.error({ err: error }, "Anthropic rejected the request");
     return new ExternalServiceError(
-      "Claude",
+      "The AI service",
       "The AI couldn't process this request. Please try different input.",
     );
   }
@@ -181,11 +181,11 @@ export function mapAnthropicError(error: unknown): Error {
     error instanceof Anthropic.APIConnectionError ||
     error instanceof Anthropic.InternalServerError
   ) {
-    return new ExternalServiceError("Claude");
+    return new ExternalServiceError("The AI service");
   }
   if (error instanceof Anthropic.APIError) {
     log.error({ err: error, status: error.status }, "Anthropic API error");
-    return new ExternalServiceError("Claude");
+    return new ExternalServiceError("The AI service");
   }
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -274,7 +274,7 @@ export async function runStructured<S extends z.ZodType>(
       json = JSON.parse(textOf(message));
     } catch {
       throw new ExternalServiceError(
-        "Claude",
+        "The AI service",
         "The AI returned an unreadable response. Please try again.",
       );
     }
@@ -286,7 +286,7 @@ export async function runStructured<S extends z.ZodType>(
       "structured output failed validation",
     );
     throw new ExternalServiceError(
-      "Claude",
+      "The AI service",
       "The AI returned an incomplete response. Please try again.",
     );
   }

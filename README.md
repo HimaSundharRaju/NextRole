@@ -1,7 +1,7 @@
 # GetTargetRole
 
 GetTargetRole is an AI job-search platform. It pulls in real openings from company job boards as they
-are posted, scores each one against your resume, and uses Claude to write your resume, tailor it
+are posted, scores each one against your resume, and uses AI to write your resume, tailor it
 to a job, draft the cover letter, answer application questions and write the recruiter message.
 Applications are tracked on a board with follow-up reminders. The Concierge plan adds a human
 specialist who works through your job search alongside you.
@@ -14,12 +14,12 @@ it yourself**. Nothing is auto-submitted on your behalf.
 | Area                  | What you get                                                                                                                                                                                                                               |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Job discovery**     | Openings ingested from public Greenhouse, Lever, Ashby and SmartRecruiters boards every 10 minutes, full-text search and filters, match scores against your resume, job alerts.                                                            |
-| **Resume Studio**     | Import a PDF, Word file or pasted text into a structured resume. Chat with Claude to rewrite, quantify or tighten it with a live preview. Every change is a restorable version. ATS readiness check, three templates, PDF and Word export. |
+| **Resume Studio**     | Import a PDF, Word file or pasted text into a structured resume. Chat with the AI to rewrite, quantify or tighten it with a live preview. Every change is a restorable version. ATS readiness check, three templates, PDF and Word export. |
 | **Apply kit**         | Per job: a fit analysis, a tailored resume with a summary of what changed, a cover letter, answers to application questions, and a recruiter email plus LinkedIn note. "I've applied" saves a receipt of exactly what you sent.            |
 | **Tracker**           | Kanban board from saved to offer, notes, follow-up reminders and interview prep sheets.                                                                                                                                                    |
 | **Concierge**         | Specialists see and work on the job searches of the clients assigned to them.                                                                                                                                                              |
 | **Admin console**     | Users, roles, plans and bans; job boards and sync status; specialist assignments; audit log.                                                                                                                                               |
-| **Plans and budgets** | Starter, Pro and Concierge plans, each with a monthly Claude spend cap that is metered per request.                                                                                                                                        |
+| **Plans and budgets** | Starter, Pro and Concierge plans, each with a monthly AI spend cap that is metered per request.                                                                                                                                            |
 | **Privacy**           | Users can export all their data as JSON or delete their account.                                                                                                                                                                           |
 
 ## Architecture
@@ -29,7 +29,7 @@ flowchart LR
   browser([Browser]) -->|HTTPS| web["apps/web<br/>Next.js 16"]
   web --> pg[(PostgreSQL 16)]
   web --> redis[(Redis)]
-  web -->|Claude API| claude[Anthropic]
+  web -->|AI requests| anthropic[Anthropic API]
   web -. enqueue .-> redis
   worker["apps/worker<br/>BullMQ"] --> pg
   worker --> redis
@@ -38,14 +38,14 @@ flowchart LR
 
 The web app and the worker are stateless and scale horizontally: sessions live in Postgres, and
 rate limits and queues live in Redis. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the
-data model, the Claude integration and the security model.
+data model, the AI integration and the security model.
 
 | Path              | Contents                                                                                                   |
 | ----------------- | ---------------------------------------------------------------------------------------------------------- |
 | `apps/web`        | Next.js 16 app (App Router, React 19, Tailwind CSS 4): pages, server actions, API routes, auth             |
 | `apps/worker`     | BullMQ worker: job-board ingestion, job alerts, follow-up reminders; also applies migrations in production |
 | `apps/edge`       | Cloudflare Worker that routes traffic to the web containers and keeps the background worker running        |
-| `packages/ai`     | Claude integration: prompts, structured outputs, the Studio editing tool, usage metering, a mock for tests |
+| `packages/ai`     | AI integration: prompts, structured outputs, the Studio editing tool, usage metering, a mock for tests     |
 | `packages/resume` | Resume schema, skills taxonomy, ATS checks, PDF and Word rendering                                         |
 | `packages/jobs`   | Job-board connectors, HTML sanitizing, normalization, matching, ingestion, alerts                          |
 | `packages/db`     | Drizzle ORM schema, SQL migrations, seed data                                                              |
@@ -53,7 +53,7 @@ data model, the Claude integration and the security model.
 | `infra`           | Docker Compose for local Postgres, Redis and Mailpit, and for the full stack                               |
 
 **Stack:** TypeScript 5.9, Next.js 16, React 19, Tailwind CSS 4, Better Auth, PostgreSQL 16 with
-Drizzle ORM, Redis with BullMQ, the Anthropic TypeScript SDK (Claude Opus 5), Zod, Pino,
+Drizzle ORM, Redis with BullMQ, the Anthropic TypeScript SDK, Zod, Pino,
 Vitest, Playwright, pnpm workspaces and Turborepo.
 
 ## Getting started
@@ -104,8 +104,8 @@ every variable with its default.
 | `REDIS_URL`                                | yes      | Redis connection string. Redis must use `maxmemory-policy noeviction` (a BullMQ requirement).               |
 | `BETTER_AUTH_SECRET`                       | yes      | At least 32 random characters; signs sessions and tokens                                                    |
 | `ENCRYPTION_KEY`                           | yes      | 32 random bytes, base64; for encrypting stored third-party credentials such as mailbox tokens (AES-256-GCM) |
-| `ANTHROPIC_API_KEY`                        | yes      | Claude API key                                                                                              |
-| `AI_MODEL`                                 | no       | Claude model, default `claude-opus-5`. `claude-sonnet-5` and `claude-haiku-4-5` cost less.                  |
+| `ANTHROPIC_API_KEY`                        | yes      | Anthropic API key                                                                                           |
+| `AI_MODEL`                                 | no       | AI model, default `claude-opus-5`. `claude-sonnet-5` and `claude-haiku-4-5` cost less.                      |
 | `SMTP_URL`, `EMAIL_FROM`                   | prod     | Outgoing email. Production requires email verification, so SMTP must be configured.                         |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | no       | Enables "Continue with Google"                                                                              |
 | `TRUSTED_PROXIES`                          | no       | Proxy IPs/CIDRs to trust when requests pass through more than one proxy hop                                 |
@@ -185,8 +185,8 @@ Production checklist:
 - All queries are scoped to their owner. Another user's data returns 404.
 - Uploads are validated by content (magic bytes) and size. Job descriptions from outside sources
   are sanitized against a strict allowlist.
-- Text from resumes, job posts and uploads is wrapped as untrusted data in Claude prompts, to
-  resist prompt injection. Claude's structured output and tool calls are validated with Zod before
+- Text from resumes, job posts and uploads is wrapped as untrusted data in AI prompts, to
+  resist prompt injection. The AI's structured output and tool calls are validated with Zod before
   they are used.
 - Admin actions and sign-ins are written to an audit log. Logs redact credentials and personal data.
 

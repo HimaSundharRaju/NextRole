@@ -1,24 +1,24 @@
 # GetTargetRole architecture
 
 This document explains how GetTargetRole is put together: its components, the data model, the job
-pipeline, the Claude integration and the security model. For setup and deployment, see the
+pipeline, the AI integration and the security model. For setup and deployment, see the
 [README](../README.md).
 
 ## Components
 
 | Component     | Runs as                      | Responsibilities                                                                                                             |
 | ------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `apps/web`    | Next.js 16 standalone server | UI (React Server Components), server actions, API routes, authentication, Claude calls                                       |
+| `apps/web`    | Next.js 16 standalone server | UI (React Server Components), server actions, API routes, authentication, AI calls                                           |
 | `apps/worker` | Node.js process with BullMQ  | Job-board ingestion, job alerts, follow-up reminders; `dist/migrate.js` for migrations                                       |
 | `apps/edge`   | Cloudflare Worker            | Routes traffic to the web containers and keeps the jobs container running (see [DEPLOY_CLOUDFLARE.md](DEPLOY_CLOUDFLARE.md)) |
 | PostgreSQL 16 | Managed database             | All durable state, including sessions and full-text search                                                                   |
 | Redis         | Managed cache (`noeviction`) | BullMQ queues and schedulers, distributed rate limits                                                                        |
-| Anthropic API | External                     | Claude Opus 5 for every AI feature                                                                                           |
+| Anthropic API | External                     | The model behind every AI feature (`AI_MODEL`)                                                                               |
 
 The two services share code through workspace packages. `core` holds configuration, logging,
 crypto, Redis, rate limiting, email and the queue contracts. `db` holds the schema and
 migrations. `resume` holds the resume model and renderers, `jobs` the ingestion and matching,
-and `ai` the Claude integration. The packages ship TypeScript source: Next.js compiles them into
+and `ai` the AI integration. The packages ship TypeScript source: Next.js compiles them into
 the web build, and tsup bundles them into the worker.
 
 Neither service keeps state in memory between requests, so both scale horizontally. Sessions
@@ -59,19 +59,20 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
 Matching (`packages/jobs/src/match.ts`) is deterministic and costs nothing to run, so the whole
 feed can be ranked. The score is skill overlap (50%), title similarity to the target roles (30%)
 and location fit (20%). It is reduced for a seniority mismatch or pay below the salary floor, and
-each score comes with the reasons behind it. Claude's deeper fit analysis runs only when a
+each score comes with the reasons behind it. The AI's deeper fit analysis runs only when a
 candidate asks for it on a single job.
 
-## Claude integration
+## AI integration
 
 All AI features go through the `AiProvider` interface in `packages/ai`: resume import and
 generation, tailoring, fit analysis, cover letters, application answers, outreach, interview
 prep and the Studio chat. Its production implementation calls the Anthropic TypeScript SDK:
 
-- **Model and reasoning.** Claude Opus 5 (`AI_MODEL`) with adaptive thinking. The effort level is
-  set per feature: `high` for writing that is judged on quality (generation, tailoring) and
-  `medium` for interactive and extraction work. Models older than Claude 4.6, such as Claude
-  Haiku 4.5, don't support adaptive thinking or effort, so requests to them leave both out.
+- **Model and reasoning.** The model is set by `AI_MODEL` (default `claude-opus-5`) and runs with
+  adaptive thinking. The effort level is set per feature: `high` for writing that is judged on
+  quality (generation, tailoring) and `medium` for interactive and extraction work. Older models
+  such as `claude-haiku-4-5` don't support adaptive thinking or effort, so requests to them leave
+  both out.
 - **Structured outputs.** Every non-chat feature gets JSON that matches a Zod schema, so results
   are typed and validated before they reach the database or the UI. Most features request a
   structured output. Tailoring returns its result through a non-strict `submit_result` tool
@@ -79,24 +80,25 @@ prep and the Studio chat. Its production implementation calls the Anthropic Type
   a size limit, and a whole resume plus the tailoring notes exceeds it.
 - **Streaming.** Requests stream and are collected with `finalMessage()`, which avoids timeouts
   on long outputs. The Studio chat streams to the browser over server-sent events.
-- **Studio editing tool.** In the Studio, Claude edits the resume through an `update_resume` tool
+- **Studio editing tool.** In the Studio, the AI edits the resume through an `update_resume` tool
   with eager input streaming. The tool isn't strict because of the same grammar limit. Every tool
   input is validated against the resume schema before it is applied, and each applied edit is
   saved as a revision the user can restore.
-- **Refusal fallbacks.** On models whose safety classifiers can decline a request (Claude Opus 5
-  and 5.5, Claude Fable 5 and 5.1), requests opt into server-side fallbacks, so a declined
-  request is retried by the API on a fallback model rather than failing.
+- **Refusal fallbacks.** On models whose safety classifiers can decline a request
+  (`claude-opus-5`, `claude-opus-5-5`, `claude-fable-5` and `claude-fable-5-1`), requests opt into
+  server-side fallbacks, so a declined request is retried by the API on a fallback model rather
+  than failing.
 - **Prompt caching.** System prompts are marked cacheable, which cuts cost and latency on repeat
   calls.
 - **Untrusted content.** Resumes, job descriptions and uploaded documents are wrapped in tagged
-  blocks, and the prompts instruct Claude to treat them as data, never as instructions.
+  blocks, and the prompts instruct the model to treat them as data, never as instructions.
 - **Metering and budgets.** Each call records its tokens and estimated cost in `ai_usage`. Before
   a call, the user's spend this month is checked against their plan's budget.
 - **Testing.** `AI_PROVIDER=mock` swaps in a deterministic provider for local development and the
   end-to-end suite. The configuration refuses it when `NODE_ENV=production`.
 
-Resume import accepts PDFs, which are sent to Claude as document blocks; Word files, which are
-converted to text with mammoth; and pasted text. Claude extracts a structured resume (see
+Resume import accepts PDFs, which are sent to the model as document blocks; Word files, which are
+converted to text with mammoth; and pasted text. The model extracts a structured resume (see
 `packages/resume/src/schema.ts`). The same structure feeds the live HTML preview, the PDF
 renderer (`@react-pdf/renderer`), the Word renderer (`docx`) and the ATS readiness check.
 

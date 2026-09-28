@@ -39,7 +39,7 @@ async function jobContextFor(jobId: string | null) {
 
 /**
  * Resume Studio chat turn, streamed to the browser as Server-Sent Events:
- * `text` deltas as Claude writes, `resume` when an edit is applied (already saved as a new
+ * `text` deltas as the AI writes, `resume` when an edit is applied (already saved as a new
  * version), then `done` or `error`.
  */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -87,7 +87,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
               resume.id,
               event.resume,
               "ai_chat",
-              event.summary || "Edited with Claude",
+              event.summary || "Edited with AI",
             );
             lastRevisionId = saved.revisionId;
             send({ ...event, resume: saved.resume.content });
