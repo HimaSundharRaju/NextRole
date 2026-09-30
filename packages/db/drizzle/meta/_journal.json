@@ -78,6 +78,13 @@
       "when": 1790531786644,
       "tag": "0010_ghost_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790809422665,
+      "tag": "0011_concierge_board",
+      "breakpoints": true
     }
   ]
 }

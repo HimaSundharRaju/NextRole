@@ -59,6 +59,13 @@ export const SENIORITY_LEVELS = [
 ] as const;
 export type Seniority = (typeof SENIORITY_LEVELS)[number];
 
+/** One of a Concierge client's standard answers, reused on every application. */
+export interface BankAnswer {
+  question: string;
+  answer: string;
+  updatedAt: string;
+}
+
 export const profiles = pgTable(
   "profiles",
   {
@@ -90,6 +97,17 @@ export const profiles = pgTable(
     autoPrepareEnabled: boolean("auto_prepare_enabled").notNull().default(false),
     autoPrepareMinScore: integer("auto_prepare_min_score").notNull().default(80),
     autoPrepareDailyLimit: integer("auto_prepare_daily_limit").notNull().default(3),
+    /** Concierge: the dedicated job-search Gmail the client shares with their specialist. */
+    jobSearchEmail: text("job_search_email").notNull().default(""),
+    /** When the specialist confirmed Gmail delegation works. */
+    inboxAccessConfirmedAt: timestamp("inbox_access_confirmed_at", { withTimezone: true }),
+    /** When the client authorized their specialist to apply on their behalf. */
+    applyConsentAt: timestamp("apply_consent_at", { withTimezone: true }),
+    /** Applications per week; null uses CONCIERGE_WEEKLY_TARGET. */
+    weeklyTargetOverride: integer("weekly_target_override"),
+    /** Set while the client has paused their search. */
+    conciergePausedAt: timestamp("concierge_paused_at", { withTimezone: true }),
+    answerBank: jsonb("answer_bank").$type<BankAnswer[]>().notNull().default([]),
     createdAt,
     updatedAt,
   },
@@ -490,6 +508,11 @@ export const APPLICATION_STATUSES = [
   "offer",
   "rejected",
   "withdrawn",
+  // Concierge: a specialist proposes, the client approves or skips, staff submit.
+  "proposed",
+  "approved",
+  "waiting_on_client",
+  "skipped",
 ] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
@@ -506,6 +529,17 @@ export interface SubmissionReceipt {
   coverLetter: string;
   answers: ApplicationAnswer[];
 }
+
+/** Why a client declined a proposed job; "expired" is set when a proposal goes unanswered. */
+export const SKIP_REASONS = [
+  "company",
+  "location",
+  "pay",
+  "not_a_fit",
+  "other",
+  "expired",
+] as const;
+export type SkipReason = (typeof SKIP_REASONS)[number];
 
 export const applications = pgTable(
   "applications",
@@ -530,6 +564,18 @@ export const applications = pgTable(
     createdByUserId: text("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    /** Concierge: the specialist who proposed the job, their note, and the client's decision. */
+    proposedByUserId: text("proposed_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    proposedAt: timestamp("proposed_at", { withTimezone: true }),
+    proposalNote: text("proposal_note").notNull().default(""),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    skipReason: text("skip_reason", { enum: SKIP_REASONS }),
+    /** Who pressed Submit on the employer's site: the specialist or the client. */
+    submittedByUserId: text("submitted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     createdAt,
     updatedAt,
   },
@@ -549,6 +595,13 @@ export const APPLICATION_EVENT_TYPES = [
   "outreach_drafted",
   "submitted",
   "auto_prepared",
+  "proposed",
+  "approved",
+  "skipped",
+  "question_asked",
+  "question_answered",
+  /** Internal to staff; never shown to the client. */
+  "staff_note",
 ] as const;
 
 export const applicationEvents = pgTable(
@@ -564,6 +617,33 @@ export const applicationEvents = pgTable(
     createdAt,
   },
   (table) => [index("application_events_app_idx").on(table.applicationId, table.createdAt)],
+).enableRLS();
+
+export const CLIENT_TASK_KINDS = ["setup_inbox", "answer_question"] as const;
+export type ClientTaskKind = (typeof CLIENT_TASK_KINDS)[number];
+export const CLIENT_TASK_STATUSES = ["open", "done", "cancelled"] as const;
+
+/** Something a Concierge client must do: share their job-search inbox, or answer a question. */
+export const clientTasks = pgTable(
+  "client_tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    specialistId: text("specialist_id").references(() => users.id, { onDelete: "set null" }),
+    applicationId: uuid("application_id").references(() => applications.id, {
+      onDelete: "cascade",
+    }),
+    kind: text("kind", { enum: CLIENT_TASK_KINDS }).notNull(),
+    question: text("question").notNull().default(""),
+    answer: text("answer").notNull().default(""),
+    saveToBank: boolean("save_to_bank").notNull().default(false),
+    status: text("status", { enum: CLIENT_TASK_STATUSES }).notNull().default("open"),
+    createdAt,
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [index("client_tasks_client_idx").on(table.clientId, table.status)],
 ).enableRLS();
 
 export const OUTREACH_CHANNELS = ["email", "linkedin"] as const;
@@ -598,6 +678,7 @@ export const NOTIFICATION_TYPES = [
   "follow_up",
   "application_ready",
   "system",
+  "concierge",
 ] as const;
 
 export const notifications = pgTable(
@@ -752,6 +833,8 @@ export const specialistAssignments = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     active: boolean("active").notNull().default(true),
+    /** When the specialist last opened this client's workspace, for "new answers" counts. */
+    lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
     createdAt,
   },
   (table) => [
