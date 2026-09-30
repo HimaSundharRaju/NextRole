@@ -24,3 +24,5 @@ export {
 export { slugify } from "./slug";
 export { findTailoredResume, resumeHash, saveTailoredResume, type TailorTarget } from "./tailored";
 export { monthlyUnits, monthlyUsage, recordUsageEvent, type MonthlyUsage } from "./usage";
+
+export * from "./concierge";
