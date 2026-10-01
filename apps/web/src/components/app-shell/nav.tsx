@@ -29,35 +29,51 @@ const LINKS = [
 
 function NavLinks({ role, onNavigate }: { role: string; onNavigate?: () => void }) {
   const pathname = usePathname();
-  const links = [
-    ...LINKS,
+  const staff = [
     ...(role === "specialist" || role === "admin"
-      ? [{ href: "/specialist", label: "Clients", icon: UsersRound }]
+      ? [{ href: "/specialist", label: "Concierge board", icon: UsersRound }]
       : []),
     ...(role === "admin" ? [{ href: "/admin", label: "Admin", icon: Shield }] : []),
   ];
+  const renderLink = ({
+    href,
+    label,
+    icon: Icon,
+  }: {
+    href: string;
+    label: string;
+    icon: typeof Shield;
+  }) => {
+    const active = pathname === href || pathname.startsWith(`${href}/`);
+    return (
+      <Link
+        key={href}
+        href={href}
+        onClick={onNavigate}
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+          active
+            ? "bg-primary-soft text-primary"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        )}
+      >
+        <Icon className="h-4 w-4" aria-hidden />
+        {label}
+      </Link>
+    );
+  };
   return (
     <nav className="flex flex-col gap-1" aria-label="App">
-      {links.map(({ href, label, icon: Icon }) => {
-        const active = pathname === href || pathname.startsWith(`${href}/`);
-        return (
-          <Link
-            key={href}
-            href={href}
-            onClick={onNavigate}
-            aria-current={active ? "page" : undefined}
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              active
-                ? "bg-primary-soft text-primary"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
-            )}
-          >
-            <Icon className="h-4 w-4" aria-hidden />
-            {label}
-          </Link>
-        );
-      })}
+      {LINKS.map(renderLink)}
+      {staff.length > 0 ? (
+        <>
+          <p className="mt-4 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Staff
+          </p>
+          {staff.map(renderLink)}
+        </>
+      ) : null}
     </nav>
   );
 }
