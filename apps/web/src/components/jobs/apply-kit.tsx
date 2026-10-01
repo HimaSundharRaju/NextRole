@@ -53,7 +53,7 @@ interface TailorNotes {
 }
 
 /** What the kit is for: a job on the board, or an application with a pasted job description. */
-export type KitTarget = { jobId: string } | { applicationId: string };
+export type KitTarget = ({ jobId: string } | { applicationId: string }) & { clientId?: string };
 
 export type KitAllowances = Record<"tailor" | "letter" | "answers" | "outreach", UnitAllowance>;
 
@@ -399,7 +399,13 @@ export function ApplyKit({
               onClick={() =>
                 run(
                   "save",
-                  () => saveKit({ applicationId: application.id, coverLetter, answers }),
+                  () =>
+                    saveKit({
+                      applicationId: application.id,
+                      clientId: target.clientId,
+                      coverLetter,
+                      answers,
+                    }),
                   () => {
                     setDirty(false);
                     toast.success("Changes saved.");
@@ -535,14 +541,15 @@ export function ApplyKit({
                       }
                       if (!applicationId)
                         return { ok: false as const, error: "Save the job first." };
-                      return markApplied({ applicationId });
+                      return markApplied({ applicationId, clientId: target.clientId });
                     },
                     () =>
                       toast.success("Marked as applied. We'll remind you to follow up in a week."),
                   )
                 }
               >
-                <CheckCircle2 className="h-4 w-4" aria-hidden /> I&apos;ve applied
+                <CheckCircle2 className="h-4 w-4" aria-hidden />{" "}
+                {target.clientId ? "Mark submitted" : "I've applied"}
               </Button>
             )}
           </div>

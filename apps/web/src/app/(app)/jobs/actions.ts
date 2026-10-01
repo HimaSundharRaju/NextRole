@@ -17,6 +17,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { authedAction } from "@/server/action";
 import { aiFor } from "@/server/ai";
+import { recordAudit } from "@/server/audit";
+import { assertCanActForClient, loadClientUser } from "@/server/concierge";
 import {
   addEvent,
   ensureApplicationForJob,
@@ -38,7 +40,13 @@ const jobIdSchema = z.object({ jobId: z.uuid() });
  * pasted in. Exactly one of the two ids is given.
  */
 function kitSchema<T extends z.ZodRawShape>(shape: T) {
-  return z.object({ jobId: z.uuid().optional(), applicationId: z.uuid().optional(), ...shape });
+  return z.object({
+    jobId: z.uuid().optional(),
+    applicationId: z.uuid().optional(),
+    /** A specialist working on an assigned client's kit. */
+    clientId: z.string().min(1).optional(),
+    ...shape,
+  });
 }
 
 interface KitTarget {
@@ -55,6 +63,16 @@ async function primaryResumeOrThrow(userId: string) {
   return primary;
 }
 
+/** Who the kit belongs to, and who is using it: a specialist can work on an assigned client's kit. */
+async function kitOwner(
+  user: SessionUser,
+  clientId: string | undefined,
+): Promise<{ owner: SessionUser; actorId: string }> {
+  if (!clientId || clientId === user.id) return { owner: user, actorId: user.id };
+  await assertCanActForClient(user, clientId);
+  return { owner: await loadClientUser(clientId), actorId: user.id };
+}
+
 /** The resume an application should use: its tailored version if there is one, else the main resume. */
 async function resumeForApplication(user: SessionUser, application: ApplicationRow) {
   if (application.resumeId) {
@@ -67,30 +85,31 @@ async function resumeForApplication(user: SessionUser, application: ApplicationR
   return primaryResumeOrThrow(user.id);
 }
 
-async function loadJobAndApplication(user: SessionUser, jobId: string) {
-  const detail = await getJobDetail(user.id, jobId);
+async function loadJobAndApplication(owner: SessionUser, actorId: string, jobId: string) {
+  const detail = await getJobDetail(owner.id, jobId);
   const application = await ensureApplicationForJob(
-    user.id,
+    owner.id,
     detail.job,
     detail.company.name,
-    user.id,
+    actorId,
   );
   return { detail, application, job: jobContextOf(detail.job, detail.company.name) };
 }
 
 async function loadKitTarget(
-  user: SessionUser,
+  owner: SessionUser,
+  actorId: string,
   input: { jobId?: string; applicationId?: string },
 ): Promise<KitTarget> {
   if (Boolean(input.jobId) === Boolean(input.applicationId)) {
     throw new ValidationError("Choose a job or an application.");
   }
   if (input.jobId) {
-    const { application, job } = await loadJobAndApplication(user, input.jobId);
+    const { application, job } = await loadJobAndApplication(owner, actorId, input.jobId);
     return { application, job, jobId: input.jobId, tailorTarget: { jobId: input.jobId } };
   }
-  const application = await getApplication(user.id, input.applicationId!);
-  if (application.jobId) return loadKitTarget(user, { jobId: application.jobId });
+  const application = await getApplication(owner.id, input.applicationId!);
+  if (application.jobId) return loadKitTarget(owner, actorId, { jobId: application.jobId });
   if (!application.jobDescription.trim()) {
     throw new ValidationError("Paste the job description first.");
   }
@@ -107,10 +126,14 @@ async function loadKitTarget(
   };
 }
 
-function refresh(jobId: string | null, applicationId?: string) {
+function refresh(jobId: string | null, applicationId?: string, clientId?: string) {
   if (jobId) revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/applications");
   if (applicationId) revalidatePath(`/applications/${applicationId}`);
+  if (clientId) {
+    revalidatePath(`/specialist/${clientId}`);
+    if (applicationId) revalidatePath(`/specialist/${clientId}/applications/${applicationId}`);
+  }
 }
 
 export const saveJob = authedAction(jobIdSchema, async ({ jobId }, user) => {
@@ -171,17 +194,18 @@ export const tailorResumeForJob = authedAction(
     /** Make a new version even when one from the current main resume exists. */
     force: z.boolean().optional(),
   }),
-  async ({ instructions, force, ...ids }, user) => {
-    const primary = await primaryResumeOrThrow(user.id);
-    const { application, job, jobId, tailorTarget } = await loadKitTarget(user, ids);
+  async ({ instructions, force, clientId, ...ids }, user) => {
+    const { owner, actorId } = await kitOwner(user, clientId);
+    const primary = await primaryResumeOrThrow(owner.id);
+    const { application, job, jobId, tailorTarget } = await loadKitTarget(owner, actorId, ids);
     const sourceHash = resumeHash(primary.content);
     // A version made from this exact main resume is reused, which costs no tokens.
     const existing =
-      force || instructions ? null : await findTailoredResume(user.id, tailorTarget, sourceHash);
+      force || instructions ? null : await findTailoredResume(owner.id, tailorTarget, sourceHash);
     let resumeId = existing?.id;
     let notes: TailorNotes | null = existing?.tailorNotes ?? null;
     if (!resumeId) {
-      const { ai, ctx, charge } = await aiFor(user, "tailor");
+      const { ai, ctx, charge } = await aiFor(owner, "tailor");
       const result = await ai.tailorResume({ resume: primary.content, job, instructions }, ctx);
       notes = {
         summaryOfChanges: result.summaryOfChanges,
@@ -190,7 +214,7 @@ export const tailorResumeForJob = authedAction(
         suggestions: result.suggestions,
       };
       const created = await saveTailoredResume({
-        userId: user.id,
+        userId: owner.id,
         target: tailorTarget,
         title: `${job.company} — ${job.title}`,
         content: result.resume,
@@ -201,13 +225,13 @@ export const tailorResumeForJob = authedAction(
       });
       resumeId = created.id;
       await charge(resumeId);
-      await addEvent(application.id, user.id, "kit_generated", { part: "resume", resumeId });
+      await addEvent(application.id, actorId, "kit_generated", { part: "resume", resumeId });
     }
-    await updateApplication(user.id, application.id, {
+    await updateApplication(owner.id, application.id, {
       resumeId,
       ...(application.status === "saved" ? { status: "preparing" as const } : {}),
     });
-    refresh(jobId, application.id);
+    refresh(jobId, application.id, clientId);
     return {
       resumeId,
       applicationId: application.id,
@@ -223,18 +247,19 @@ export const tailorResumeForJob = authedAction(
 
 export const writeCoverLetter = authedAction(
   kitSchema({ recipientName: z.string().trim().max(100).optional() }),
-  async ({ recipientName, ...ids }, user) => {
-    const { application, job, jobId } = await loadKitTarget(user, ids);
-    const resume = await resumeForApplication(user, application);
-    const { ai, ctx, charge } = await aiFor(user, "letter");
+  async ({ recipientName, clientId, ...ids }, user) => {
+    const { owner, actorId } = await kitOwner(user, clientId);
+    const { application, job, jobId } = await loadKitTarget(owner, actorId, ids);
+    const resume = await resumeForApplication(owner, application);
+    const { ai, ctx, charge } = await aiFor(owner, "letter");
     const letter = await ai.writeCoverLetter(
-      { resume: resume.content, job, profile: await candidateProfile(user.id), recipientName },
+      { resume: resume.content, job, profile: await candidateProfile(owner.id), recipientName },
       ctx,
     );
-    await updateApplication(user.id, application.id, { coverLetter: letter.body });
+    await updateApplication(owner.id, application.id, { coverLetter: letter.body });
     await charge(application.id);
-    await addEvent(application.id, user.id, "kit_generated", { part: "cover_letter" });
-    refresh(jobId, application.id);
+    await addEvent(application.id, actorId, "kit_generated", { part: "cover_letter" });
+    refresh(jobId, application.id, clientId);
     return letter;
   },
   { rateLimit: "aiHeavy" },
@@ -247,12 +272,13 @@ export const answerApplicationQuestions = authedAction(
       .min(1, "Add at least one question")
       .max(15),
   }),
-  async ({ questions, ...ids }, user) => {
-    const { application, job, jobId } = await loadKitTarget(user, ids);
-    const resume = await resumeForApplication(user, application);
-    const { ai, ctx, charge } = await aiFor(user, "answers");
+  async ({ questions, clientId, ...ids }, user) => {
+    const { owner, actorId } = await kitOwner(user, clientId);
+    const { application, job, jobId } = await loadKitTarget(owner, actorId, ids);
+    const resume = await resumeForApplication(owner, application);
+    const { ai, ctx, charge } = await aiFor(owner, "answers");
     const result = await ai.answerQuestions(
-      { resume: resume.content, job, profile: await candidateProfile(user.id), questions },
+      { resume: resume.content, job, profile: await candidateProfile(owner.id), questions },
       ctx,
     );
     const merged = new Map(application.answers.map((item) => [item.question, item.answer]));
@@ -260,13 +286,13 @@ export const answerApplicationQuestions = authedAction(
     const answers = [...merged.entries()]
       .map(([question, answer]) => ({ question, answer }))
       .slice(-30);
-    await updateApplication(user.id, application.id, { answers });
+    await updateApplication(owner.id, application.id, { answers });
     await charge(application.id);
-    await addEvent(application.id, user.id, "kit_generated", {
+    await addEvent(application.id, actorId, "kit_generated", {
       part: "answers",
       count: result.answers.length,
     });
-    refresh(jobId, application.id);
+    refresh(jobId, application.id, clientId);
     return result.answers;
   },
   { rateLimit: "aiHeavy" },
@@ -278,16 +304,17 @@ export const draftOutreach = authedAction(
     recipientTitle: z.string().trim().max(100).optional(),
     recipientEmail: z.union([z.email(), z.literal("")]).optional(),
   }),
-  async ({ recipientName, recipientTitle, recipientEmail, ...ids }, user) => {
-    const { application, job, jobId } = await loadKitTarget(user, ids);
-    const resume = await resumeForApplication(user, application);
-    const { ai, ctx, charge } = await aiFor(user, "outreach");
+  async ({ recipientName, recipientTitle, recipientEmail, clientId, ...ids }, user) => {
+    const { owner, actorId } = await kitOwner(user, clientId);
+    const { application, job, jobId } = await loadKitTarget(owner, actorId, ids);
+    const resume = await resumeForApplication(owner, application);
+    const { ai, ctx, charge } = await aiFor(owner, "outreach");
     const draft = await ai.draftOutreach(
       {
         resume: resume.content,
         job,
         recipient: recipientName ? { name: recipientName, title: recipientTitle ?? "" } : null,
-        profile: await candidateProfile(user.id),
+        profile: await candidateProfile(owner.id),
       },
       ctx,
     );
@@ -297,22 +324,22 @@ export const draftOutreach = authedAction(
       recipientEmail: recipientEmail ?? "",
     };
     const shared = { applicationId: application.id, jobId, ...recipient };
-    await createOutreach(user.id, {
+    await createOutreach(owner.id, {
       ...shared,
       channel: "email",
       subject: draft.email.subject,
       body: draft.email.body,
     });
-    await createOutreach(user.id, { ...shared, channel: "linkedin", body: draft.linkedinNote });
-    await createOutreach(user.id, {
+    await createOutreach(owner.id, { ...shared, channel: "linkedin", body: draft.linkedinNote });
+    await createOutreach(owner.id, {
       ...shared,
       channel: "email",
       subject: draft.followUp.subject,
       body: draft.followUp.body,
     });
     await charge(application.id);
-    await addEvent(application.id, user.id, "outreach_drafted", {});
-    refresh(jobId, application.id);
+    await addEvent(application.id, actorId, "outreach_drafted", {});
+    refresh(jobId, application.id, clientId);
     revalidatePath("/outreach");
     return draft;
   },
@@ -353,6 +380,7 @@ export const prepareInterview = authedAction(
 export const saveKit = authedAction(
   z.object({
     applicationId: z.uuid(),
+    clientId: z.string().min(1).optional(),
     coverLetter: z.string().max(10_000),
     answers: z
       .array(
@@ -360,20 +388,30 @@ export const saveKit = authedAction(
       )
       .max(30),
   }),
-  async ({ applicationId, coverLetter, answers }, user) => {
-    await updateApplication(user.id, applicationId, { coverLetter, answers });
-    revalidatePath(`/applications/${applicationId}`);
+  async ({ applicationId, clientId, coverLetter, answers }, user) => {
+    const { owner } = await kitOwner(user, clientId);
+    await updateApplication(owner.id, applicationId, { coverLetter, answers });
+    refresh(null, applicationId, clientId);
     return null;
   },
 );
 
 export const markApplied = authedAction(
-  z.object({ applicationId: z.uuid() }),
-  async ({ applicationId }, user) => {
-    const application = await markSubmitted(user.id, applicationId, user.id);
+  z.object({ applicationId: z.uuid(), clientId: z.string().min(1).optional() }),
+  async ({ applicationId, clientId }, user) => {
+    const { owner, actorId } = await kitOwner(user, clientId);
+    const application = await markSubmitted(owner.id, applicationId, actorId);
+    if (owner.id !== actorId) {
+      await recordAudit({
+        actorUserId: actorId,
+        action: "specialist.application.submitted",
+        targetType: "application",
+        targetId: applicationId,
+        metadata: { clientId: owner.id },
+      });
+    }
     if (application.jobId) revalidatePath(`/jobs/${application.jobId}`);
-    revalidatePath("/applications");
-    revalidatePath(`/applications/${applicationId}`);
+    refresh(null, applicationId, clientId);
     revalidatePath("/dashboard");
     return null;
   },
