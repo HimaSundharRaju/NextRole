@@ -180,4 +180,123 @@ describe.skipIf(!TEST_DATABASE_URL)("concierge (Postgres integration)", () => {
       expect(row).toMatchObject({ status: "skipped", skipReason: "expired" });
     });
   });
+
+  describe("questions and submission", () => {
+    const approvedApplication = async (jobIndex = 0) => {
+      const { created } = await propose([jobIds[jobIndex]!]);
+      await db.decideProposals(db.getDb(), {
+        clientId: client,
+        applicationIds: created,
+        decision: "approve",
+      });
+      return created[0]!;
+    };
+
+    it("asks the client a question and resumes when they answer", async () => {
+      const database = db.getDb();
+      const id = await approvedApplication();
+      await expect(
+        db.askClient(database, {
+          clientId: client,
+          specialistId: specialist,
+          applicationId: id,
+          question: " ",
+        }),
+      ).rejects.toMatchObject({ code: "not_allowed" });
+      const { taskId } = await db.askClient(database, {
+        clientId: client,
+        specialistId: specialist,
+        applicationId: id,
+        question: "What salary are you targeting?",
+      });
+      expect(await statusOf(id)).toBe("waiting_on_client");
+      await db.answerTask(database, {
+        clientId: client,
+        taskId,
+        answer: "$180k base",
+        saveToBank: true,
+      });
+      expect(await statusOf(id)).toBe("approved");
+      const [profile] = await database
+        .select({ bank: db.profiles.answerBank })
+        .from(db.profiles)
+        .where(drizzle.eq(db.profiles.userId, client));
+      expect(profile?.bank).toEqual([
+        expect.objectContaining({
+          question: "What salary are you targeting?",
+          answer: "$180k base",
+        }),
+      ]);
+      await expect(
+        db.answerTask(database, { clientId: client, taskId, answer: "again", saveToBank: false }),
+      ).rejects.toMatchObject({ code: "conflict" });
+    });
+
+    it("only lets staff submit once the client has consented", async () => {
+      const database = db.getDb();
+      const id = await approvedApplication();
+      const staffSubmit = () =>
+        db.submitApplication(database, {
+          ownerId: client,
+          applicationId: id,
+          actorId: specialist,
+          actor: "staff",
+        });
+      await expect(staffSubmit()).rejects.toMatchObject({ code: "consent_required" });
+      await database
+        .update(db.profiles)
+        .set({ applyConsentAt: new Date() })
+        .where(drizzle.eq(db.profiles.userId, client));
+      const row = await staffSubmit();
+      expect(row).toMatchObject({ status: "applied", submittedByUserId: specialist });
+      expect(row.receipt?.submittedAt).toBeTruthy();
+      expect(row.appliedAt).toBeInstanceOf(Date);
+    });
+
+    it("lets the client submit themselves without the consent", async () => {
+      const id = await approvedApplication();
+      const row = await db.submitApplication(db.getDb(), {
+        ownerId: client,
+        applicationId: id,
+        actorId: client,
+        actor: "client",
+      });
+      expect(row).toMatchObject({ status: "applied", submittedByUserId: client });
+    });
+
+    it("refuses to submit a skipped job", async () => {
+      const database = db.getDb();
+      const { created } = await propose([jobIds[1]!]);
+      await db.decideProposals(database, {
+        clientId: client,
+        applicationIds: created,
+        decision: "skip",
+        reason: "company",
+      });
+      await expect(
+        db.submitApplication(database, {
+          ownerId: client,
+          applicationId: created[0]!,
+          actorId: client,
+          actor: "client",
+        }),
+      ).rejects.toMatchObject({ code: "not_allowed" });
+    });
+
+    it("keeps staff notes on the application's timeline", async () => {
+      const database = db.getDb();
+      const id = await approvedApplication();
+      await db.addStaffNote(database, {
+        clientId: client,
+        applicationId: id,
+        specialistId: specialist,
+        note: "Referral from Sam",
+      });
+      const events = await database
+        .select({ type: db.applicationEvents.type })
+        .from(db.applicationEvents)
+        .where(drizzle.eq(db.applicationEvents.applicationId, id));
+      expect(events.map((event) => event.type)).toContain("staff_note");
+    });
+  });
 });
