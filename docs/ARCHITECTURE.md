@@ -204,6 +204,32 @@ right away. The queue runs two jobs at a time with a rate limit, separate from a
 reminders. It needs `ANTHROPIC_API_KEY` in the worker's environment; without it the worker logs
 that auto-prepare is off and skips queueing.
 
+## Concierge board
+
+Specialists apply for Concierge clients; the design is in
+`docs/superpowers/specs/2026-09-30-concierge-staff-board-design.md`.
+
+- **Workflow.** Applications gain four steps: `proposed`, `approved`, `waiting_on_client` and
+  `skipped`. `canTransition` (`packages/db/src/concierge/rules.ts`) decides who may make each
+  move: only the client approves or skips, only staff ask questions, and staff can't submit
+  without the client's consent. The tracker's plain status change never lands on one of these
+  steps, and a staff move to `applied` goes through "Mark submitted", so the consent check and
+  the receipt always apply.
+- **Operations.** `packages/db/src/concierge/` holds proposals, questions, submission, setup
+  and the board queries. Every update checks the current step, so a stale change fails with
+  "This changed — refresh" instead of overwriting.
+- **Accounts on employer sites.** The client creates a Gmail used only for applications and
+  shares it with their specialist by Gmail delegation. Staff create employer accounts with it
+  and keep those logins in the team password manager. The app stores no passwords.
+- **Views.**
+  - `/specialist` is the board across a specialist's clients.
+  - `/specialist/[clientId]` is the client workspace, with find, pipeline, profile and timeline
+    tabs.
+  - Clients approve proposals and answer questions at the top of Applications.
+  - Admin → Concierge shows the team's week.
+- **Jobs.** The worker expires proposals left for 7 days (03:30 UTC) and emails a daily digest
+  of new proposals (14:00 UTC).
+
 ## AI integration
 
 All AI features go through the `AiProvider` interface in `packages/ai`: resume import and
