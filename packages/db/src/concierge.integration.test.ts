@@ -299,4 +299,112 @@ describe.skipIf(!TEST_DATABASE_URL)("concierge (Postgres integration)", () => {
       expect(events.map((event) => event.type)).toContain("staff_note");
     });
   });
+
+  describe("client setup and assignment", () => {
+    const profileOf = async () =>
+      (
+        await db.getDb().select().from(db.profiles).where(drizzle.eq(db.profiles.userId, client))
+      )[0];
+    const openTasks = async () =>
+      (
+        await db
+          .getDb()
+          .select()
+          .from(db.clientTasks)
+          .where(drizzle.eq(db.clientTasks.clientId, client))
+      ).filter((task) => task.status === "open");
+
+    it("saves the job-search Gmail with consent, and resets access when it changes", async () => {
+      const database = db.getDb();
+      await expect(
+        db.saveJobSearchSetup(database, {
+          clientId: client,
+          jobSearchEmail: "riya@yahoo.com",
+          consent: true,
+        }),
+      ).rejects.toMatchObject({ code: "not_allowed" });
+      await expect(
+        db.saveJobSearchSetup(database, {
+          clientId: client,
+          jobSearchEmail: "riya.jobs@gmail.com",
+          consent: false,
+        }),
+      ).rejects.toMatchObject({ code: "not_allowed" });
+      await db.saveJobSearchSetup(database, {
+        clientId: client,
+        jobSearchEmail: "Riya.Jobs@gmail.com",
+        consent: true,
+      });
+      await db.confirmInboxAccess(database, { clientId: client, specialistId: specialist });
+      expect((await profileOf())?.inboxAccessConfirmedAt).toBeInstanceOf(Date);
+      await db.saveJobSearchSetup(database, {
+        clientId: client,
+        jobSearchEmail: "riya.search@gmail.com",
+        consent: true,
+      });
+      const profile = await profileOf();
+      expect(profile).toMatchObject({
+        jobSearchEmail: "riya.search@gmail.com",
+        inboxAccessConfirmedAt: null,
+      });
+      expect(profile?.applyConsentAt).toBeInstanceOf(Date);
+    });
+
+    it("won't confirm access before the client enters an address", async () => {
+      await expect(
+        db.confirmInboxAccess(db.getDb(), { clientId: client, specialistId: specialist }),
+      ).rejects.toMatchObject({ code: "not_allowed" });
+    });
+
+    it("moves a client to a new specialist, who needs inbox access again", async () => {
+      const database = db.getDb();
+      await database
+        .insert(db.users)
+        .values({ id: "specialist-2", name: "Sam", email: "sam@example.com", role: "specialist" });
+      await db.saveJobSearchSetup(database, {
+        clientId: client,
+        jobSearchEmail: "riya.jobs@gmail.com",
+        consent: true,
+      });
+      await db.confirmInboxAccess(database, { clientId: client, specialistId: specialist });
+      await db.assignClient(database, { clientId: client, specialistId: "specialist-2" });
+      const assignments = await database
+        .select()
+        .from(db.specialistAssignments)
+        .where(drizzle.eq(db.specialistAssignments.clientId, client));
+      expect(assignments.filter((row) => row.active).map((row) => row.specialistId)).toEqual([
+        "specialist-2",
+      ]);
+      // The old specialist loses access at once; the new one has it.
+      expect(await db.hasActiveAssignment(database, specialist, client)).toBe(false);
+      expect(await db.hasActiveAssignment(database, "specialist-2", client)).toBe(true);
+      expect(await openTasks()).toEqual([
+        expect.objectContaining({ kind: "setup_inbox", specialistId: "specialist-2" }),
+      ]);
+      expect((await profileOf())?.inboxAccessConfirmedAt).toBeNull();
+      // Assigning the same specialist again changes nothing.
+      await db.assignClient(database, { clientId: client, specialistId: "specialist-2" });
+      expect(await openTasks()).toHaveLength(1);
+    });
+
+    it("keeps weekly targets in range, pauses, and tidies the answer bank", async () => {
+      const database = db.getDb();
+      await expect(db.setWeeklyTarget(database, client, 0)).rejects.toMatchObject({
+        code: "not_allowed",
+      });
+      await db.setWeeklyTarget(database, client, 20);
+      await db.setConciergePaused(database, client, true);
+      await db.updateAnswerBank(database, client, [
+        { question: "Notice period?", answer: "Two weeks" },
+        { question: "notice period?", answer: "One month" },
+        { question: "  ", answer: "ignored" },
+      ]);
+      const profile = await profileOf();
+      expect(profile?.weeklyTargetOverride).toBe(20);
+      expect(profile?.conciergePausedAt).toBeInstanceOf(Date);
+      expect(profile?.answerBank).toEqual([
+        expect.objectContaining({ question: "notice period?", answer: "One month" }),
+      ]);
+    });
+  });
 });
