@@ -102,6 +102,7 @@ export function ApplyKit({
   tailored,
   allowances,
   matchScore,
+  submitBlocked = null,
 }: {
   target: KitTarget;
   /** The employer's application page; empty when unknown. */
@@ -111,6 +112,8 @@ export function ApplyKit({
   allowances: KitAllowances;
   /** How well the job matches the main resume; null for pasted job descriptions. */
   matchScore: number | null;
+  /** Why marking it submitted is off, such as missing consent; the button says so. */
+  submitBlocked?: string | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -528,7 +531,7 @@ export function ApplyKit({
             ) : (
               <Button
                 loading={busy === "applied"}
-                disabled={busy !== null}
+                disabled={busy !== null || Boolean(submitBlocked)}
                 onClick={() =>
                   run(
                     "applied",
@@ -553,6 +556,9 @@ export function ApplyKit({
               </Button>
             )}
           </div>
+          {submitBlocked && !applied ? (
+            <p className="mt-2 text-xs text-danger">{submitBlocked}</p>
+          ) : null}
           <p className="mt-2 text-xs text-muted-foreground">
             You submit on the company&apos;s site, so nothing is sent without your review.
           </p>
