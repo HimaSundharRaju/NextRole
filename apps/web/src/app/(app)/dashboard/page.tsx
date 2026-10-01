@@ -1,3 +1,4 @@
+import { clientConcierge, getDb } from "@gettargetrole/db";
 import {
   ArrowRight,
   Briefcase,
@@ -8,6 +9,7 @@ import {
 } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ConciergeSetupCard, ConciergeWeekCard } from "@/components/concierge/setup-card";
 import { JobCard } from "@/components/jobs/job-card";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -43,6 +45,7 @@ export default async function DashboardPage() {
     getPrimaryResume(user.id),
     monthlyUsage(user.id),
   ]);
+  const concierge = user.plan === "concierge" ? await clientConcierge(getDb(), user.id) : null;
   const allowances = allowancesFor(user.plan, usage);
   const budget = PLANS[user.plan].monthlyAiBudgetUsd * 1_000_000;
   const creditsUsed = Math.min(100, Math.round((spend / budget) * 100));
@@ -65,6 +68,23 @@ export default async function DashboardPage() {
           </>
         }
       />
+
+      {concierge ? (
+        <div className="mb-6 grid gap-6 lg:grid-cols-2">
+          <ConciergeSetupCard
+            specialist={concierge.specialist}
+            jobSearchEmail={concierge.setup.jobSearchEmail}
+            consentAt={concierge.setup.consentAt}
+            accessConfirmedAt={concierge.setup.accessConfirmedAt}
+          />
+          <ConciergeWeekCard
+            specialistName={concierge.specialist?.name ?? "Your specialist"}
+            applied={concierge.week.applied}
+            target={concierge.week.target}
+            paused={concierge.setup.paused}
+          />
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Stat label="Applied this week" value={stats.appliedThisWeek} />

@@ -12,6 +12,7 @@ import {
   outreachMessages,
   resumes,
   submitApplication,
+  users,
   type ApplicationStatus,
 } from "@gettargetrole/db";
 import { and, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
@@ -110,7 +111,24 @@ export async function getApplicationDetail(
           .limit(1)
       : Promise.resolve([]),
   ]);
-  return { application, events, outreach, resume: resume ?? null, job: job ?? null };
+  const submittedByName =
+    application.submittedByUserId && application.submittedByUserId !== userId
+      ? ((
+          await db
+            .select({ name: users.name })
+            .from(users)
+            .where(eq(users.id, application.submittedByUserId))
+            .limit(1)
+        )[0]?.name ?? null)
+      : null;
+  return {
+    application,
+    events,
+    outreach,
+    resume: resume ?? null,
+    job: job ?? null,
+    submittedByName,
+  };
 }
 
 export async function addEvent(

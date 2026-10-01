@@ -3,6 +3,7 @@
 import type { JobContext } from "@gettargetrole/ai";
 import { ValidationError } from "@gettargetrole/core/errors";
 import {
+  approveOwnSave,
   findTailoredResume,
   getDb,
   JOB_REPORT_REASONS,
@@ -144,6 +145,7 @@ export const saveJob = authedAction(jobIdSchema, async ({ jobId }, user) => {
     detail.company.name,
     user.id,
   );
+  await approveOwnSave(getDb(), { clientId: user.id, applicationId: application.id });
   refresh(jobId, application.id);
   return { applicationId: application.id };
 });
