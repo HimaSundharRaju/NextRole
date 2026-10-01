@@ -6,11 +6,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useOptimistic, useState, useTransition, type DragEvent, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { StatusOptions } from "@/components/applications/status-options";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Alert } from "@/components/ui/misc";
 import { useToast } from "@/components/ui/toast";
-import { BOARD_COLUMNS, CLOSED_STATUSES, STATUS_META } from "@/lib/statuses";
+import {
+  BOARD_COLUMNS,
+  CLIENT_SELECTABLE_STATUSES,
+  CLOSED_STATUSES,
+  STATUS_META,
+} from "@/lib/statuses";
 import { cn, formatDate, timeAgo } from "@/lib/utils";
 import { addApplication, moveApplication } from "./actions";
 
@@ -63,11 +69,7 @@ function Card({ item, onMove }: { item: BoardItem; onMove: (status: ApplicationS
           className="rounded border border-border bg-card px-1 py-0.5 text-[11px] text-muted-foreground"
           aria-label={`Status for ${item.jobTitle}`}
         >
-          {Object.entries(STATUS_META).map(([value, meta]) => (
-            <option key={value} value={value}>
-              {meta.label}
-            </option>
-          ))}
+          <StatusOptions current={item.status} />
         </select>
       </div>
     </div>
@@ -205,9 +207,9 @@ export function ApplicationBoard({ items }: { items: BoardItem[] }) {
           </div>
           <Field label="Status" htmlFor="status">
             <Select id="status" name="status" defaultValue="applied">
-              {Object.entries(STATUS_META).map(([value, meta]) => (
+              {CLIENT_SELECTABLE_STATUSES.map((value) => (
                 <option key={value} value={value}>
-                  {meta.label}
+                  {STATUS_META[value].label}
                 </option>
               ))}
             </Select>

@@ -1,16 +1,21 @@
 import "server-only";
-import { ConflictError, NotFoundError } from "@gettargetrole/core/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@gettargetrole/core/errors";
 import {
   applicationEvents,
   applications,
+  cancelOpenQuestions,
+  canTransition,
+  CHANGED_MESSAGE,
+  CONCIERGE_STEPS,
   getDb,
   jobs,
   outreachMessages,
   resumes,
+  submitApplication,
   type ApplicationStatus,
-  type SubmissionReceipt,
 } from "@gettargetrole/db";
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
+import { withConcierge } from "@/lib/concierge-errors";
 
 export type ApplicationRow = typeof applications.$inferSelect;
 
@@ -49,14 +54,25 @@ export async function getApplication(
   return row;
 }
 
-export async function getApplicationDetail(userId: string, applicationId: string) {
+export async function getApplicationDetail(
+  userId: string,
+  applicationId: string,
+  options: { includeStaffNotes?: boolean } = {},
+) {
   const application = await getApplication(userId, applicationId);
   const db = getDb();
   const [events, outreach, [resume], [job]] = await Promise.all([
     db
       .select()
       .from(applicationEvents)
-      .where(eq(applicationEvents.applicationId, application.id))
+      .where(
+        options.includeStaffNotes
+          ? eq(applicationEvents.applicationId, application.id)
+          : and(
+              eq(applicationEvents.applicationId, application.id),
+              ne(applicationEvents.type, "staff_note"),
+            ),
+      )
       .orderBy(desc(applicationEvents.createdAt))
       .limit(100),
     db
@@ -201,6 +217,21 @@ export async function changeStatus(
 ): Promise<ApplicationRow> {
   const application = await getApplication(userId, applicationId);
   if (application.status === status) return application;
+  const actor = actorUserId === userId ? "client" : "staff";
+  // Concierge steps have their own actions (propose, decide, ask, answer), so a plain move never
+  // lands on one.
+  if (CONCIERGE_STEPS.includes(status) || !canTransition(application.status, status, actor)) {
+    throw new ValidationError("That move isn't available for this application.");
+  }
+  // A first move to "applied" from a Concierge step, or by staff, is a submission: it needs the
+  // client's consent when staff make it, and keeps a receipt.
+  if (
+    status === "applied" &&
+    !application.appliedAt &&
+    (actor === "staff" || CONCIERGE_STEPS.includes(application.status))
+  ) {
+    return markSubmitted(userId, applicationId, actorUserId);
+  }
   const update: Partial<ApplicationRow> = { status };
   if (status === "applied" && !application.appliedAt) {
     update.appliedAt = new Date();
@@ -210,13 +241,23 @@ export async function changeStatus(
   const [row] = await getDb()
     .update(applications)
     .set(update)
-    .where(and(eq(applications.id, applicationId), eq(applications.userId, userId)))
+    .where(
+      and(
+        eq(applications.id, applicationId),
+        eq(applications.userId, userId),
+        eq(applications.status, application.status),
+      ),
+    )
     .returning();
+  if (!row) throw new ConflictError(CHANGED_MESSAGE);
   await addEvent(application.id, actorUserId, "status_changed", {
     from: application.status,
     to: status,
   });
-  return row!;
+  if (application.status === "waiting_on_client") {
+    await cancelOpenQuestions(getDb(), application.id);
+  }
+  return row;
 }
 
 /** Marks an application as submitted and stores an immutable receipt of exactly what was sent. */
@@ -225,32 +266,14 @@ export async function markSubmitted(
   applicationId: string,
   actorUserId: string,
 ): Promise<ApplicationRow> {
-  const application = await getApplication(userId, applicationId);
-  let resume: SubmissionReceipt["resume"] = null;
-  let resumeTitle = "";
-  if (application.resumeId) {
-    const [row] = await getDb()
-      .select({ content: resumes.content, title: resumes.title })
-      .from(resumes)
-      .where(and(eq(resumes.id, application.resumeId), eq(resumes.userId, userId)))
-      .limit(1);
-    resume = row?.content ?? null;
-    resumeTitle = row?.title ?? "";
-  }
-  const receipt: SubmissionReceipt = {
-    submittedAt: new Date().toISOString(),
-    resumeId: application.resumeId,
-    resumeTitle,
-    resume,
-    coverLetter: application.coverLetter,
-    answers: application.answers,
-  };
-  await getDb()
-    .update(applications)
-    .set({ receipt })
-    .where(and(eq(applications.id, applicationId), eq(applications.userId, userId)));
-  await addEvent(application.id, actorUserId, "submitted", { resumeTitle });
-  return changeStatus(userId, applicationId, "applied", actorUserId);
+  return withConcierge(() =>
+    submitApplication(getDb(), {
+      ownerId: userId,
+      applicationId,
+      actorId: actorUserId,
+      actor: actorUserId === userId ? "client" : "staff",
+    }),
+  );
 }
 
 export async function deleteApplication(userId: string, applicationId: string): Promise<void> {

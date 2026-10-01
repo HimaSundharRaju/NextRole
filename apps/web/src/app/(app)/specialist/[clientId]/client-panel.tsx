@@ -3,10 +3,10 @@
 import type { ApplicationStatus } from "@gettargetrole/db/schema";
 import { useRouter } from "next/navigation";
 import { useTransition, type FormEvent } from "react";
+import { StatusOptions } from "@/components/applications/status-options";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
-import { STATUS_META } from "@/lib/statuses";
 import { addClientApplication, moveClientApplication } from "../actions";
 
 export function ClientStatusSelect({
@@ -39,11 +39,7 @@ export function ClientStatusSelect({
         })
       }
     >
-      {Object.entries(STATUS_META).map(([value, meta]) => (
-        <option key={value} value={value}>
-          {meta.label}
-        </option>
-      ))}
+      <StatusOptions current={status} />
     </Select>
   );
 }

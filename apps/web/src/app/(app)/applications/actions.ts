@@ -3,6 +3,7 @@
 import { APPLICATION_STATUSES } from "@gettargetrole/db/schema";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { CLIENT_SELECTABLE_STATUSES } from "@/lib/statuses";
 import { authedAction } from "@/server/action";
 import {
   addEvent,
@@ -56,7 +57,7 @@ export const addApplication = authedAction(
     jobTitle: z.string().trim().min(1, "Job title is required").max(160),
     jobUrl: httpsUrl,
     location: z.string().trim().max(120),
-    status: z.enum(APPLICATION_STATUSES),
+    status: z.enum(CLIENT_SELECTABLE_STATUSES),
     notes: z.string().max(5000),
   }),
   async (input, user) => {

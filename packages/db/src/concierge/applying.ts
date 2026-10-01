@@ -207,7 +207,26 @@ export async function submitApplication(
       data: { from: application.status, to: "applied" },
     },
   ]);
+  if (application.status === "waiting_on_client") await cancelOpenQuestions(db, row.id, now);
   return row;
+}
+
+/** Cancels an application's unanswered questions once it moves on without them. */
+export async function cancelOpenQuestions(
+  db: Database,
+  applicationId: string,
+  now = new Date(),
+): Promise<void> {
+  await db
+    .update(clientTasks)
+    .set({ status: "cancelled", completedAt: now })
+    .where(
+      and(
+        eq(clientTasks.applicationId, applicationId),
+        eq(clientTasks.kind, "answer_question"),
+        eq(clientTasks.status, "open"),
+      ),
+    );
 }
 
 /** An internal note on the application's timeline; the client never sees it. */

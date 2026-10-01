@@ -264,6 +264,44 @@ describe.skipIf(!TEST_DATABASE_URL)("concierge (Postgres integration)", () => {
       expect(row).toMatchObject({ status: "applied", submittedByUserId: client });
     });
 
+    it("cancels open questions on an application that moves on without them", async () => {
+      const database = db.getDb();
+      const openQuestions = () =>
+        database
+          .select({ id: db.clientTasks.id })
+          .from(db.clientTasks)
+          .where(
+            drizzle.and(
+              drizzle.eq(db.clientTasks.kind, "answer_question"),
+              drizzle.eq(db.clientTasks.status, "open"),
+            ),
+          );
+      const submitted = await approvedApplication();
+      await db.askClient(database, {
+        clientId: client,
+        specialistId: specialist,
+        applicationId: submitted,
+        question: "Are you open to relocating?",
+      });
+      await db.submitApplication(database, {
+        ownerId: client,
+        applicationId: submitted,
+        actorId: client,
+        actor: "client",
+      });
+      expect(await openQuestions()).toEqual([]);
+
+      const withdrawn = await approvedApplication(1);
+      await db.askClient(database, {
+        clientId: client,
+        specialistId: specialist,
+        applicationId: withdrawn,
+        question: "What's your notice period?",
+      });
+      await db.cancelOpenQuestions(database, withdrawn);
+      expect(await openQuestions()).toEqual([]);
+    });
+
     it("refuses to submit a skipped job", async () => {
       const database = db.getDb();
       const { created } = await propose([jobIds[1]!]);
