@@ -1,3 +1,5 @@
+import { getDb, profiles, teamOverview } from "@gettargetrole/db";
+import { inArray } from "drizzle-orm";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +23,7 @@ import {
   AssignForm,
   CompanyActions,
   LookUpRequestsButton,
+  TargetForm,
   UnassignButton,
   UserControls,
 } from "./admin-client";
@@ -490,35 +493,152 @@ async function Users({ query, adminId }: { query?: string; adminId: string }) {
 
 async function Specialists() {
   const { specialists, assignments } = await listAssignments();
+  const team = await teamOverview(getDb());
+  const overrides = new Map(
+    (
+      await getDb()
+        .select({ userId: profiles.userId, override: profiles.weeklyTargetOverride })
+        .from(profiles)
+        .where(
+          inArray(
+            profiles.userId,
+            team.clients.map((row) => row.clientId),
+          ),
+        )
+    ).map((row) => [row.userId, row.override]),
+  );
   const byId = new Map(specialists.map((specialist) => [specialist.id, specialist]));
   return (
-    <Card>
-      <CardHeader
-        title="Concierge assignments"
-        description="Specialists can view and update their clients' application pipelines."
-      />
-      <CardBody className="space-y-4">
-        <AssignForm specialists={specialists} />
-        <ul className="divide-y divide-border text-sm">
-          {assignments.map((assignment) => (
-            <li
-              key={`${assignment.specialistId}-${assignment.clientId}`}
-              className="flex items-center justify-between gap-3 py-2"
-            >
-              <span>
-                <span className="font-medium">{assignment.clientName}</span>{" "}
-                <span className="text-muted-foreground">({assignment.clientEmail})</span> →{" "}
-                {byId.get(assignment.specialistId)?.name ?? "Unknown specialist"}
-              </span>
-              <UnassignButton
-                specialistId={assignment.specialistId}
-                clientId={assignment.clientId}
-              />
-            </li>
-          ))}
-        </ul>
-      </CardBody>
-    </Card>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader
+          title="Team this week"
+          description="Applications against targets, proposals waiting and results over the last 30 days."
+        />
+        <CardBody className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="py-2 pr-3">Specialist</th>
+                <th className="py-2 pr-3">Clients</th>
+                <th className="py-2 pr-3">Applied / target</th>
+                <th className="py-2 pr-3">Behind</th>
+                <th className="py-2 pr-3">Proposals waiting</th>
+                <th className="py-2 pr-3">Open questions</th>
+                <th className="py-2 pr-3">Approval rate</th>
+                <th className="py-2">Interview rate</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {team.specialists.map((row) => (
+                <tr key={row.id}>
+                  <td className="py-2 pr-3 font-medium">{row.name}</td>
+                  <td className="py-2 pr-3">{row.clients}</td>
+                  <td className="py-2 pr-3">
+                    {row.appliedThisWeek} / {row.targetTotal}
+                  </td>
+                  <td className={row.behind > 0 ? "py-2 pr-3 text-danger" : "py-2 pr-3"}>
+                    {row.behind}
+                  </td>
+                  <td className="py-2 pr-3">
+                    {row.proposalsWaiting}
+                    {row.oldestProposalDays !== null ? ` (oldest ${row.oldestProposalDays}d)` : ""}
+                  </td>
+                  <td className="py-2 pr-3">{row.openQuestions}</td>
+                  <td className="py-2 pr-3">
+                    {row.approvalRate === null ? "—" : `${row.approvalRate}%`}
+                  </td>
+                  <td className="py-2">
+                    {row.interviewRate === null ? "—" : `${row.interviewRate}%`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardBody>
+      </Card>
+      <Card>
+        <CardHeader title="Clients" />
+        <CardBody className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="py-2 pr-3">Client</th>
+                <th className="py-2 pr-3">Specialist</th>
+                <th className="py-2 pr-3">Setup</th>
+                <th className="py-2 pr-3">This week</th>
+                <th className="py-2 pr-3">Weekly target</th>
+                <th className="py-2 pr-3">Last activity</th>
+                <th className="py-2" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {team.clients.map((row) => (
+                <tr key={row.clientId}>
+                  <td className="py-2 pr-3">
+                    <span className="font-medium">{row.name}</span>{" "}
+                    <span className="text-muted-foreground">({row.email})</span>
+                  </td>
+                  <td className="py-2 pr-3">{row.specialistName}</td>
+                  <td className="py-2 pr-3">
+                    {row.setup === "done"
+                      ? "Done"
+                      : row.setup === "waiting_access"
+                        ? "Waiting for access"
+                        : "Not started"}
+                  </td>
+                  <td className={row.behind ? "py-2 pr-3 text-danger" : "py-2 pr-3"}>
+                    {row.paused ? "Paused" : `${row.appliedThisWeek} / ${row.target}`}
+                  </td>
+                  <td className="py-2 pr-3">
+                    <TargetForm
+                      clientId={row.clientId}
+                      target={row.target}
+                      isOverride={overrides.get(row.clientId) != null}
+                    />
+                  </td>
+                  <td className="py-2 pr-3 text-muted-foreground">
+                    {row.lastActivity ? timeAgo(row.lastActivity) : "—"}
+                  </td>
+                  <td className="py-2">
+                    <Link href={`/specialist/${row.clientId}`} className="text-primary">
+                      Open
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardBody>
+      </Card>
+      <Card>
+        <CardHeader
+          title="Concierge assignments"
+          description="Each client has one specialist; assigning a new one asks the client to share their inbox again."
+        />
+        <CardBody className="space-y-4">
+          <AssignForm specialists={specialists} />
+          <ul className="divide-y divide-border text-sm">
+            {assignments.map((assignment) => (
+              <li
+                key={`${assignment.specialistId}-${assignment.clientId}`}
+                className="flex items-center justify-between gap-3 py-2"
+              >
+                <span>
+                  <span className="font-medium">{assignment.clientName}</span>{" "}
+                  <span className="text-muted-foreground">({assignment.clientEmail})</span> →{" "}
+                  {byId.get(assignment.specialistId)?.name ?? "Unknown specialist"}
+                </span>
+                <UnassignButton
+                  specialistId={assignment.specialistId}
+                  clientId={assignment.clientId}
+                />
+              </li>
+            ))}
+          </ul>
+        </CardBody>
+      </Card>
+    </div>
   );
 }
 

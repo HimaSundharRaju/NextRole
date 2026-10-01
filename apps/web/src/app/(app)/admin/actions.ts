@@ -2,12 +2,14 @@
 
 import { ConflictError, ValidationError } from "@gettargetrole/core/errors";
 import {
+  assignClient,
   ATS_PROVIDERS,
   companies,
   getDb,
   PLANS,
   ROLES,
   sessions,
+  setWeeklyTarget,
   slugify,
   specialistAssignments,
   users,
@@ -18,6 +20,7 @@ import { discoverBoard } from "@gettargetrole/jobs/discovery";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { withConcierge } from "@/lib/concierge-errors";
 import { authedAction } from "@/server/action";
 import { recordAudit } from "@/server/audit";
 import { enqueueCompanyRequests, enqueueCompanySync } from "@/server/queue";
@@ -236,16 +239,10 @@ export const assignSpecialist = authedAction(
       .from(users)
       .where(eq(users.email, clientEmail.toLowerCase()));
     if (!client) throw new ValidationError("No user with that email.");
-    await db
-      .insert(specialistAssignments)
-      .values({ specialistId, clientId: client.id, active: true })
-      .onConflictDoUpdate({
-        target: [specialistAssignments.specialistId, specialistAssignments.clientId],
-        set: { active: true },
-      });
+    await assignClient(db, { clientId: client.id, specialistId });
     await recordAudit({
       actorUserId: user.id,
-      action: "admin.specialist.assign",
+      action: "admin.concierge.assign",
       targetType: "user",
       targetId: client.id,
       metadata: { specialistId },
@@ -274,6 +271,23 @@ export const unassignSpecialist = authedAction(
       targetType: "user",
       targetId: clientId,
       metadata: { specialistId },
+    });
+    revalidatePath("/admin");
+    return null;
+  },
+  adminOnly,
+);
+
+export const setClientWeeklyTarget = authedAction(
+  z.object({ clientId: z.string().min(1), target: z.number().int().min(1).max(100).nullable() }),
+  async ({ clientId, target }, user) => {
+    await withConcierge(() => setWeeklyTarget(getDb(), clientId, target));
+    await recordAudit({
+      actorUserId: user.id,
+      action: "admin.concierge.target",
+      targetType: "user",
+      targetId: clientId,
+      metadata: { target },
     });
     revalidatePath("/admin");
     return null;
