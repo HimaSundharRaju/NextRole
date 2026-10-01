@@ -64,14 +64,27 @@ async function primaryResumeOrThrow(userId: string) {
   return primary;
 }
 
-/** Who the kit belongs to, and who is using it: a specialist can work on an assigned client's kit. */
+/**
+ * Who the kit belongs to, and who is using it: a specialist can work on an assigned client's kit.
+ * That work is audited under `specialist.kit.<part>` when a part is named.
+ */
 async function kitOwner(
   user: SessionUser,
   clientId: string | undefined,
+  part?: "tailor" | "letter" | "answers" | "outreach" | "save",
 ): Promise<{ owner: SessionUser; actorId: string }> {
   if (!clientId || clientId === user.id) return { owner: user, actorId: user.id };
   await assertCanActForClient(user, clientId);
-  return { owner: await loadClientUser(clientId), actorId: user.id };
+  const owner = await loadClientUser(clientId);
+  if (part) {
+    await recordAudit({
+      actorUserId: user.id,
+      action: `specialist.kit.${part}`,
+      targetType: "user",
+      targetId: clientId,
+    });
+  }
+  return { owner, actorId: user.id };
 }
 
 /** The resume an application should use: its tailored version if there is one, else the main resume. */
@@ -197,7 +210,7 @@ export const tailorResumeForJob = authedAction(
     force: z.boolean().optional(),
   }),
   async ({ instructions, force, clientId, ...ids }, user) => {
-    const { owner, actorId } = await kitOwner(user, clientId);
+    const { owner, actorId } = await kitOwner(user, clientId, "tailor");
     const primary = await primaryResumeOrThrow(owner.id);
     const { application, job, jobId, tailorTarget } = await loadKitTarget(owner, actorId, ids);
     const sourceHash = resumeHash(primary.content);
@@ -250,7 +263,7 @@ export const tailorResumeForJob = authedAction(
 export const writeCoverLetter = authedAction(
   kitSchema({ recipientName: z.string().trim().max(100).optional() }),
   async ({ recipientName, clientId, ...ids }, user) => {
-    const { owner, actorId } = await kitOwner(user, clientId);
+    const { owner, actorId } = await kitOwner(user, clientId, "letter");
     const { application, job, jobId } = await loadKitTarget(owner, actorId, ids);
     const resume = await resumeForApplication(owner, application);
     const { ai, ctx, charge } = await aiFor(owner, "letter");
@@ -275,7 +288,7 @@ export const answerApplicationQuestions = authedAction(
       .max(15),
   }),
   async ({ questions, clientId, ...ids }, user) => {
-    const { owner, actorId } = await kitOwner(user, clientId);
+    const { owner, actorId } = await kitOwner(user, clientId, "answers");
     const { application, job, jobId } = await loadKitTarget(owner, actorId, ids);
     const resume = await resumeForApplication(owner, application);
     const { ai, ctx, charge } = await aiFor(owner, "answers");
@@ -307,7 +320,7 @@ export const draftOutreach = authedAction(
     recipientEmail: z.union([z.email(), z.literal("")]).optional(),
   }),
   async ({ recipientName, recipientTitle, recipientEmail, clientId, ...ids }, user) => {
-    const { owner, actorId } = await kitOwner(user, clientId);
+    const { owner, actorId } = await kitOwner(user, clientId, "outreach");
     const { application, job, jobId } = await loadKitTarget(owner, actorId, ids);
     const resume = await resumeForApplication(owner, application);
     const { ai, ctx, charge } = await aiFor(owner, "outreach");
@@ -391,7 +404,7 @@ export const saveKit = authedAction(
       .max(30),
   }),
   async ({ applicationId, clientId, coverLetter, answers }, user) => {
-    const { owner } = await kitOwner(user, clientId);
+    const { owner } = await kitOwner(user, clientId, "save");
     await updateApplication(owner.id, applicationId, { coverLetter, answers });
     refresh(null, applicationId, clientId);
     return null;

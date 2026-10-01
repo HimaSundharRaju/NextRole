@@ -117,6 +117,7 @@ export function ApplyKit({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const clientQuery = target.clientId ? `&client=${encodeURIComponent(target.clientId)}` : "";
   const [busy, setBusy] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -195,20 +196,23 @@ export function ApplyKit({
         <Step done={Boolean(application?.resumeId)} icon={FileText} title="Tailored resume">
           {application?.resumeId ? (
             <div className="flex flex-wrap gap-2">
-              <Link
-                href={`/resumes/${application.resumeId}`}
-                className={buttonVariants({ variant: "secondary", size: "sm" })}
-              >
-                <PenLine className="h-3.5 w-3.5" aria-hidden /> Review in Studio
-              </Link>
+              {/* Studio is the owner's; a specialist downloads the client's copy instead. */}
+              {target.clientId ? null : (
+                <Link
+                  href={`/resumes/${application.resumeId}`}
+                  className={buttonVariants({ variant: "secondary", size: "sm" })}
+                >
+                  <PenLine className="h-3.5 w-3.5" aria-hidden /> Review in Studio
+                </Link>
+              )}
               <a
-                href={`/api/resumes/${application.resumeId}/export?format=pdf`}
+                href={`/api/resumes/${application.resumeId}/export?format=pdf${clientQuery}`}
                 className={buttonVariants({ variant: "secondary", size: "sm" })}
               >
                 <Download className="h-3.5 w-3.5" aria-hidden /> PDF
               </a>
               <a
-                href={`/api/resumes/${application.resumeId}/export?format=docx`}
+                href={`/api/resumes/${application.resumeId}/export?format=docx${clientQuery}`}
                 className={buttonVariants({ variant: "secondary", size: "sm" })}
               >
                 <Download className="h-3.5 w-3.5" aria-hidden /> Word
@@ -500,9 +504,11 @@ export function ApplyKit({
                 <p className="mt-2">{outreach.linkedinNote}</p>
                 <CopyButton text={outreach.linkedinNote} className="mt-2" />
               </div>
-              <Link href="/outreach" className="text-xs font-medium text-primary">
-                All drafts, including a follow-up →
-              </Link>
+              {target.clientId ? null : (
+                <Link href="/outreach" className="text-xs font-medium text-primary">
+                  All drafts, including a follow-up →
+                </Link>
+              )}
             </div>
           ) : null}
         </Step>
