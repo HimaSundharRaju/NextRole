@@ -407,4 +407,108 @@ describe.skipIf(!TEST_DATABASE_URL)("concierge (Postgres integration)", () => {
       ]);
     });
   });
+
+  describe("boards", () => {
+    const now = new Date("2026-09-30T12:00:00Z");
+
+    it("shows the specialist their clients' work and weekly pace", async () => {
+      const database = db.getDb();
+      const { created } = await propose(jobIds, { now });
+      await db.decideProposals(database, {
+        clientId: client,
+        applicationIds: [created[0]!, created[1]!],
+        decision: "approve",
+        now,
+      });
+      await database
+        .update(db.profiles)
+        .set({ applyConsentAt: now })
+        .where(drizzle.eq(db.profiles.userId, client));
+      await db.submitApplication(database, {
+        ownerId: client,
+        applicationId: created[0]!,
+        actorId: specialist,
+        actor: "staff",
+        now,
+      });
+      await database
+        .update(db.jobs)
+        .set({ closedAt: now })
+        .where(drizzle.eq(db.jobs.id, jobIds[1]!));
+      const board = await db.specialistBoard(database, specialist, now);
+      expect(board.cards.map((card) => [card.id, card.column])).toEqual(
+        expect.arrayContaining([
+          [created[0], "applied_week"],
+          [created[1], "approved"],
+          [created[2], "proposed"],
+        ]),
+      );
+      expect(board.cards.find((card) => card.id === created[1])?.postingClosed).toBe(true);
+      expect(board.clients).toEqual([
+        expect.objectContaining({
+          clientId: client,
+          target: 15,
+          appliedThisWeek: 1,
+          behind: true,
+          paused: false,
+        }),
+      ]);
+    });
+
+    it("summarizes the team for admins", async () => {
+      const database = db.getDb();
+      const { created } = await propose([jobIds[0]!, jobIds[1]!], {
+        now: new Date(now.getTime() - 3 * DAY_MS),
+      });
+      await db.decideProposals(database, {
+        clientId: client,
+        applicationIds: [created[0]!],
+        decision: "approve",
+        now,
+      });
+      const team = await db.teamOverview(database, now);
+      expect(team.specialists).toEqual([
+        expect.objectContaining({
+          id: specialist,
+          clients: 1,
+          proposalsWaiting: 1,
+          oldestProposalDays: 3,
+          approvalRate: 100,
+        }),
+      ]);
+      expect(team.clients).toEqual([
+        expect.objectContaining({
+          clientId: client,
+          specialistId: specialist,
+          setup: "not_started",
+          target: 15,
+        }),
+      ]);
+    });
+
+    it("gives the client their proposals, questions and week", async () => {
+      const database = db.getDb();
+      const { created } = await propose([jobIds[0]!, jobIds[1]!], { note: "Payments team" });
+      await db.decideProposals(database, {
+        clientId: client,
+        applicationIds: [created[1]!],
+        decision: "approve",
+      });
+      await db.askClient(database, {
+        clientId: client,
+        specialistId: specialist,
+        applicationId: created[1]!,
+        question: "Open to relocating?",
+      });
+      const view = await db.clientConcierge(database, client);
+      expect(view.specialist).toEqual({ name: "Priya", email: "priya@example.com" });
+      expect(view.proposals).toEqual([
+        expect.objectContaining({ id: created[0], note: "Payments team", proposedByName: "Priya" }),
+      ]);
+      expect(view.questions).toEqual([
+        expect.objectContaining({ question: "Open to relocating?" }),
+      ]);
+      expect(view.week).toEqual({ applied: 0, target: 15 });
+    });
+  });
 });

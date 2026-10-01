@@ -69,6 +69,9 @@ export async function proposeJobs(
     .from(jobs)
     .innerJoin(companies, eq(jobs.companyId, companies.id))
     .where(and(inArray(jobs.id, input.jobIds), isNull(jobs.closedAt)));
+  // Created in the order asked for, whatever order the database returns them in.
+  const order = new Map(input.jobIds.map((id, index) => [id, index]));
+  open.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
   const result: ProposeResult = {
     created: [],
     existing: [],
