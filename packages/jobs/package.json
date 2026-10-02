@@ -30,11 +30,11 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@types/node": "26.6.2",
-    "@types/sanitize-html": "2.16.1",
+    "@types/node": "26.6.3",
+    "@types/sanitize-html": "2.16.2",
     "eslint": "9.39.5",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.70.1",
-    "vitest": "5.0.1"
+    "typescript-eslint": "8.71.0",
+    "vitest": "5.0.2"
   }
 }

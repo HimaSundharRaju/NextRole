@@ -12,18 +12,18 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.128.0",
+    "@anthropic-ai/sdk": "0.129.0",
     "@gettargetrole/core": "workspace:*",
     "@gettargetrole/resume": "workspace:*",
-    "mammoth": "1.12.3",
+    "mammoth": "1.13.0",
     "openai": "7.23.0",
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@types/node": "26.6.2",
+    "@types/node": "26.6.3",
     "eslint": "9.39.5",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.70.1",
-    "vitest": "5.0.1"
+    "typescript-eslint": "8.71.0",
+    "vitest": "5.0.2"
   }
 }

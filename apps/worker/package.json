@@ -12,11 +12,11 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.128.0",
-    "bullmq": "6.3.8",
+    "@anthropic-ai/sdk": "0.129.0",
+    "bullmq": "6.3.9",
     "drizzle-orm": "0.45.3",
     "ioredis": "6.0.0",
-    "mammoth": "1.12.3",
+    "mammoth": "1.13.0",
     "openai": "7.23.0",
     "pg": "8.23.0",
     "pino": "10.3.1",
@@ -29,12 +29,12 @@
     "@gettargetrole/db": "workspace:*",
     "@gettargetrole/jobs": "workspace:*",
     "@gettargetrole/resume": "workspace:*",
-    "@types/node": "26.6.2",
+    "@types/node": "26.6.3",
     "eslint": "9.39.5",
     "tsup": "8.5.1",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.70.1",
-    "vitest": "5.0.1"
+    "typescript-eslint": "8.71.0",
+    "vitest": "5.0.2"
   }
 }
