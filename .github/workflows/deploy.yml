@@ -77,7 +77,7 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         if: steps.config.outputs.ready == 'true'
         with:
           # Deploy exactly the commit CI tested.
