@@ -21,16 +21,16 @@
   },
   "dependencies": {
     "@react-pdf/renderer": "4.9.0",
-    "docx": "9.7.2",
+    "docx": "9.8.1",
     "react": "19.3.0",
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@types/node": "26.6.2",
+    "@types/node": "26.6.3",
     "@types/react": "19.3.0",
     "eslint": "9.39.5",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.70.1",
-    "vitest": "5.0.1"
+    "typescript-eslint": "8.71.0",
+    "vitest": "5.0.2"
   }
 }
