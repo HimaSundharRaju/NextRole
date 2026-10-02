@@ -30,7 +30,7 @@
     "@gettargetrole/jobs": "workspace:*",
     "@gettargetrole/resume": "workspace:*",
     "@types/node": "26.6.2",
-    "eslint": "9.39.5",
+    "eslint": "10.11.0",
     "tsup": "8.5.1",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
