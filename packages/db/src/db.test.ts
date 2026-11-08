@@ -4,6 +4,7 @@ import { connectionConfig } from "./client";
 import {
   AUTO_PREPARE_BUDGET_SHARE,
   AUTO_PREPARE_DAILY_MAX,
+  CONCIERGE_WEEKLY_TARGET,
   fullUseCostUsd,
   MONTHLY_AI_BUDGET_USD,
   nextPlanWithMore,
@@ -11,6 +12,7 @@ import {
   PLAN_ORDER,
   USAGE_UNITS,
 } from "./plans";
+import { APPLICATION_STATUSES } from "./schema";
 import { DEFAULT_COMPANIES } from "./seed-lib";
 import { slugify } from "./slug";
 import { resumeHash } from "./tailored";
@@ -113,5 +115,14 @@ describe("plan limits", () => {
     expect(nextPlanWithMore("plus", "auto")).toBe("pro");
     expect(nextPlanWithMore("pro", "tailor")).toBe("concierge");
     expect(nextPlanWithMore("concierge", "tailor")).toBeNull();
+  });
+});
+
+describe("concierge configuration", () => {
+  it("adds the Concierge steps and a positive weekly target", () => {
+    expect(APPLICATION_STATUSES).toEqual(
+      expect.arrayContaining(["proposed", "approved", "waiting_on_client", "skipped"]),
+    );
+    expect(CONCIERGE_WEEKLY_TARGET).toBeGreaterThan(0);
   });
 });

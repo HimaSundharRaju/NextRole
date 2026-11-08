@@ -3,6 +3,8 @@ import { enforceRateLimit } from "@gettargetrole/core/rate-limit";
 import { renderResumeDocx } from "@gettargetrole/resume/docx";
 import { renderResumePdf } from "@gettargetrole/resume/pdf";
 import { z } from "zod";
+import { recordAudit } from "@/server/audit";
+import { assertCanActForClient } from "@/server/concierge";
 import { getResume } from "@/server/data/resumes";
 import { errorResponse, unauthorized } from "@/server/http";
 import { getCurrentUser } from "@/server/session";
@@ -30,9 +32,23 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try {
     const { id } = await context.params;
     if (!z.uuid().safeParse(id).success) throw new ValidationError("Invalid resume.");
-    const format = new URL(request.url).searchParams.get("format") === "docx" ? "docx" : "pdf";
+    const params = new URL(request.url).searchParams;
+    const format = params.get("format") === "docx" ? "docx" : "pdf";
+    // A specialist downloads an assigned client's resume to upload it on the employer's site.
+    const clientId = params.get("client");
+    const ownerId = clientId && clientId !== user.id ? clientId : user.id;
+    if (ownerId !== user.id) await assertCanActForClient(user, ownerId);
     await enforceRateLimit("export", user.id);
-    const resume = await getResume(user.id, id);
+    const resume = await getResume(ownerId, id);
+    if (ownerId !== user.id) {
+      await recordAudit({
+        actorUserId: user.id,
+        action: "specialist.resume.export",
+        targetType: "resume",
+        targetId: id,
+        metadata: { clientId: ownerId, format },
+      });
+    }
     const file =
       format === "pdf"
         ? await renderResumePdf(resume.content, resume.settings)

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, Input, Select, Textarea } from "@/components/ui/form";
+import { Field, Input, Label, Select, Textarea } from "@/components/ui/form";
 import { Alert } from "@/components/ui/misc";
 import { useToast } from "@/components/ui/toast";
 import { authClient } from "@/lib/auth-client";
@@ -14,7 +14,13 @@ import {
   type AboutInput,
   type AutoPrepareInput,
 } from "@/lib/validation";
-import { deleteAccount, saveAbout, saveAutoPrepare } from "./actions";
+import {
+  deleteAccount,
+  saveAbout,
+  saveAutoPrepare,
+  saveJobSearchEmail,
+  setSearchPaused,
+} from "./actions";
 
 export function AboutForm({ initial }: { initial: AboutInput }) {
   const toast = useToast();
@@ -330,6 +336,81 @@ export function DangerZone() {
           </Button>
         </div>
       </Dialog>
+    </div>
+  );
+}
+
+export function ConciergeSettingsForm({
+  jobSearchEmail,
+  consent,
+  paused,
+}: {
+  jobSearchEmail: string;
+  consent: boolean;
+  paused: boolean;
+}) {
+  const toast = useToast();
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [email, setEmail] = useState(jobSearchEmail);
+  const [agreed, setAgreed] = useState(consent);
+
+  function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    startTransition(async () => {
+      const result = await saveJobSearchEmail({ jobSearchEmail: email, consent: agreed });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Saved. Your specialist will confirm they can open it.");
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="space-y-4">
+      <form onSubmit={onSubmit} className="space-y-3">
+        <div className="space-y-1">
+          <Label htmlFor="job-search-email">Job-search Gmail</Label>
+          <Input
+            id="job-search-email"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="yourname.jobs@gmail.com"
+          />
+        </div>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={agreed}
+            onChange={(event) => setAgreed(event.target.checked)}
+          />
+          I authorize my specialist to create accounts and apply for jobs on my behalf with this
+          email.
+        </label>
+        <Button type="submit" loading={pending}>
+          Save
+        </Button>
+      </form>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          defaultChecked={paused}
+          onChange={(event) => {
+            const next = event.target.checked;
+            startTransition(async () => {
+              const result = await setSearchPaused({ paused: next });
+              if (!result.ok) toast.error(result.error);
+              else toast.success(next ? "Search paused." : "Search resumed.");
+              router.refresh();
+            });
+          }}
+        />
+        Pause my search (your specialist stops proposing and the weekly target is suspended)
+      </label>
     </div>
   );
 }

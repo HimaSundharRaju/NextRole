@@ -6,6 +6,7 @@ import { GraduationCap, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { prepareInterview } from "@/app/(app)/jobs/actions";
+import { StatusOptions } from "@/components/applications/status-options";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -49,11 +50,7 @@ export function StatusSelect({
         });
       }}
     >
-      {Object.entries(STATUS_META).map(([key, meta]) => (
-        <option key={key} value={key}>
-          {meta.label}
-        </option>
-      ))}
+      <StatusOptions current={status} />
     </Select>
   );
 }

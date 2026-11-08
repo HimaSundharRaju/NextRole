@@ -10,6 +10,7 @@ export {
 export {
   AUTO_PREPARE_BUDGET_SHARE,
   AUTO_PREPARE_DAILY_MAX,
+  CONCIERGE_WEEKLY_TARGET,
   fullUseCostUsd,
   MIN_AI_MATCH,
   MONTHLY_AI_BUDGET_USD,
@@ -23,3 +24,5 @@ export {
 export { slugify } from "./slug";
 export { findTailoredResume, resumeHash, saveTailoredResume, type TailorTarget } from "./tailored";
 export { monthlyUnits, monthlyUsage, recordUsageEvent, type MonthlyUsage } from "./usage";
+
+export * from "./concierge";

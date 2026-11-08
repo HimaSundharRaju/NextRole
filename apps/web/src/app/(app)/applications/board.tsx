@@ -6,11 +6,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useOptimistic, useState, useTransition, type DragEvent, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { StatusOptions } from "@/components/applications/status-options";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { Alert } from "@/components/ui/misc";
 import { useToast } from "@/components/ui/toast";
-import { BOARD_COLUMNS, CLOSED_STATUSES, STATUS_META } from "@/lib/statuses";
+import {
+  boardColumns,
+  CLIENT_SELECTABLE_STATUSES,
+  CLOSED_STATUSES,
+  STATUS_META,
+} from "@/lib/statuses";
 import { cn, formatDate, timeAgo } from "@/lib/utils";
 import { addApplication, moveApplication } from "./actions";
 
@@ -63,18 +69,21 @@ function Card({ item, onMove }: { item: BoardItem; onMove: (status: ApplicationS
           className="rounded border border-border bg-card px-1 py-0.5 text-[11px] text-muted-foreground"
           aria-label={`Status for ${item.jobTitle}`}
         >
-          {Object.entries(STATUS_META).map(([value, meta]) => (
-            <option key={value} value={value}>
-              {meta.label}
-            </option>
-          ))}
+          <StatusOptions current={item.status} />
         </select>
       </div>
     </div>
   );
 }
 
-export function ApplicationBoard({ items }: { items: BoardItem[] }) {
+export function ApplicationBoard({
+  items,
+  concierge,
+}: {
+  items: BoardItem[];
+  /** Concierge clients also see what's with their specialist and what's waiting on them. */
+  concierge?: boolean;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [, startTransition] = useTransition();
@@ -128,7 +137,8 @@ export function ApplicationBoard({ items }: { items: BoardItem[] }) {
     });
   }
 
-  const columns = showClosed ? [...BOARD_COLUMNS, ...CLOSED_STATUSES] : BOARD_COLUMNS;
+  const open = boardColumns(Boolean(concierge));
+  const columns = showClosed ? [...open, ...CLOSED_STATUSES] : open;
   const closedCount = optimistic.filter((item) => CLOSED_STATUSES.includes(item.status)).length;
 
   return (
@@ -151,15 +161,21 @@ export function ApplicationBoard({ items }: { items: BoardItem[] }) {
       <div className="flex gap-4 overflow-x-auto pb-4">
         {columns.map((status) => {
           const columnItems = optimistic.filter((item) => item.status === status);
+          // Concierge steps move through their own actions, so their columns take no drops.
+          const droppable = CLIENT_SELECTABLE_STATUSES.includes(status);
           return (
             <section
               key={status}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragOver(status);
-              }}
-              onDragLeave={() => setDragOver(null)}
-              onDrop={(event) => onDrop(event, status)}
+              onDragOver={
+                droppable
+                  ? (event) => {
+                      event.preventDefault();
+                      setDragOver(status);
+                    }
+                  : undefined
+              }
+              onDragLeave={droppable ? () => setDragOver(null) : undefined}
+              onDrop={droppable ? (event) => onDrop(event, status) : undefined}
               className={cn(
                 "flex w-72 shrink-0 flex-col rounded-xl border bg-muted/40 p-3 transition-colors",
                 dragOver === status ? "border-primary bg-primary-soft/40" : "border-border",
@@ -205,9 +221,9 @@ export function ApplicationBoard({ items }: { items: BoardItem[] }) {
           </div>
           <Field label="Status" htmlFor="status">
             <Select id="status" name="status" defaultValue="applied">
-              {Object.entries(STATUS_META).map(([value, meta]) => (
+              {CLIENT_SELECTABLE_STATUSES.map((value) => (
                 <option key={value} value={value}>
-                  {meta.label}
+                  {STATUS_META[value].label}
                 </option>
               ))}
             </Select>

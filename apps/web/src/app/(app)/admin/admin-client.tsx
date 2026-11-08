@@ -13,6 +13,7 @@ import {
   assignSpecialist,
   lookUpCompanyRequests,
   setCompanyActive,
+  setClientWeeklyTarget,
   setCompanyStaffing,
   setUserBanned,
   setUserPlan,
@@ -350,5 +351,44 @@ export function UnassignButton({
     >
       Remove
     </Button>
+  );
+}
+
+export function TargetForm({
+  clientId,
+  target,
+  isOverride,
+}: {
+  clientId: string;
+  target: number;
+  isOverride: boolean;
+}) {
+  const { pending, run } = useAction();
+  return (
+    <form
+      className="flex items-center gap-1"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const value = String(new FormData(event.currentTarget).get("target") ?? "").trim();
+        run(
+          () => setClientWeeklyTarget({ clientId, target: value ? Number(value) : null }),
+          value ? "Target saved." : "Back to the plan default.",
+        );
+      }}
+    >
+      <Input
+        name="target"
+        type="number"
+        min={1}
+        max={100}
+        defaultValue={isOverride ? target : ""}
+        placeholder={String(target)}
+        className="h-8 w-20"
+        aria-label="Weekly target"
+      />
+      <Button size="sm" variant="secondary" loading={pending}>
+        Set
+      </Button>
+    </form>
   );
 }

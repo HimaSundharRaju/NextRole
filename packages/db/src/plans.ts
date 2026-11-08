@@ -78,6 +78,9 @@ export const AUTO_PREPARE_DAILY_MAX: Record<Plan, number> = {
   concierge: 25,
 };
 
+/** Applications a Concierge client's specialist aims to submit each week, unless an admin overrides it. */
+export const CONCIERGE_WEEKLY_TARGET = 15;
+
 /**
  * Average AI cost of one unit in USD on the default model routes, measured in the quality check
  * (packages/ai/eval): writing on Claude Sonnet 5, imports and fit on GPT-4o-mini, auto-prepare

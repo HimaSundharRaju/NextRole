@@ -32,6 +32,10 @@ export const JOB_NAMES = {
   submitAiBatches: "submit-ai-batches",
   /** Scheduled: reads finished batches and marks their applications ready. */
   pollAiBatches: "poll-ai-batches",
+  /** Scheduled daily: Concierge proposals left unanswered for a week become skipped. */
+  expireProposals: "expire-proposals",
+  /** Scheduled daily: one email per Concierge client with new proposals. */
+  conciergeDigest: "concierge-digest",
 } as const;
 
 export interface SyncCompanyJob {

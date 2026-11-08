@@ -117,38 +117,6 @@ export async function listAssignments() {
   return { specialists, assignments: rows };
 }
 
-export async function isAssignedSpecialist(
-  specialistId: string,
-  clientId: string,
-): Promise<boolean> {
-  const [row] = await getDb()
-    .select({ clientId: specialistAssignments.clientId })
-    .from(specialistAssignments)
-    .where(
-      and(
-        eq(specialistAssignments.specialistId, specialistId),
-        eq(specialistAssignments.clientId, clientId),
-        eq(specialistAssignments.active, true),
-      ),
-    )
-    .limit(1);
-  return Boolean(row);
-}
-
-export async function clientsOf(specialistId: string) {
-  return getDb()
-    .select({ id: users.id, name: users.name, email: users.email, plan: users.plan })
-    .from(specialistAssignments)
-    .innerJoin(users, eq(specialistAssignments.clientId, users.id))
-    .where(
-      and(
-        eq(specialistAssignments.specialistId, specialistId),
-        eq(specialistAssignments.active, true),
-      ),
-    )
-    .orderBy(users.name);
-}
-
 const usd = (micro: string | number | null | undefined) => Number(micro ?? 0) / 1_000_000;
 
 /**
