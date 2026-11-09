@@ -1,3 +1,4 @@
+import { DEFAULT_RESUME_SETTINGS, emptyResume } from "@gettargetrole/resume/schema";
 import type * as DrizzleModule from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Database } from "./client";
@@ -520,6 +521,123 @@ describe.skipIf(!TEST_DATABASE_URL)("customer care (Postgres integration)", () =
         id: newer.caseId,
         status: "solved",
       });
+    });
+  });
+
+  describe("accounts and export links", () => {
+    it("summarizes an account: plan, last sign-in, applications by status and cases", async () => {
+      const signInAt = new Date("2026-11-09T09:30:00Z");
+      await database.insert(db.applications).values([
+        { userId: riya, companyName: "Acme", jobTitle: "Engineer", status: "applied" },
+        { userId: riya, companyName: "Globex", jobTitle: "Engineer", status: "applied" },
+        { userId: riya, companyName: "Initech", jobTitle: "Engineer", status: "saved" },
+      ]);
+      await database.insert(db.resumes).values({
+        userId: riya,
+        title: "Main",
+        content: emptyResume(),
+        settings: DEFAULT_RESUME_SETTINGS,
+      });
+      await db.createCase(database, helpInput({ userId: riya }));
+      const solved = await db.createCase(database, helpInput({ userId: riya }));
+      await db.solveCase(database, { caseId: solved.caseId, agentId: ana });
+      await database.insert(db.auditLogs).values([
+        {
+          actorUserId: riya,
+          action: "auth.sign_in",
+          targetType: "session",
+          targetId: "s1",
+          createdAt: new Date("2026-11-01T00:00:00Z"),
+        },
+        {
+          actorUserId: riya,
+          action: "auth.sign_in",
+          targetType: "session",
+          targetId: "s2",
+          createdAt: signInAt,
+        },
+      ]);
+      expect(await db.accountSummary(database, riya)).toMatchObject({
+        id: riya,
+        email: "riya@example.com",
+        emailVerified: false,
+        plan: "free",
+        role: "user",
+        banned: false,
+        banReason: null,
+        applicationsByStatus: { applied: 2, saved: 1 },
+        resumes: 1,
+        openCases: 1,
+        solvedCases: 1,
+        lastSignInAt: signInAt,
+      });
+      expect(await db.accountSummary(database, "nobody")).toBeNull();
+    });
+
+    it("lists what happened to an account, newest first, as actor or target", async () => {
+      await database.insert(db.auditLogs).values([
+        {
+          actorUserId: riya,
+          action: "auth.sign_in",
+          targetType: "session",
+          targetId: "s1",
+          createdAt: new Date("2026-11-01T00:00:00Z"),
+        },
+        {
+          actorUserId: ada,
+          action: "admin.user.ban",
+          targetType: "user",
+          targetId: riya,
+          createdAt: new Date("2026-11-02T00:00:00Z"),
+        },
+        {
+          actorUserId: ana,
+          action: "auth.sign_in",
+          targetType: "session",
+          targetId: "s9",
+          createdAt: new Date("2026-11-03T00:00:00Z"),
+        },
+      ]);
+      const activity = await db.accountActivity(database, riya);
+      expect(activity.map((row) => [row.action, row.actorEmail])).toEqual([
+        ["admin.user.ban", "ada@example.com"],
+        ["auth.sign_in", "riya@example.com"],
+      ]);
+      expect(await db.accountActivity(database, riya, 1)).toHaveLength(1);
+    });
+
+    it("allows deletion only for an open, verified 'My data' request from that account", async () => {
+      const data = (o = {}) => helpInput({ topic: "data", userId: riya, verified: true, ...o });
+      const ok = await db.createCase(database, data());
+      const wrongTopic = await db.createCase(database, data({ topic: "account" }));
+      const unverified = await db.createCase(database, data({ verified: false }));
+      const solved = await db.createCase(database, data());
+      await db.solveCase(database, { caseId: solved.caseId, agentId: ana });
+      expect(await db.deletableForCase(database, { userId: riya, caseId: ok.caseId })).toBe(true);
+      for (const c of [wrongTopic, unverified, solved]) {
+        expect(await db.deletableForCase(database, { userId: riya, caseId: c.caseId })).toBe(false);
+      }
+      expect(await db.deletableForCase(database, { userId: ana, caseId: ok.caseId })).toBe(false);
+    });
+
+    it("uses an export link once, only on redeem, and not after 24 hours", async () => {
+      const now = new Date("2026-11-10T00:00:00Z");
+      const token = await db.createExportLink(database, { userId: riya, createdBy: ana, now });
+      expect(await db.exportLinkUsable(database, token, now)).toBe(true);
+      expect(await db.exportLinkUsable(database, token, now)).toBe(true); // a scanner's visit doesn't use it up
+      expect(await db.redeemExportLink(database, token, now)).toBe(riya);
+      expect(await db.redeemExportLink(database, token, now)).toBeNull();
+      expect(await db.exportLinkUsable(database, token, now)).toBe(false);
+      const late = await db.createExportLink(database, { userId: riya, createdBy: ana, now });
+      expect(await db.exportLinkUsable(database, late, new Date("2026-11-11T00:00:01Z"))).toBe(
+        false,
+      );
+      expect(
+        await db.redeemExportLink(database, late, new Date("2026-11-11T00:00:01Z")),
+      ).toBeNull();
+      expect(await db.redeemExportLink(database, "not-a-real-token", now)).toBeNull();
+      const stored = await database.select().from(db.exportLinks);
+      expect(stored.map((link) => link.tokenHash)).not.toContain(token);
     });
   });
 });
