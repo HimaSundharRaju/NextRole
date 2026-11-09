@@ -31,6 +31,14 @@ export const STATUS_TONE: Record<CaseStatus, "primary" | "warning" | "success"> 
   solved: "success",
 };
 
+/** The team's typical first reply, such as "1h 30m"; a dash while there is nothing to average. */
+export function typicalReplyLabel(minutes: number | null): string {
+  if (minutes === null) return "—";
+  if (minutes < 60) return `${minutes}m`;
+  const rest = minutes % 60;
+  return rest === 0 ? `${minutes / 60}h` : `${Math.floor(minutes / 60)}h ${rest}m`;
+}
+
 /** "Due in 3h" or "Overdue by 20m": whole hours from 60 minutes up, minutes below that. */
 export function dueLabel(state: { dueAt: Date; overdue: boolean }, now: Date): string {
   const minutes = Math.max(1, Math.floor(Math.abs(state.dueAt.getTime() - now.getTime()) / 60_000));

@@ -5,6 +5,7 @@ import {
   STAFF_STATUS_LABEL,
   STATUS_TONE,
   SUPPORT_TOPIC_LABEL,
+  typicalReplyLabel,
   USER_STATUS_LABEL,
 } from "./support-labels";
 
@@ -46,5 +47,16 @@ describe("labels", () => {
 
   it("colours a case's badge by what it needs next", () => {
     expect(STATUS_TONE).toEqual({ open: "primary", waiting_on_user: "warning", solved: "success" });
+  });
+});
+
+describe("typicalReplyLabel", () => {
+  it("writes the team's typical first reply in minutes, or hours and minutes", () => {
+    expect(typicalReplyLabel(null)).toBe("—");
+    expect(typicalReplyLabel(0)).toBe("0m");
+    expect(typicalReplyLabel(45)).toBe("45m");
+    expect(typicalReplyLabel(60)).toBe("1h");
+    expect(typicalReplyLabel(90)).toBe("1h 30m");
+    expect(typicalReplyLabel(125)).toBe("2h 5m");
   });
 });

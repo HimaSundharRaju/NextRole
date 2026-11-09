@@ -491,6 +491,21 @@ describe.skipIf(!TEST_DATABASE_URL)("customer care (Postgres integration)", () =
       ).toBeNull();
     });
 
+    it("tells whether the requester knows about a case: help requests always, escalations once staff wrote to them", async () => {
+      const help = await db.createCase(database, helpInput());
+      const escalation = await db.createCase(database, escalationInput());
+      expect(await db.requesterKnows(database, help.caseId)).toBe(true);
+      expect(await db.requesterKnows(database, escalation.caseId)).toBe(false);
+      await db.addNote(database, { caseId: escalation.caseId, authorId: ana, body: "Looking." });
+      expect(await db.requesterKnows(database, escalation.caseId)).toBe(false);
+      await db.replyAsAgent(database, {
+        caseId: escalation.caseId,
+        agentId: ana,
+        body: "Checking in.",
+      });
+      expect(await db.requesterKnows(database, escalation.caseId)).toBe(true);
+    });
+
     it("finds a requester's other cases by account or by email", async () => {
       const first = await db.createCase(database, helpInput({ userId: riya, subject: "First" }));
       const second = await db.createCase(database, helpInput({ subject: "Second" }));

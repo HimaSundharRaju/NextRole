@@ -301,6 +301,39 @@ export async function userCases(
     .orderBy(desc(sql`coalesce(${supportCases.lastMessageAt}, ${supportCases.createdAt})`));
 }
 
+/**
+ * Whether the requester has any reason to know about a case: they opened it (a help request), or
+ * staff wrote to them. A staff-raised escalation nobody has written about stays a secret, so
+ * nothing is emailed about it, and its being solved is not news.
+ */
+export async function requesterKnows(db: Database, caseId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: supportCases.id })
+    .from(supportCases)
+    .where(
+      and(
+        eq(supportCases.id, caseId),
+        or(
+          eq(supportCases.kind, "help"),
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(supportMessages)
+              .where(
+                and(
+                  eq(supportMessages.caseId, supportCases.id),
+                  eq(supportMessages.visibility, "public"),
+                  eq(supportMessages.authorKind, "agent"),
+                ),
+              ),
+          ),
+        ),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
 export async function canUserSeeCase(
   db: Database,
   input: { caseId: string; userId: string },

@@ -3,6 +3,7 @@
 import {
   Briefcase,
   FileText,
+  Headset,
   KanbanSquare,
   LayoutDashboard,
   LifeBuoy,
@@ -64,6 +65,9 @@ function NavLinks({ role, onNavigate }: { role: string; onNavigate?: () => void 
   const staff = [
     ...(role === "specialist" || role === "admin"
       ? [{ href: "/specialist", label: "Concierge board", icon: UsersRound }]
+      : []),
+    ...(role === "support" || role === "admin"
+      ? [{ href: "/care", label: "Customer care", icon: Headset }]
       : []),
     ...(role === "admin" ? [{ href: "/admin", label: "Admin", icon: Shield }] : []),
   ];
