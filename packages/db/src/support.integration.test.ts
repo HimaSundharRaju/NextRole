@@ -60,6 +60,25 @@ describe.skipIf(!TEST_DATABASE_URL)("customer care (Postgres integration)", () =
     ...overrides,
   });
 
+  /** A specialist's escalation about riya, with an internal note from priya. */
+  const escalationInput = (overrides: Partial<CaseInput> = {}): CaseInput => ({
+    kind: "escalation",
+    source: "specialist",
+    topic: "concierge",
+    subject: "Escalation from Priya",
+    body: "Client says nothing has been submitted for two weeks.",
+    userId: riya,
+    contactName: "Riya",
+    contactEmail: "riya@example.com",
+    raisedByUserId: priya,
+    specialistId: priya,
+    verified: false,
+    visibility: "internal",
+    authorKind: "agent",
+    authorUserId: priya,
+    ...overrides,
+  });
+
   const caseRow = async (id: string) => {
     const [row] = await database
       .select()
@@ -237,6 +256,270 @@ describe.skipIf(!TEST_DATABASE_URL)("customer care (Postgres integration)", () =
       await db.verifyCase(database, { caseId, now: first });
       await db.verifyCase(database, { caseId, now: new Date("2026-11-03T00:00:00Z") });
       expect((await caseRow(caseId)).verifiedAt).toEqual(first);
+    });
+  });
+
+  describe("queues and threads", () => {
+    it("lists the queues: overdue first, mine and unassigned, and solved in the last 30 days", async () => {
+      const now = new Date("2026-11-10T12:00:00Z");
+      const old = await db.createCase(
+        database,
+        helpInput({ now: new Date("2026-11-09T00:00:00Z") }),
+      );
+      const fresh = await db.createCase(
+        database,
+        helpInput({ now: new Date("2026-11-10T11:00:00Z") }),
+      );
+      await db.takeCase(database, { caseId: fresh.caseId, agentId: ana });
+      const open = await db.listCases(database, { queue: "open", agentId: ana, now });
+      expect(open.map((row) => row.id)).toEqual([old.caseId, fresh.caseId]);
+      expect(open[0]!.due?.overdue).toBe(true);
+      expect(
+        (await db.listCases(database, { queue: "mine", agentId: ana, now })).map((r) => r.id),
+      ).toEqual([fresh.caseId]);
+      expect(
+        (await db.listCases(database, { queue: "unassigned", agentId: ana, now })).map((r) => r.id),
+      ).toEqual([old.caseId]);
+      expect(
+        (
+          await db.listCases(database, {
+            queue: "open",
+            agentId: ana,
+            search: `#${old.number}`,
+            now,
+          })
+        ).map((r) => r.id),
+      ).toEqual([old.caseId]);
+    });
+
+    it("filters the queues by topic, search and status, and shows solved cases from the last 30 days", async () => {
+      const now = new Date("2026-11-10T12:00:00Z");
+      const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000);
+      const billing = await db.createCase(
+        database,
+        helpInput({
+          topic: "billing",
+          subject: "Refund question",
+          contactEmail: "pat@example.com",
+          now: hoursAgo(2),
+        }),
+      );
+      const waiting = await db.createCase(database, helpInput({ now: hoursAgo(30) }));
+      await db.replyAsAgent(database, {
+        caseId: waiting.caseId,
+        agentId: ana,
+        body: "Can you send a screenshot?",
+        now: hoursAgo(20),
+      });
+      const overdue = await db.createCase(
+        database,
+        helpInput({ subject: "Still waiting", now: hoursAgo(30) }),
+      );
+      const recentlySolved = await db.createCase(database, helpInput({ now: hoursAgo(100) }));
+      await db.solveCase(database, {
+        caseId: recentlySolved.caseId,
+        agentId: ana,
+        now: hoursAgo(90),
+      });
+      const longAgo = await db.createCase(
+        database,
+        helpInput({ now: new Date("2026-09-01T00:00:00Z") }),
+      );
+      await db.solveCase(database, {
+        caseId: longAgo.caseId,
+        agentId: ana,
+        now: new Date("2026-09-02T00:00:00Z"),
+      });
+      const ids = async (query: Parameters<typeof db.listCases>[1]) =>
+        (await db.listCases(database, query)).map((row) => row.id);
+      expect(await ids({ queue: "waiting", agentId: ana, now })).toEqual([waiting.caseId]);
+      expect(await ids({ queue: "overdue", agentId: ana, now })).toEqual([overdue.caseId]);
+      expect(await ids({ queue: "solved", agentId: ana, now })).toEqual([recentlySolved.caseId]);
+      expect(await ids({ queue: "open", agentId: ana, topic: "billing", now })).toEqual([
+        billing.caseId,
+      ]);
+      expect(await ids({ queue: "open", agentId: ana, search: "pat@", now })).toEqual([
+        billing.caseId,
+      ]);
+      expect(await ids({ queue: "open", agentId: ana, search: "refund", now })).toEqual([
+        billing.caseId,
+      ]);
+    });
+
+    it("counts unassigned, overdue and waiting cases, and the typical first reply", async () => {
+      const now = new Date("2026-11-10T12:00:00Z");
+      const at = (h: number) => new Date(now.getTime() - h * 3_600_000);
+      const a = await db.createCase(database, helpInput({ now: at(5) }));
+      const b = await db.createCase(database, helpInput({ now: at(6) }));
+      await db.createCase(database, helpInput({ now: at(48) })); // unanswered, so it's overdue
+      await db.replyAsAgent(database, {
+        caseId: a.caseId,
+        agentId: ana,
+        body: "On it.",
+        now: at(4),
+      }); // after 60 minutes
+      await db.replyAsAgent(database, {
+        caseId: b.caseId,
+        agentId: ana,
+        body: "On it.",
+        now: at(4),
+      }); // after 120 minutes
+      expect(await db.careCounts(database, now)).toEqual({
+        unassigned: 1,
+        overdue: 1,
+        waiting: 2,
+        typicalFirstReplyMinutes: 90,
+      });
+    });
+
+    it("shows users their own requests, and escalations only once an agent has written to them", async () => {
+      const own = await db.createCase(
+        database,
+        helpInput({ userId: riya, raisedByUserId: riya, verified: true }),
+      );
+      const escalation = await db.createCase(database, escalationInput({ userId: riya }));
+      expect((await db.userCases(database, riya)).map((row) => row.id)).toEqual([own.caseId]);
+      await db.replyAsAgent(database, {
+        caseId: escalation.caseId,
+        agentId: ana,
+        body: "Checking in.",
+      });
+      expect((await db.userCases(database, riya)).map((row) => row.id).sort()).toEqual(
+        [own.caseId, escalation.caseId].sort(),
+      );
+    });
+
+    it("tells who can see a case: its requester, and an escalation's client only after an agent wrote to them", async () => {
+      const own = await db.createCase(
+        database,
+        helpInput({ userId: riya, raisedByUserId: riya, verified: true }),
+      );
+      const escalation = await db.createCase(database, escalationInput());
+      expect(await db.canUserSeeCase(database, { caseId: own.caseId, userId: riya })).toBe(true);
+      expect(await db.canUserSeeCase(database, { caseId: own.caseId, userId: priya })).toBe(false);
+      expect(await db.canUserSeeCase(database, { caseId: escalation.caseId, userId: riya })).toBe(
+        false,
+      );
+      await db.replyAsAgent(database, {
+        caseId: escalation.caseId,
+        agentId: ana,
+        body: "Checking in.",
+      });
+      expect(await db.canUserSeeCase(database, { caseId: escalation.caseId, userId: riya })).toBe(
+        true,
+      );
+    });
+
+    it("keeps internal notes out of the requester's thread and the data export", async () => {
+      const { caseId } = await db.createCase(
+        database,
+        helpInput({ userId: riya, raisedByUserId: riya, verified: true }),
+      );
+      await db.addNote(database, {
+        caseId,
+        authorId: ana,
+        body: "Looks like a typo in their email.",
+      });
+      const thread = await db.caseThread(database, caseId, { includeInternal: false });
+      expect(thread!.messages.map((m) => m.visibility)).toEqual(["public"]);
+      const exported = await db.supportExport(database, riya);
+      expect(exported.messages.every((m) => m.visibility === "public")).toBe(true);
+    });
+
+    it("exports every case about a user with only the public messages, never internal notes", async () => {
+      const own = await db.createCase(
+        database,
+        helpInput({ userId: riya, raisedByUserId: riya, verified: true }),
+      );
+      const escalation = await db.createCase(database, escalationInput());
+      const exported = await db.supportExport(database, riya);
+      expect(exported.cases.map((row) => row.id).sort()).toEqual(
+        [own.caseId, escalation.caseId].sort(),
+      );
+      // The escalation holds only an internal note, so none of its text is exported.
+      expect(exported.messages.map((row) => row.caseId)).toEqual([own.caseId]);
+      expect(exported.messages.map((row) => row.body)).not.toContain(
+        "Client says nothing has been submitted for two weeks.",
+      );
+      expect(exported.cases[0]).not.toHaveProperty("assigneeId");
+    });
+
+    it("shows staff the whole thread, oldest first, with who wrote each message", async () => {
+      const start = new Date("2026-11-01T00:00:00Z");
+      const { caseId } = await db.createCase(
+        database,
+        helpInput({ userId: riya, raisedByUserId: riya, authorUserId: riya, now: start }),
+      );
+      await db.addNote(database, {
+        caseId,
+        authorId: ana,
+        body: "Checking their account.",
+        now: new Date(start.getTime() + 60_000),
+      });
+      await db.replyAsAgent(database, {
+        caseId,
+        agentId: ana,
+        body: "Try the reset link.",
+        now: new Date(start.getTime() + 120_000),
+      });
+      const thread = await db.caseThread(database, caseId, { includeInternal: true });
+      expect(thread!.messages.map((m) => [m.authorName, m.visibility, m.body])).toEqual([
+        ["Riya", "public", "I never got the email."],
+        ["Ana", "internal", "Checking their account."],
+        ["Ana", "public", "Try the reset link."],
+      ]);
+      expect(
+        await db.caseThread(database, "00000000-0000-0000-0000-000000000000", {
+          includeInternal: true,
+        }),
+      ).toBeNull();
+    });
+
+    it("finds a requester's other cases by account or by email", async () => {
+      const first = await db.createCase(database, helpInput({ userId: riya, subject: "First" }));
+      const second = await db.createCase(database, helpInput({ subject: "Second" }));
+      await db.createCase(
+        database,
+        helpInput({ contactEmail: "pat@example.com", subject: "A stranger's" }),
+      );
+      const found = await db.otherCases(database, {
+        caseId: first.caseId,
+        userId: riya,
+        contactEmail: "riya@example.com",
+      });
+      expect(found.map((row) => row.id)).toEqual([second.caseId]);
+      expect(
+        await db.otherCases(database, { caseId: first.caseId, userId: null, contactEmail: "" }),
+      ).toEqual([]);
+    });
+
+    it("finds a client's active specialist and their latest escalation", async () => {
+      expect(await db.activeSpecialistId(database, riya)).toBeNull();
+      await database
+        .insert(db.specialistAssignments)
+        .values({ specialistId: priya, clientId: riya });
+      expect(await db.activeSpecialistId(database, riya)).toBe(priya);
+      await database.update(db.specialistAssignments).set({ active: false });
+      expect(await db.activeSpecialistId(database, riya)).toBeNull();
+
+      expect(await db.latestEscalation(database, riya)).toBeNull();
+      await db.createCase(
+        database,
+        escalationInput({ subject: "Older", now: new Date("2026-11-01T00:00:00Z") }),
+      );
+      const newer = await db.createCase(
+        database,
+        escalationInput({ subject: "Newer", now: new Date("2026-11-05T00:00:00Z") }),
+      );
+      expect(await db.latestEscalation(database, riya)).toMatchObject({
+        id: newer.caseId,
+        status: "open",
+      });
+      await db.solveCase(database, { caseId: newer.caseId, agentId: ana });
+      expect(await db.latestEscalation(database, riya)).toMatchObject({
+        id: newer.caseId,
+        status: "solved",
+      });
     });
   });
 });
