@@ -189,7 +189,11 @@ export interface JobSearchResult {
 
 function whereFor(filters: JobFilters): SQL[] {
   // A feed's copy of a job the employer lists itself is shown as the employer's listing.
-  const conditions: SQL[] = [isNull(jobs.closedAt), isNull(jobs.duplicateOf)];
+  const conditions: SQL[] = [
+    isNull(jobs.closedAt),
+    isNull(jobs.duplicateOf),
+    isNull(jobs.hiddenAt),
+  ];
   if (filters.q) {
     conditions.push(sql`${jobs.searchVector} @@ websearch_to_tsquery('english', ${filters.q})`);
   }

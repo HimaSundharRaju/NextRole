@@ -95,6 +95,20 @@ describe.skipIf(!TEST_DATABASE_URL)("ghost jobs (Postgres integration)", () => {
     return ids;
   }
 
+  /** Reports a job from each user, adding the users first if they don't exist yet. */
+  async function reportFrom(
+    userIds: string[],
+    jobId: string,
+    reason: (typeof DbModule.jobReports.$inferInsert)["reason"],
+  ) {
+    await db
+      .getDb()
+      .insert(db.users)
+      .values(userIds.map((id) => ({ id, name: id, email: `${id}@example.com` })))
+      .onConflictDoNothing();
+    for (const userId of userIds) await ghosts.reportJob({ userId, jobId, reason });
+  }
+
   it("adds points for months open, counted from the board's posting date", async () => {
     const fresh = await addJob({ postedAt: new Date(Date.now() - 10 * DAY_MS) });
     const months = await addJob({ postedAt: new Date(Date.now() - 70 * DAY_MS) });
@@ -247,5 +261,78 @@ describe.skipIf(!TEST_DATABASE_URL)("ghost jobs (Postgres integration)", () => {
     expect(job?.score).toBeGreaterThanOrEqual(ghosts.LIKELY_GHOST_SCORE);
     // The data analyst post has no matching skills; the talent pool is skipped.
     expect(await alerts.createJobAlerts(newJobIds)).toBe(0);
+  });
+
+  it("doesn't count wrong-details reports or reports care kept", async () => {
+    const id = await addJob();
+    await reportFrom(["u1", "u2"], id, "not_real");
+    await reportFrom(["u3"], id, "wrong_details");
+    await ghosts.scoreGhostJobs(db.getDb(), { jobIds: [id] });
+    expect((await ghostOf(id)).score).toBe(2 * ghosts.GHOST_POINTS.report);
+    await db.keepReportedJob(db.getDb(), { jobId: id, agentId: "u1" });
+    await ghosts.scoreGhostJobs(db.getDb(), { jobIds: [id] });
+    expect((await ghostOf(id)).score).toBe(0);
+    // A new report counts as usual.
+    await reportFrom(["u4"], id, "closed");
+    expect((await ghostOf(id)).score).toBe(ghosts.GHOST_POINTS.report);
+  });
+
+  it("counts a report again when its author updates it after care kept the job", async () => {
+    const id = await addJob();
+    await reportFrom(["u1"], id, "not_real");
+    await db.keepReportedJob(db.getDb(), { jobId: id, agentId: "u1" });
+    await ghosts.scoreGhostJobs(db.getDb(), { jobIds: [id] });
+    expect((await ghostOf(id)).score).toBe(0);
+    await ghosts.reportJob({ userId: "u1", jobId: id, reason: "no_reply", note: "Still silent" });
+    expect((await ghostOf(id)).score).toBe(ghosts.GHOST_POINTS.report);
+    expect((await db.reportQueue(db.getDb())).map((job) => job.jobId)).toEqual([id]);
+  });
+
+  it("sends no alerts for hidden jobs", async () => {
+    const database = db.getDb();
+    await database
+      .insert(db.users)
+      .values({ id: "user-1", name: "Asha", email: "asha@example.com" });
+    await database.insert(db.profiles).values({
+      userId: "user-1",
+      skills: ["go", "kubernetes", "postgresql"],
+      targetTitles: ["Software Engineer"],
+      remotePreference: "any",
+      alertMinScore: 1,
+    });
+    const { newJobIds } = await ingest.syncCompany(companyId, {
+      fetch: fakeFetch({ [board]: greenhouseResponse }),
+    });
+    const [job] = await database
+      .select({ id: db.jobs.id })
+      .from(db.jobs)
+      .where(drizzle.eq(db.jobs.externalId, "4012345"));
+    await database
+      .update(db.jobs)
+      .set({ hiddenAt: new Date() })
+      .where(drizzle.eq(db.jobs.id, job!.id));
+    expect(await alerts.createJobAlerts(newJobIds)).toBe(0);
+    // The same job alerts normally once it is shown again, so hiding was what stopped it.
+    await database.update(db.jobs).set({ hiddenAt: null }).where(drizzle.eq(db.jobs.id, job!.id));
+    expect(await alerts.createJobAlerts(newJobIds)).toBeGreaterThan(0);
+  });
+
+  it("keeps a hidden job hidden when the board is synced again", async () => {
+    const [agent] = await addUsers(1);
+    const response = { fetch: fakeFetch({ [board]: greenhouseResponse }) };
+    const { newJobIds } = await ingest.syncCompany(companyId, response);
+    await db.hideJob(db.getDb(), {
+      jobId: newJobIds[0]!,
+      agentId: agent!,
+      reason: "Duplicate posting",
+    });
+    await ingest.syncCompany(companyId, response);
+    const [after] = await db
+      .getDb()
+      .select({ hiddenAt: db.jobs.hiddenAt, hiddenReason: db.jobs.hiddenReason })
+      .from(db.jobs)
+      .where(drizzle.eq(db.jobs.id, newJobIds[0]!));
+    expect(after!.hiddenAt).toBeInstanceOf(Date);
+    expect(after!.hiddenReason).toBe("Duplicate posting");
   });
 });

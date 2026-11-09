@@ -2,6 +2,7 @@ import { DEFAULT_RESUME_SETTINGS, emptyResume } from "@gettargetrole/resume/sche
 import type * as DrizzleModule from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Database } from "./client";
+import type { JobReportReason } from "./schema";
 import type * as DbModule from "./index";
 import { ensureTestDatabase, testDatabaseUrl } from "./test-database";
 
@@ -638,6 +639,141 @@ describe.skipIf(!TEST_DATABASE_URL)("customer care (Postgres integration)", () =
       expect(await db.redeemExportLink(database, "not-a-real-token", now)).toBeNull();
       const stored = await database.select().from(db.exportLinks);
       expect(stored.map((link) => link.tokenHash)).not.toContain(token);
+    });
+  });
+
+  describe("job reports", () => {
+    let companyId: string;
+    let externalIds = 0;
+
+    beforeEach(async () => {
+      const [company] = await database
+        .insert(db.companies)
+        .values({ name: "Acme", slug: "acme", ats: "greenhouse", boardToken: "acme" })
+        .returning();
+      companyId = company!.id;
+    });
+
+    async function addJob(title: string, values: Partial<typeof DbModule.jobs.$inferInsert> = {}) {
+      const [job] = await database
+        .insert(db.jobs)
+        .values({
+          companyId,
+          source: "greenhouse",
+          externalId: `job-${++externalIds}`,
+          title,
+          location: "Austin, TX",
+          applyUrl: "https://example.com/apply",
+          contentHash: "hash",
+          ...values,
+        })
+        .returning({ id: db.jobs.id });
+      return job!.id;
+    }
+
+    async function report(
+      userId: string,
+      jobId: string,
+      reason: JobReportReason = "not_real",
+      note = "",
+      createdAt = new Date(),
+    ) {
+      await database
+        .insert(db.users)
+        .values({ id: userId, name: userId, email: `${userId}@example.com` })
+        .onConflictDoNothing();
+      await database.insert(db.jobReports).values({ userId, jobId, reason, note, createdAt });
+    }
+
+    it("queues jobs with unreviewed reports, most reported first, and clears them when kept or hidden", async () => {
+      const jobA = await addJob("Backend Engineer");
+      const jobB = await addJob("Data Analyst");
+      await report("u1", jobA, "not_real");
+      await report("u2", jobA, "closed");
+      await report("u3", jobB, "other");
+      expect((await db.reportQueue(database)).map((j) => j.jobId)).toEqual([jobA, jobB]);
+      await db.keepReportedJob(database, { jobId: jobA, agentId: ana });
+      await db.hideJob(database, {
+        jobId: jobB,
+        agentId: ana,
+        reason: "Duplicate of another post",
+      });
+      expect(await db.reportQueue(database)).toEqual([]);
+      expect((await db.recentlyHiddenJobs(database, {})).map((j) => j.jobId)).toEqual([jobB]);
+      await db.unhideJob(database, { jobId: jobB });
+      expect(await db.recentlyHiddenJobs(database, {})).toEqual([]);
+      // Showing it again undoes the hide completely, so its reports are up for review again.
+      expect((await db.reportQueue(database)).map((j) => j.jobId)).toEqual([jobB]);
+    });
+
+    it("describes each queued job: reports by reason, the latest notes and the first report", async () => {
+      const job = await addJob("Backend Engineer");
+      const day = (d: number) => new Date(Date.UTC(2026, 10, d));
+      await report("u1", job, "not_real", "first note", day(1));
+      await report("u2", job, "not_real", "", day(2));
+      await report("u3", job, "closed", "second note", day(3));
+      await report("u4", job, "other", "third note", day(4));
+      await report("u5", job, "closed", "fourth note", day(5));
+      const [queued] = await db.reportQueue(database);
+      expect(queued).toMatchObject({
+        jobId: job,
+        title: "Backend Engineer",
+        companyName: "Acme",
+        location: "Austin, TX",
+        applyUrl: "https://example.com/apply",
+        reports: 5,
+        reasons: { not_real: 2, closed: 2, other: 1 },
+        notes: ["fourth note", "third note", "second note"],
+        firstReportedAt: day(1),
+      });
+    });
+
+    it("leaves closed and hidden jobs out of the queue, and counts only the reports it cleared", async () => {
+      const closed = await addJob("Closed role", { closedAt: new Date() });
+      const hidden = await addJob("Hidden role", { hiddenAt: new Date() });
+      const open = await addJob("Open role");
+      for (const job of [closed, hidden, open]) await report("u1", job);
+      expect((await db.reportQueue(database)).map((j) => j.jobId)).toEqual([open]);
+      expect(await db.keepReportedJob(database, { jobId: open, agentId: ana })).toBe(1);
+      expect(await db.keepReportedJob(database, { jobId: open, agentId: ana })).toBe(0);
+    });
+
+    it("needs a reason to hide a job, and a job that exists", async () => {
+      const job = await addJob("Backend Engineer");
+      await expect(
+        db.hideJob(database, { jobId: job, agentId: ana, reason: "   " }),
+      ).rejects.toMatchObject({ code: "not_allowed" });
+      await expect(
+        db.hideJob(database, {
+          jobId: "00000000-0000-0000-0000-000000000000",
+          agentId: ana,
+          reason: "Looks fake",
+        }),
+      ).rejects.toMatchObject({ code: "not_found" });
+    });
+
+    it("lists recently hidden jobs with who hid them and why, for 30 days", async () => {
+      const job = await addJob("Backend Engineer");
+      await db.hideJob(database, {
+        jobId: job,
+        agentId: ana,
+        reason: "Looks fake",
+        now: new Date("2026-11-08T00:00:00Z"),
+      });
+      expect(
+        await db.recentlyHiddenJobs(database, { now: new Date("2026-11-20T00:00:00Z") }),
+      ).toEqual([
+        expect.objectContaining({
+          jobId: job,
+          title: "Backend Engineer",
+          companyName: "Acme",
+          hiddenReason: "Looks fake",
+          hiddenByName: "Ana",
+        }),
+      ]);
+      expect(
+        await db.recentlyHiddenJobs(database, { now: new Date("2026-12-20T00:00:00Z") }),
+      ).toEqual([]);
     });
   });
 });
