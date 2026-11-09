@@ -6,3 +6,4 @@ export * from "./queries";
 export * from "./reports";
 export * from "./rules";
 export * from "./tokens";
+export * from "./weekly-check";

@@ -100,8 +100,8 @@ export async function accountIdForEmail(db: Database, email: string): Promise<st
   return row?.id ?? null;
 }
 
-/** Opens a case with its first message, and a private link for the requester. */
-export async function createCase(db: Database, i: CreateCaseInput): Promise<CaseNotice> {
+/** Opens a case with its first message, and a private link for the requester. Runs inside a transaction too. */
+export async function createCase(db: DbExecutor, i: CreateCaseInput): Promise<CaseNotice> {
   const subject = i.subject.trim().slice(0, SUBJECT_MAX);
   const body = i.body.trim().slice(0, MESSAGE_MAX);
   if (!subject) throw new SupportError("not_allowed", "Add a subject.");
@@ -228,7 +228,7 @@ export async function replyAsAgent(
 
 /** A staff-only note (or a system note). It changes nothing else about the case. */
 export async function addNote(
-  db: Database,
+  db: DbExecutor,
   input: {
     caseId: string;
     authorId: string | null;

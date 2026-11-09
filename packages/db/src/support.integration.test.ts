@@ -916,4 +916,134 @@ describe.skipIf(!TEST_DATABASE_URL)("customer care (Postgres integration)", () =
       ).rejects.toMatchObject({ code: "not_found" });
     });
   });
+
+  describe("the Monday missed-target check", () => {
+    const monday = new Date("2026-11-09T06:00:00Z"); // checks the week of Nov 2
+    const nextMonday = new Date("2026-11-16T06:00:00Z");
+    const wednesday = new Date("2026-11-04T12:00:00Z"); // inside the week being checked
+
+    /** A Concierge client assigned to priya, with a profile unless told otherwise. */
+    async function conciergeClient(
+      id: string,
+      options: {
+        assignedAt?: Date;
+        paused?: boolean;
+        noProfile?: boolean;
+        override?: number;
+        plan?: "concierge" | "plus";
+      } = {},
+    ) {
+      const plan = options.plan ?? "concierge";
+      await database
+        .insert(db.users)
+        .values({ id, name: id, email: `${id}@example.com`, plan })
+        .onConflictDoUpdate({ target: db.users.id, set: { plan } });
+      if (!options.noProfile) {
+        await database.insert(db.profiles).values({
+          userId: id,
+          weeklyTargetOverride: options.override ?? null,
+          conciergePausedAt: options.paused ? new Date("2026-10-20T00:00:00Z") : null,
+        });
+      }
+      await database.insert(db.specialistAssignments).values({
+        specialistId: priya,
+        clientId: id,
+        createdAt: options.assignedAt ?? new Date("2026-10-01T00:00:00Z"),
+      });
+    }
+
+    async function applied(userId: string, count: number, appliedAt = wednesday) {
+      if (count === 0) return;
+      await database.insert(db.applications).values(
+        Array.from({ length: count }, (_, i) => ({
+          userId,
+          companyName: `Company ${i}`,
+          jobTitle: "Engineer",
+          status: "applied" as const,
+          appliedAt,
+        })),
+      );
+    }
+
+    const escalations = () =>
+      database.select().from(db.supportCases).where(drizzle.eq(db.supportCases.kind, "escalation"));
+
+    it("opens one escalation for a client who missed last week, then notes the next miss", async () => {
+      await conciergeClient(riya);
+      await applied(riya, 9);
+      await applied(riya, 1, new Date("2026-11-09T01:00:00Z")); // this week's, not last week's
+      await applied(riya, 1, new Date("2026-11-01T23:59:00Z")); // the week before's
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 1, noted: 0 });
+      const [escalation] = await escalations();
+      expect(escalation).toMatchObject({
+        kind: "escalation",
+        source: "weekly_check",
+        topic: "concierge",
+        status: "open",
+        subject: "Missed weekly target: 9 of 15",
+        userId: riya,
+        contactName: "Riya",
+        contactEmail: "riya@example.com",
+        specialistId: priya,
+        raisedByUserId: null,
+      });
+      expect(await messageBodies(escalation!.id, "internal")).toEqual([
+        "Missed the week of Nov 2: 9 of 15",
+      ]);
+      expect(await messageBodies(escalation!.id, "public")).toEqual([]);
+
+      expect(await db.runWeeklyCheck(database, nextMonday)).toEqual({ opened: 0, noted: 1 });
+      expect(await escalations()).toHaveLength(1);
+      // The application made early on Monday Nov 9 counts toward the week it fell in.
+      expect(await messageBodies(escalation!.id, "internal")).toContain(
+        "Missed the week of Nov 9: 1 of 15",
+      );
+    });
+
+    it("skips paused clients, clients assigned during the week and other plans, and runs once a week", async () => {
+      await conciergeClient("paused-client", { paused: true });
+      await conciergeClient("new-client", { assignedAt: new Date("2026-11-04T00:00:00Z") });
+      await conciergeClient("plus-client", { plan: "plus" });
+      await conciergeClient("on-target");
+      await applied("on-target", 15);
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 0, noted: 0 });
+      await conciergeClient(riya);
+      await applied(riya, 9);
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 1, noted: 0 });
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 0, noted: 0 });
+      expect(await escalations()).toHaveLength(1);
+    });
+
+    it("uses the plan's default target when the client has no profile row", async () => {
+      await conciergeClient(riya, { noProfile: true });
+      await applied(riya, 3);
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 1, noted: 0 });
+      const [escalation] = await escalations();
+      expect(escalation!.subject).toBe("Missed weekly target: 3 of 15");
+    });
+
+    it("holds a client to their own weekly target", async () => {
+      await conciergeClient(riya, { override: 5 });
+      await conciergeClient("on-own-target", { override: 5 });
+      await applied(riya, 4);
+      await applied("on-own-target", 5);
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 1, noted: 0 });
+      expect((await escalations())[0]!.subject).toBe("Missed weekly target: 4 of 5");
+    });
+
+    it("adds the miss to an escalation a specialist already raised, but opens a new case once it is solved", async () => {
+      await conciergeClient(riya);
+      const raised = await db.createCase(
+        database,
+        escalationInput({ now: new Date("2026-11-05T00:00:00Z") }),
+      );
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 0, noted: 1 });
+      expect(await messageBodies(raised.caseId, "internal")).toContain(
+        "Missed the week of Nov 2: 0 of 15",
+      );
+      await db.solveCase(database, { caseId: raised.caseId, agentId: ana });
+      expect(await db.runWeeklyCheck(database, nextMonday)).toEqual({ opened: 1, noted: 0 });
+      expect(await escalations()).toHaveLength(2);
+    });
+  });
 });
