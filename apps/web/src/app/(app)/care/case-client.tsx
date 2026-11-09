@@ -1,10 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, Textarea } from "@/components/ui/form";
-import { useToast } from "@/components/ui/toast";
 import {
   addCaseNote,
   handOffCase,
@@ -13,31 +11,10 @@ import {
   solveCaseAction,
   takeCaseAction,
 } from "./actions";
-
-/** Runs a case action, then shows its toast and refreshes the page. */
-function useCaseAction() {
-  const router = useRouter();
-  const toast = useToast();
-  const [pending, startTransition] = useTransition();
-  const run = (
-    task: () => Promise<{ ok: true } | { ok: false; error: string }>,
-    success: string,
-    after?: () => void,
-  ) =>
-    startTransition(async () => {
-      const result = await task();
-      if (!result.ok) toast.error(result.error);
-      else {
-        toast.success(success);
-        after?.();
-      }
-      router.refresh();
-    });
-  return { pending, run };
-}
+import { useCareAction } from "./use-care-action";
 
 export function TakeButton({ caseId }: { caseId: string }) {
-  const { pending, run } = useCaseAction();
+  const { pending, run } = useCareAction();
   return (
     <Button
       size="sm"
@@ -56,7 +33,7 @@ export function HandOffForm({
   caseId: string;
   agents: Array<{ id: string; name: string }>;
 }) {
-  const { pending, run } = useCaseAction();
+  const { pending, run } = useCareAction();
   const [toAgentId, setToAgentId] = useState("");
   return (
     <div className="flex items-center gap-2">
@@ -87,7 +64,7 @@ export function HandOffForm({
 }
 
 export function SolveButton({ caseId }: { caseId: string }) {
-  const { pending, run } = useCaseAction();
+  const { pending, run } = useCareAction();
   return (
     <Button
       size="sm"
@@ -101,7 +78,7 @@ export function SolveButton({ caseId }: { caseId: string }) {
 }
 
 export function ReopenButton({ caseId }: { caseId: string }) {
-  const { pending, run } = useCaseAction();
+  const { pending, run } = useCareAction();
   return (
     <Button
       size="sm"
@@ -116,7 +93,7 @@ export function ReopenButton({ caseId }: { caseId: string }) {
 
 /** One box, two buttons: a reply goes to the requester, a note stays with staff. */
 export function CaseReplyBox({ caseId, solved }: { caseId: string; solved: boolean }) {
-  const { pending, run } = useCaseAction();
+  const { pending, run } = useCareAction();
   const [message, setMessage] = useState("");
   const clear = () => setMessage("");
   return (

@@ -5,10 +5,14 @@ import { PageHeader } from "@/components/ui/misc";
 import { cn } from "@/lib/utils";
 import { requireCareAgent } from "@/server/care";
 import { RequestsTab } from "./tabs/requests";
+import { UsersTab } from "./tabs/users";
 
 export const metadata: Metadata = { title: "Customer care" };
 
-const TABS = [{ id: "requests", label: "Requests" }] as const;
+const TABS = [
+  { id: "requests", label: "Requests" },
+  { id: "users", label: "Users" },
+] as const;
 type Tab = (typeof TABS)[number]["id"];
 
 const QUEUE_IDS: CaseQueue[] = ["open", "mine", "unassigned", "overdue", "waiting", "solved"];
@@ -54,6 +58,7 @@ export default async function CarePage({
           search={params.q?.trim() || undefined}
         />
       ) : null}
+      {tab === "users" ? <UsersTab query={params.q?.trim() || undefined} /> : null}
     </div>
   );
 }

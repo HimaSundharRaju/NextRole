@@ -9,12 +9,23 @@ import {
   companyRequests,
   getDb,
   jobs,
+  sessions,
   specialistAssignments,
   users,
 } from "@gettargetrole/db";
 import { and, desc, eq, gte, ilike, isNull, or, sql } from "drizzle-orm";
 import { PLANS } from "@/lib/plans";
 import { startOfMonth } from "../ai";
+
+/** Bans or unbans an account. A ban takes effect at once: every active session is deleted. */
+export async function applyBan(userId: string, banned: boolean, reason?: string): Promise<void> {
+  const db = getDb();
+  await db
+    .update(users)
+    .set({ banned, banReason: banned ? (reason ?? "Violation of terms") : null })
+    .where(eq(users.id, userId));
+  if (banned) await db.delete(sessions).where(eq(sessions.userId, userId));
+}
 
 export async function platformStats() {
   const db = getDb();

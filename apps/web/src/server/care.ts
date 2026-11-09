@@ -17,9 +17,15 @@ export function requireCareAgent(): Promise<SessionUser> {
 export async function assertCanActOnAccount(
   staff: SessionUser,
   userId: string,
-): Promise<{ id: string; role: Role; name: string; email: string }> {
+): Promise<{ id: string; role: Role; name: string; email: string; emailVerified: boolean }> {
   const [row] = await getDb()
-    .select({ id: users.id, role: users.role, name: users.name, email: users.email })
+    .select({
+      id: users.id,
+      role: users.role,
+      name: users.name,
+      email: users.email,
+      emailVerified: users.emailVerified,
+    })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);

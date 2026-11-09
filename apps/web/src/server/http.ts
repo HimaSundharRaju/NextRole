@@ -26,6 +26,17 @@ export function errorResponse(error: unknown): NextResponse {
  * CSRF defense for cookie-authenticated POST route handlers: the request must come from our own
  * origin. (Server Actions get the same check from Next.js; SameSite cookies are a second layer.)
  */
+/** A JSON file the browser downloads, as in the data export. */
+export function jsonDownload(data: unknown, filenamePrefix: string): Response {
+  return new Response(JSON.stringify(data, null, 2), {
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filenamePrefix}-${new Date().toISOString().slice(0, 10)}.json"`,
+      "Cache-Control": "private, no-store",
+    },
+  });
+}
+
 export function isSameOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
   if (!origin) return false;
