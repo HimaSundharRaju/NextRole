@@ -1,6 +1,7 @@
 import { clientConcierge, getDb } from "@gettargetrole/db";
 import { Download } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { PreferencesForm } from "@/components/profile/preferences-form";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -166,7 +167,11 @@ export default async function SettingsPage() {
             </table>
           </div>
           <p className="text-muted-foreground">
-            Need more? Contact support to change plans — self-serve billing is coming soon.
+            Need more?{" "}
+            <Link href="/support" className="font-medium text-primary">
+              Contact support
+            </Link>{" "}
+            to change plans — self-serve billing is coming soon.
           </p>
         </CardBody>
       </Card>

@@ -24,6 +24,13 @@ export const STAFF_STATUS_LABEL: Record<CaseStatus, string> = {
   solved: "Solved",
 };
 
+/** The badge colour for each status: what the case needs next. */
+export const STATUS_TONE: Record<CaseStatus, "primary" | "warning" | "success"> = {
+  open: "primary",
+  waiting_on_user: "warning",
+  solved: "success",
+};
+
 /** "Due in 3h" or "Overdue by 20m": whole hours from 60 minutes up, minutes below that. */
 export function dueLabel(state: { dueAt: Date; overdue: boolean }, now: Date): string {
   const minutes = Math.max(1, Math.floor(Math.abs(state.dueAt.getTime() - now.getTime()) / 60_000));

@@ -346,12 +346,15 @@ export async function verifyCase(
     .where(and(eq(supportCases.id, input.caseId), isNull(supportCases.verifiedAt)));
 }
 
-/** The case a private link opens, while the link still works (not 14 days past solving). */
-export async function caseForLink(
+/**
+ * What a private link points at: its case, and whether it has stopped working (the case was
+ * solved more than 14 days ago). Null for a token that matches no link.
+ */
+export async function linkStatus(
   db: Database,
   token: string,
   now = new Date(),
-): Promise<string | null> {
+): Promise<{ caseId: string; expired: boolean } | null> {
   const [row] = await db
     .select({
       caseId: supportCases.id,
@@ -362,8 +365,18 @@ export async function caseForLink(
     .innerJoin(supportCases, eq(supportCases.id, supportCaseLinks.caseId))
     .where(eq(supportCaseLinks.tokenHash, hashLinkToken(token)))
     .limit(1);
-  if (!row || !openToRequester(row.status, row.solvedAt, now)) return null;
-  return row.caseId;
+  if (!row) return null;
+  return { caseId: row.caseId, expired: !openToRequester(row.status, row.solvedAt, now) };
+}
+
+/** The case a private link opens, while the link still works. */
+export async function caseForLink(
+  db: Database,
+  token: string,
+  now = new Date(),
+): Promise<string | null> {
+  const link = await linkStatus(db, token, now);
+  return link && !link.expired ? link.caseId : null;
 }
 
 /** Solves cases that have waited on the user for 7 days, with a system note on each. */

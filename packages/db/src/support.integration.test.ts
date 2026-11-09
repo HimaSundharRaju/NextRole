@@ -186,6 +186,20 @@ describe.skipIf(!TEST_DATABASE_URL)("customer care (Postgres integration)", () =
       expect((await caseRow(caseId)).status).toBe("open");
     });
 
+    it("tells an expired link from an unknown one, so an old email can say the request is closed", async () => {
+      const solvedAt = new Date("2026-11-01T00:00:00Z");
+      const day = (n: number) => new Date(solvedAt.getTime() + n * 86_400_000);
+      const { caseId, token } = await db.createCase(
+        database,
+        helpInput({ now: new Date("2026-10-30T00:00:00Z") }),
+      );
+      expect(await db.linkStatus(database, token, solvedAt)).toEqual({ caseId, expired: false });
+      await db.solveCase(database, { caseId, agentId: ana, now: solvedAt });
+      expect(await db.linkStatus(database, token, day(13))).toEqual({ caseId, expired: false });
+      expect(await db.linkStatus(database, token, day(15))).toEqual({ caseId, expired: true });
+      expect(await db.linkStatus(database, "not-a-real-token")).toBeNull();
+    });
+
     it("solves cases left waiting on the user for 7 days, with a note", async () => {
       const start = new Date("2026-11-01T00:00:00Z");
       const { caseId } = await db.createCase(database, helpInput({ now: start }));

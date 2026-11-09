@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   dueLabel,
   STAFF_STATUS_LABEL,
+  STATUS_TONE,
   SUPPORT_TOPIC_LABEL,
   USER_STATUS_LABEL,
 } from "./support-labels";
@@ -41,5 +42,9 @@ describe("labels", () => {
       waiting_on_user: "Waiting on user",
       solved: "Solved",
     });
+  });
+
+  it("colours a case's badge by what it needs next", () => {
+    expect(STATUS_TONE).toEqual({ open: "primary", waiting_on_user: "warning", solved: "success" });
   });
 });
