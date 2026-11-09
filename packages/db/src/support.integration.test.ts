@@ -776,4 +776,144 @@ describe.skipIf(!TEST_DATABASE_URL)("customer care (Postgres integration)", () =
       ).toEqual([]);
     });
   });
+
+  describe("company requests", () => {
+    const day = (n: number) => new Date(Date.UTC(2026, 10, n));
+    const now = day(10);
+
+    async function request(
+      values: Partial<typeof DbModule.companyRequests.$inferInsert> & { name: string },
+    ) {
+      const [row] = await database
+        .insert(db.companyRequests)
+        .values({ userId: riya, source: "user", status: "pending", createdAt: day(9), ...values })
+        .returning({ id: db.companyRequests.id });
+      return row!.id;
+    }
+
+    async function addCompany(name: string) {
+      const [company] = await database
+        .insert(db.companies)
+        .values({
+          name,
+          slug: name.toLowerCase(),
+          ats: "greenhouse",
+          boardToken: name.toLowerCase(),
+        })
+        .returning({ id: db.companies.id });
+      return company!.id;
+    }
+
+    const requestRow = async (id: string) => {
+      const [row] = await database
+        .select()
+        .from(db.companyRequests)
+        .where(drizzle.eq(db.companyRequests.id, id));
+      return row!;
+    };
+
+    it("queues user requests that weren't found or have been pending 3 days, and leaves out YC imports", async () => {
+      await request({ name: "Globex", status: "not_found", createdAt: day(4) });
+      await request({ name: "Initech", createdAt: day(6) });
+      await request({ name: "Hooli", createdAt: day(9) }); // pending only one day
+      await request({ name: "Pied Piper", source: "yc", userId: null, status: "not_found" });
+      await request({ name: "Umbrella", status: "added", createdAt: day(1) });
+      const queue = await db.companyRequestQueue(database, now);
+      expect(queue.map((r) => r.name)).toEqual(["Globex", "Initech"]);
+      expect(queue[0]).toMatchObject({
+        status: "not_found",
+        requesterId: riya,
+        requesterEmail: "riya@example.com",
+      });
+    });
+
+    it("resolves every open request for the same company, by name or careers host", async () => {
+      const companyId = await addCompany("Globex");
+      const first = await request({ name: "Globex", url: "https://globex.com/jobs" });
+      const sameName = await request({ name: " globex ", userId: ana, status: "not_found" });
+      const sameHost = await request({
+        name: "Globex Corp",
+        url: "https://www.globex.com/careers",
+        userId: ada,
+      });
+      const declined = await request({ name: "Globex", userId: priya, status: "declined" });
+      const other = await request({ name: "Initech", url: "https://initech.com" });
+      const yc = await request({ name: "Globex", source: "yc", userId: null });
+      const unparseable = await request({ name: "Hooli", url: "globex.com", userId: ana });
+      const told = await db.resolveCompanyRequests(database, {
+        requestId: first,
+        companyId,
+        status: "added",
+      });
+      expect(told.map((t) => t.userId).sort()).toEqual([ada, ana, riya].sort());
+      for (const id of [first, sameName, sameHost]) {
+        expect(await requestRow(id)).toMatchObject({ status: "added", companyId });
+      }
+      // The declined request stays declined; unrelated, YC and unparseable ones stay as they were.
+      expect(await requestRow(declined)).toMatchObject({ status: "declined", companyId: null });
+      expect((await requestRow(other)).status).toBe("pending");
+      expect((await requestRow(yc)).status).toBe("pending");
+      expect((await requestRow(unparseable)).status).toBe("pending");
+    });
+
+    it("tells each requester once, and records an already-tracked company as tracked", async () => {
+      const companyId = await addCompany("Globex");
+      const first = await request({ name: "Globex", url: "https://globex.com/jobs" });
+      await request({ name: "Globex Corp", url: "https://globex.com", status: "not_found" });
+      await request({ name: "globex" });
+      const told = await db.resolveCompanyRequests(database, {
+        requestId: first,
+        companyId,
+        status: "tracked",
+      });
+      expect(told).toEqual([{ userId: riya, name: "Globex" }]);
+      const rows = await database.select().from(db.companyRequests);
+      expect(rows.every((row) => row.status === "tracked")).toBe(true);
+    });
+
+    it("refuses to resolve a request someone already handled", async () => {
+      const companyId = await addCompany("Globex");
+      const handled = await request({ name: "Globex", status: "added" });
+      await expect(
+        db.resolveCompanyRequests(database, { requestId: handled, companyId, status: "added" }),
+      ).rejects.toMatchObject({ code: "conflict" });
+      await expect(
+        db.resolveCompanyRequests(database, {
+          requestId: "00000000-0000-0000-0000-000000000000",
+          companyId,
+          status: "added",
+        }),
+      ).rejects.toMatchObject({ code: "not_found" });
+    });
+
+    it("declines a request with the reason saved", async () => {
+      const requestId = await request({ name: "Globex", status: "not_found" });
+      const told = await db.declineCompanyRequest(database, {
+        requestId,
+        reason: "Their jobs are only on LinkedIn.",
+      });
+      expect(told).toEqual({ userId: riya, name: "Globex" });
+      expect(await requestRow(requestId)).toMatchObject({
+        status: "declined",
+        note: "Their jobs are only on LinkedIn.",
+      });
+    });
+
+    it("needs a reason to decline, and a request that is still open", async () => {
+      const requestId = await request({ name: "Globex" });
+      await expect(
+        db.declineCompanyRequest(database, { requestId, reason: "  " }),
+      ).rejects.toMatchObject({ code: "not_allowed" });
+      await db.declineCompanyRequest(database, { requestId, reason: "No public board." });
+      await expect(
+        db.declineCompanyRequest(database, { requestId, reason: "Again" }),
+      ).rejects.toMatchObject({ code: "conflict" });
+      await expect(
+        db.declineCompanyRequest(database, {
+          requestId: "00000000-0000-0000-0000-000000000000",
+          reason: "No public board.",
+        }),
+      ).rejects.toMatchObject({ code: "not_found" });
+    });
+  });
 });
