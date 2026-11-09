@@ -1,24 +1,34 @@
 "use server";
 
 import { getServerEnv } from "@gettargetrole/core/env";
-import { ExternalServiceError, ValidationError } from "@gettargetrole/core/errors";
+import { ConflictError, ExternalServiceError, ValidationError } from "@gettargetrole/core/errors";
 import { createLogger } from "@gettargetrole/core/logger";
 import { sendEmail } from "@gettargetrole/core/mailer";
 import {
   addNote,
   assignCase,
+  CHANGED_MESSAGE,
   createExportLink,
+  declineCompanyRequest,
   deletableForCase,
   getDb,
+  hideJob,
+  keepReportedJob,
   normalizeEmail,
   PLANS,
   reopenCase,
   replyAsAgent,
   requesterKnows,
+  resolveCompanyRequests,
   solveCase,
   takeCase,
+  unhideJob,
   users,
 } from "@gettargetrole/db";
+import { trackBoard } from "@gettargetrole/jobs/companies";
+import { boardFetch } from "@gettargetrole/jobs/connectors";
+import { discoverBoard } from "@gettargetrole/jobs/discovery";
+import { scoreGhostJobs } from "@gettargetrole/jobs/ghosts";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -29,8 +39,9 @@ import { getAuth } from "@/server/auth";
 import { assertCanActOnAccount } from "@/server/care";
 import { deleteUserAccount } from "@/server/data/account";
 import { applyBan } from "@/server/data/admin";
+import { enqueueCompanySync } from "@/server/queue";
 import type { SessionUser } from "@/server/session";
-import { notifyRequester } from "@/server/support-mail";
+import { notifyCompanyRequesters, notifyRequester } from "@/server/support-mail";
 
 const log = createLogger("care");
 
@@ -318,6 +329,143 @@ export const deleteUserForCase = authedAction(
         }).catch((error: unknown) => log.warn({ err: error }, "deletion email failed"));
       },
     );
+    return null;
+  },
+  careRoles,
+);
+
+/* ------------------------------------------------------------------------------------------ */
+/* Reported jobs and company requests                                                         */
+/* ------------------------------------------------------------------------------------------ */
+
+const jobId = z.uuid();
+const why = z.string().trim().min(1, "Say why").max(300);
+
+function refreshJob(id: string) {
+  revalidatePath("/care");
+  revalidatePath("/jobs");
+  revalidatePath(`/jobs/${id}`);
+}
+
+/** The job is real: its reports stop adding ghost points. */
+export const keepJobAction = authedAction(
+  z.object({ jobId }),
+  async ({ jobId: id }, user) => {
+    const db = getDb();
+    const kept = await keepReportedJob(db, { jobId: id, agentId: user.id });
+    if (kept === 0) throw new ConflictError(CHANGED_MESSAGE);
+    await scoreGhostJobs(db, { jobIds: [id] });
+    await recordAudit({
+      actorUserId: user.id,
+      action: "care.report.keep",
+      targetType: "job",
+      targetId: id,
+      metadata: { reports: kept },
+    });
+    refreshJob(id);
+    return null;
+  },
+  careRoles,
+);
+
+/** Removes the job from search, alerts, auto-prepare and Concierge proposals. */
+export const hideJobAction = authedAction(
+  z.object({ jobId, reason: why }),
+  async ({ jobId: id, reason }, user) => {
+    await withSupport(() => hideJob(getDb(), { jobId: id, agentId: user.id, reason }));
+    await recordAudit({
+      actorUserId: user.id,
+      action: "care.report.hide",
+      targetType: "job",
+      targetId: id,
+      metadata: { reason },
+    });
+    refreshJob(id);
+    return null;
+  },
+  careRoles,
+);
+
+export const unhideJobAction = authedAction(
+  z.object({ jobId }),
+  async ({ jobId: id }, user) => {
+    const db = getDb();
+    await withSupport(() => unhideJob(db, { jobId: id }));
+    await scoreGhostJobs(db, { jobIds: [id] });
+    await recordAudit({
+      actorUserId: user.id,
+      action: "care.report.unhide",
+      targetType: "job",
+      targetId: id,
+    });
+    refreshJob(id);
+    return null;
+  },
+  careRoles,
+);
+
+/**
+ * Adds a requested company from its careers link, with the same detection as Admin's "Add by
+ * careers URL", then answers every open request for it and tells the people who asked.
+ */
+export const addRequestedCompany = authedAction(
+  z.object({
+    requestId: z.uuid(),
+    url: z.url({ protocol: /^https?$/ }),
+    name: z.string().trim().max(120),
+  }),
+  async ({ requestId, url, name }, user) => {
+    const board = await discoverBoard({ name, url }, { fetch: boardFetch });
+    if (!board) {
+      throw new ValidationError(
+        "No job board we can read was found there. Try the link to the list of open jobs.",
+      );
+    }
+    const company = await trackBoard({
+      name: name || board.suggestedName,
+      provider: board.provider,
+      token: board.token,
+      website: new URL(url).origin,
+    });
+    if (company.created) await enqueueCompanySync(company.id).catch(() => undefined);
+    const told = await withSupport(() =>
+      resolveCompanyRequests(getDb(), {
+        requestId,
+        companyId: company.id,
+        status: company.created ? "added" : "tracked",
+      }),
+    );
+    await notifyCompanyRequesters({ outcome: "added" }, told);
+    await recordAudit({
+      actorUserId: user.id,
+      action: "care.company_request.add",
+      targetType: "company_request",
+      targetId: requestId,
+      metadata: { companyId: company.id, provider: board.provider, created: company.created },
+    });
+    revalidatePath("/care");
+    return null;
+  },
+  { ...careRoles, rateLimit: "adminSync" },
+);
+
+export const declineRequestedCompany = authedAction(
+  z.object({ requestId: z.uuid(), reason: why }),
+  async ({ requestId, reason }, user) => {
+    const declined = await withSupport(() => declineCompanyRequest(getDb(), { requestId, reason }));
+    if (declined.userId) {
+      await notifyCompanyRequesters({ outcome: "declined", reason }, [
+        { userId: declined.userId, name: declined.name },
+      ]);
+    }
+    await recordAudit({
+      actorUserId: user.id,
+      action: "care.company_request.decline",
+      targetType: "company_request",
+      targetId: requestId,
+      metadata: { reason },
+    });
+    revalidatePath("/care");
     return null;
   },
   careRoles,

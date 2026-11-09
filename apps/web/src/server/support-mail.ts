@@ -8,9 +8,12 @@ import {
   caseNotification,
   getDb,
   notifications,
+  users,
   type CaseEmailEvent,
   type CaseNotice,
 } from "@gettargetrole/db";
+import { inArray } from "drizzle-orm";
+import { companyRequestMessages } from "@/lib/company-request-mail";
 
 const log = createLogger("support-mail");
 
@@ -56,5 +59,49 @@ export async function notifyRequester(
     );
   } catch (error) {
     log.warn({ err: error, caseId: notice.caseId }, "support email failed");
+  }
+}
+
+/**
+ * Tells each person who asked for a company what became of it, in the app and by email. The
+ * answer is already saved, so a failure here is logged and goes no further.
+ */
+export async function notifyCompanyRequesters(
+  result: { outcome: "added" } | { outcome: "declined"; reason: string },
+  requesters: Array<{ userId: string; name: string }>,
+): Promise<void> {
+  if (requesters.length === 0) return;
+  const db = getDb();
+  const people = await db
+    .select({ id: users.id, name: users.name, email: users.email })
+    .from(users)
+    .where(
+      inArray(
+        users.id,
+        requesters.map((requester) => requester.userId),
+      ),
+    );
+  const byId = new Map(people.map((person) => [person.id, person]));
+  for (const requester of requesters) {
+    const person = byId.get(requester.userId);
+    if (!person) continue;
+    const message = companyRequestMessages({
+      ...result,
+      companyName: requester.name,
+      userName: person.name,
+      appUrl: getServerEnv().APP_URL,
+    });
+    try {
+      await db
+        .insert(notifications)
+        .values({ userId: person.id, type: "system", ...message.notification });
+    } catch (error) {
+      log.warn({ err: error, userId: person.id }, "company request notification failed");
+    }
+    try {
+      await sendEmail({ to: person.email, ...message.email });
+    } catch (error) {
+      log.warn({ err: error, userId: person.id }, "company request email failed");
+    }
   }
 }

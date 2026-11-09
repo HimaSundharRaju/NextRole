@@ -4,6 +4,8 @@ import Link from "next/link";
 import { PageHeader } from "@/components/ui/misc";
 import { cn } from "@/lib/utils";
 import { requireCareAgent } from "@/server/care";
+import { CompaniesTab } from "./tabs/companies";
+import { ReportsTab } from "./tabs/reports";
 import { RequestsTab } from "./tabs/requests";
 import { UsersTab } from "./tabs/users";
 
@@ -11,6 +13,8 @@ export const metadata: Metadata = { title: "Customer care" };
 
 const TABS = [
   { id: "requests", label: "Requests" },
+  { id: "reports", label: "Reports" },
+  { id: "companies", label: "Company requests" },
   { id: "users", label: "Users" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
@@ -20,7 +24,13 @@ const QUEUE_IDS: CaseQueue[] = ["open", "mine", "unassigned", "overdue", "waitin
 export default async function CarePage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; queue?: string; topic?: string; q?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    queue?: string;
+    topic?: string;
+    q?: string;
+    hidden?: string;
+  }>;
 }) {
   const agent = await requireCareAgent();
   const params = await searchParams;
@@ -58,6 +68,8 @@ export default async function CarePage({
           search={params.q?.trim() || undefined}
         />
       ) : null}
+      {tab === "reports" ? <ReportsTab showHidden={params.hidden === "1"} /> : null}
+      {tab === "companies" ? <CompaniesTab /> : null}
       {tab === "users" ? <UsersTab query={params.q?.trim() || undefined} /> : null}
     </div>
   );
