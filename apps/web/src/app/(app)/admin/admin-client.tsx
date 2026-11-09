@@ -243,6 +243,7 @@ export function UserControls({
       >
         <option value="user">User</option>
         <option value="specialist">Specialist</option>
+        <option value="support">Support</option>
         <option value="admin">Admin</option>
       </Select>
       <Select

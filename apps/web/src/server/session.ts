@@ -16,7 +16,10 @@ export interface SessionUser {
 }
 
 function toSessionUser(user: Record<string, unknown>): SessionUser {
-  const role = user.role === "admin" || user.role === "specialist" ? user.role : "user";
+  const role =
+    user.role === "admin" || user.role === "specialist" || user.role === "support"
+      ? user.role
+      : "user";
   const plan = PLANS.includes(user.plan as Plan) ? (user.plan as Plan) : "free";
   const onboardedAt = user.onboardedAt ? new Date(user.onboardedAt as string | Date) : null;
   return {

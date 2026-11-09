@@ -24,6 +24,12 @@ export const RATE_LIMIT_POLICIES = {
   companyRequest: { points: 10, duration: 24 * 60 * 60 },
   /** Reports that a job isn't really open; each one moves the job toward being hidden. */
   jobReport: { points: 30, duration: 24 * 60 * 60 },
+  /** The signed-out Contact support form, per visitor address. */
+  supportForm: { points: 5, duration: 60 * 60 },
+  /** Help requests a signed-in user opens. */
+  supportRequest: { points: 20, duration: 24 * 60 * 60 },
+  /** Replies on a support request, from the person who raised it or from staff. */
+  supportReply: { points: 60, duration: 60 * 60 },
 } as const;
 
 export type RateLimitPolicy = keyof typeof RATE_LIMIT_POLICIES;
