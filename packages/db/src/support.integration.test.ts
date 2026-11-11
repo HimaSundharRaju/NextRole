@@ -524,6 +524,64 @@ describe.skipIf(!TEST_DATABASE_URL)("customer care (Postgres integration)", () =
       ).toEqual([]);
     });
 
+    it("gives care the Concierge context: specialist, setup and this week and last week against target", async () => {
+      const now = new Date("2026-11-10T12:00:00Z"); // a Tuesday; the week began Nov 9
+      await database
+        .update(db.users)
+        .set({ plan: "concierge" })
+        .where(drizzle.eq(db.users.id, riya));
+      await database.insert(db.profiles).values({
+        userId: riya,
+        applyConsentAt: new Date("2026-10-01T00:00:00Z"),
+        inboxAccessConfirmedAt: new Date("2026-10-02T00:00:00Z"),
+      });
+      await database
+        .insert(db.specialistAssignments)
+        .values({ specialistId: priya, clientId: riya });
+      const applied = (count: number, appliedAt: Date) =>
+        Array.from({ length: count }, (_, i) => ({
+          userId: riya,
+          companyName: `Company ${i}`,
+          jobTitle: "Engineer",
+          status: "applied" as const,
+          appliedAt,
+        }));
+      await database
+        .insert(db.applications)
+        .values([
+          ...applied(9, new Date("2026-11-04T12:00:00Z")),
+          ...applied(2, new Date("2026-11-09T06:00:00Z")),
+          { userId: riya, companyName: "Acme", jobTitle: "Engineer", status: "proposed" as const },
+        ]);
+      expect(await db.conciergeContext(database, riya, now)).toMatchObject({
+        specialistName: "Priya",
+        specialistEmail: "priya@example.com",
+        setupDone: true,
+        thisWeek: { applied: 2, target: 15 },
+        lastWeek: { applied: 9, target: 15 },
+        openProposals: 1,
+      });
+      expect((await db.conciergeContext(database, riya, now))?.lastActivity).toBeInstanceOf(Date);
+      expect(await db.conciergeContext(database, ana)).toBeNull();
+    });
+
+    it("shows unfinished setup and a missing specialist, and uses the client's own target", async () => {
+      await database
+        .update(db.users)
+        .set({ plan: "concierge" })
+        .where(drizzle.eq(db.users.id, riya));
+      await database.insert(db.profiles).values({ userId: riya, weeklyTargetOverride: 6 });
+      expect(await db.conciergeContext(database, riya)).toMatchObject({
+        specialistName: null,
+        specialistEmail: null,
+        setupDone: false,
+        thisWeek: { applied: 0, target: 6 },
+        lastWeek: { applied: 0, target: 6 },
+        openProposals: 0,
+        lastActivity: null,
+      });
+    });
+
     it("finds a client's active specialist and their latest escalation", async () => {
       expect(await db.activeSpecialistId(database, riya)).toBeNull();
       await database

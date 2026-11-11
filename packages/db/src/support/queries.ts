@@ -18,6 +18,8 @@ import {
 import { alias } from "drizzle-orm/pg-core";
 import type { Database } from "../client";
 import {
+  applications,
+  profiles,
   specialistAssignments,
   supportCases,
   supportMessages,
@@ -29,7 +31,8 @@ import {
   type Plan,
   type SupportTopic,
 } from "../schema";
-import { FIRST_REPLY_HOURS, firstReplyState, normalizeEmail } from "./rules";
+import { targetFor, weekStart } from "../concierge/rules";
+import { FIRST_REPLY_HOURS, firstReplyState, normalizeEmail, previousWeek } from "./rules";
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
@@ -460,4 +463,65 @@ export async function supportExport(
     )
     .orderBy(asc(supportMessages.createdAt));
   return { cases, messages };
+}
+
+export interface ConciergeContext {
+  specialistName: string | null;
+  specialistEmail: string | null;
+  /** The client has given consent and the specialist confirmed access to their inbox. */
+  setupDone: boolean;
+  thisWeek: { applied: number; target: number };
+  lastWeek: { applied: number; target: number };
+  openProposals: number;
+  lastActivity: Date | null;
+}
+
+/** A Concierge client's week at a glance, for the case and account pages; null for anyone else. */
+export async function conciergeContext(
+  db: Database,
+  clientId: string,
+  now = new Date(),
+): Promise<ConciergeContext | null> {
+  const [client] = await db
+    .select({
+      plan: users.plan,
+      override: profiles.weeklyTargetOverride,
+      consent: profiles.applyConsentAt,
+      access: profiles.inboxAccessConfirmedAt,
+    })
+    .from(users)
+    .leftJoin(profiles, eq(profiles.userId, users.id))
+    .where(eq(users.id, clientId))
+    .limit(1);
+  if (!client || client.plan !== "concierge") return null;
+  const specialist = alias(users, "specialist");
+  const [[assigned], [counts]] = await Promise.all([
+    db
+      .select({ name: specialist.name, email: specialist.email })
+      .from(specialistAssignments)
+      .innerJoin(specialist, eq(specialist.id, specialistAssignments.specialistId))
+      .where(
+        and(eq(specialistAssignments.clientId, clientId), eq(specialistAssignments.active, true)),
+      )
+      .limit(1),
+    db
+      .select({
+        thisWeek: sql<number>`(count(*) filter (where ${applications.appliedAt} >= ${weekStart(now)}))::int`,
+        lastWeek: sql<number>`(count(*) filter (where ${applications.appliedAt} >= ${previousWeek(now).start} and ${applications.appliedAt} < ${previousWeek(now).end}))::int`,
+        proposals: sql<number>`(count(*) filter (where ${applications.status} = 'proposed'))::int`,
+        lastActivity: sql<Date | string | null>`max(${applications.updatedAt})`,
+      })
+      .from(applications)
+      .where(eq(applications.userId, clientId)),
+  ]);
+  const target = targetFor(client.override);
+  return {
+    specialistName: assigned?.name ?? null,
+    specialistEmail: assigned?.email ?? null,
+    setupDone: Boolean(client.consent && client.access),
+    thisWeek: { applied: counts!.thisWeek, target },
+    lastWeek: { applied: counts!.lastWeek, target },
+    openProposals: counts!.proposals,
+    lastActivity: counts!.lastActivity ? new Date(counts!.lastActivity) : null,
+  };
 }

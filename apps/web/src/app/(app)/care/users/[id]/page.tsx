@@ -1,6 +1,7 @@
 import {
   accountActivity,
   accountSummary,
+  conciergeContext,
   deletableForCase,
   getDb,
   type AccountSummary,
@@ -10,6 +11,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
+import { ConciergePanel } from "@/components/concierge/care-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/misc";
@@ -49,11 +51,12 @@ export default async function CareAccountPage({
     targetType: "user",
     targetId: id,
   });
-  const [usage, spend, activity, deletable] = await Promise.all([
+  const [usage, spend, activity, deletable, concierge] = await Promise.all([
     monthlyUsage(id),
     monthlyAiSpendMicroUsd(id),
     accountActivity(db, id),
     caseId ? deletableForCase(db, { userId: id, caseId }) : false,
+    conciergeContext(db, id),
   ]);
   const allowances = allowancesFor(account.plan, usage);
   const budget = PLANS[account.plan].monthlyAiBudgetUsd;
@@ -124,6 +127,10 @@ export default async function CareAccountPage({
               </p>
             </CardBody>
           </Card>
+
+          {concierge ? (
+            <ConciergePanel context={concierge} isAdmin={agent.role === "admin"} />
+          ) : null}
 
           <Card>
             <CardHeader

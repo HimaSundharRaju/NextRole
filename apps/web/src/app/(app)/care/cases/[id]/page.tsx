@@ -1,6 +1,7 @@
 import {
   accountSummary,
   caseThread,
+  conciergeContext,
   firstReplyState,
   getDb,
   otherCases,
@@ -11,6 +12,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
+import { ConciergePanel } from "@/components/concierge/care-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/misc";
@@ -47,8 +49,9 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
   if (!thread) notFound();
   const request = thread.case;
   const now = new Date();
-  const [requester, others, agents, [owner]] = await Promise.all([
+  const [requester, concierge, others, agents, [owner]] = await Promise.all([
     request.userId ? accountSummary(db, request.userId) : null,
+    request.userId ? conciergeContext(db, request.userId, now) : null,
     otherCases(db, { caseId: id, userId: request.userId, contactEmail: request.contactEmail }),
     careAgents(),
     request.assigneeId
@@ -175,6 +178,9 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
               )}
             </CardBody>
           </Card>
+          {concierge ? (
+            <ConciergePanel context={concierge} isAdmin={agent.role === "admin"} />
+          ) : null}
           {others.length > 0 ? (
             <Card>
               <CardHeader title="Other requests" />
