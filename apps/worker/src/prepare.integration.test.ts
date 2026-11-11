@@ -316,6 +316,16 @@ describe.skipIf(!TEST_DATABASE_URL)("auto-prepare (Postgres integration)", () =>
     expect(ai.tailorCalls + ai.letterCalls).toBe(0);
   });
 
+  it("skips a job customer care hid after it was queued, without spending anything or taking a slot", async () => {
+    const database = db.getDb();
+    await database.update(db.jobs).set({ hiddenAt: new Date() });
+    await expect(
+      prepare.autoPrepare({ userId, jobId: jobIds[0]!, score: 92 }, ai),
+    ).resolves.toEqual({ status: "skipped", reason: "job_closed" });
+    expect(ai.tailorCalls + ai.letterCalls).toBe(0);
+    expect(await database.select().from(db.applications)).toHaveLength(0);
+  });
+
   it("leaves applications the user has moved past preparing alone", async () => {
     await db.getDb().insert(db.applications).values({
       userId,

@@ -329,7 +329,8 @@ export async function autoPrepare(
     .innerJoin(companies, eq(jobs.companyId, companies.id))
     .where(eq(jobs.id, jobId))
     .limit(1);
-  if (!posting || posting.job.closedAt) return skip("job_closed");
+  // A job can close, or be hidden by customer care, while it waits in the queue.
+  if (!posting || posting.job.closedAt || posting.job.hiddenAt) return skip("job_closed");
   const { job, companyName } = posting;
 
   const slot = await takeSlot(db, {
