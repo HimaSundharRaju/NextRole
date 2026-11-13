@@ -48,6 +48,8 @@ My calls, for the owner to confirm in review:
 14. Street address, postal code, date of birth, government or tax IDs and bank details are never stored or filled.
 15. A form is matched to its application by the posting's identity, never by title.
 16. On a plan without assisted apply, the queue, sheet and extension refuse to open applications.
+17. Product copy says the app fills the form and the person presses Submit. It never says "auto-apply" or "submits for you".
+18. Before the extension reaches anyone beyond the owner, the three systems' candidate terms and the store's policies get a legal review. This design has not had one.
 
 ## Why no bot submits
 
@@ -67,7 +69,7 @@ A person who reads the form and clicks Submit also keeps the application truthfu
 
 **C. Server-side submission** (an API, or a hosted or headless browser, with or without a review first). Rejected: the APIs need employer keys; a driven page is screened, and many employers' terms prohibit it; the person wouldn't have clicked; and it would need captcha and code handling we must never build.
 
-**Chosen: A and B together.** A is the foundation, the fallback for every system the extension doesn't cover, and the data the extension reads. Coverage in the local job data: Greenhouse 76%, Ashby 19%, Lever 5% of open jobs (older data; the Workday boards were never synced there). 63% of Greenhouse postings link to the employer's own domain, so the extension must handle Greenhouse forms embedded in other sites.
+**Chosen: A and B together.** A is the foundation, the fallback for every system the extension doesn't cover, and the data the extension reads. Coverage in the local job data: Greenhouse 76%, Ashby 19%, Lever 5% of open jobs (older data; the Workday boards were never synced there). 63% of Greenhouse postings link to the employer's own domain, so the extension must handle Greenhouse forms embedded in other sites. Competitive research (2026-11-12) found that a rival agent that submits by bot shows a resume diff and a field-by-field receipt; the preview and the receipts here are the parity answer, with a person pressing Submit.
 
 ## What exists today
 
@@ -80,6 +82,7 @@ A person who reads the form and clicks Submit also keeps the application truthfu
 - **Jobs:** `apply_url`, `source`, `external_id`, the company's `board_token`, `visa_sponsorship`, `citizenship_required`, `ghost_score`, `closed_at`, `expires_at`, and (customer care branch) `hidden_at`.
 - **Greenhouse** publishes a job's form: `GET …/jobs/{id}?questions=true` returns `questions`, `location_questions`, `compliance` and `demographic_questions`. Lever's public posting data does not include custom questions. Ashby's public data has not been checked.
 - **Rate limits** (`packages/core/src/rate-limit.ts`) and the public-only fetch guard for connectors (`packages/jobs/src/connectors/public-only.ts`).
+- **Stated scope:** the README says "Nothing is auto-submitted on your behalf" and lists a form-filling extension "for you to submit" on its roadmap. The Concierge spec puts bots and "form fillers that press Submit", captchas and stored passwords out of scope. This design keeps all of that true: the extension fills and never presses Submit.
 
 ## The experience
 
@@ -100,15 +103,18 @@ Applications tab → **Queue**. It lists the `ready` applications that auto-prep
 ```
 Staff Data Engineer · Acme · Remote (US)                      91% match
 Why: Python, SQL, Spark match · title fits · pay above your floor
-Tailored resume · cover letter · 2 answers drafted
+Tailored resume · cover letter · 2 answers drafted                   [Preview]
+Fills with: the extension (Greenhouse)
 ! The AI added "Terraform" to your skills.  I have this · Remove it
 ! The post says it does not sponsor visas; your profile says you need sponsorship.
                                                       [Skip ▾]  [Approve]
 ```
 
+- **Preview** shows the tailored resume against the main one with the changed lines marked, and the cover letter.
+- **Fills with** says how the application will be filled and, when it can't be the extension, why: "the sheet: Workday needs your sign-in", "the sheet: this employer's own form isn't recognised".
 - **Approve / Skip:** one tap each. Skip asks for one of the existing reasons. **Approve all** approves every card that has no open warning. The cap limits how many forms are opened each day; approved cards left over wait for the next day's slots.
 - **Not offered:** jobs that are closed, expired, hidden, on the skip list, or with a ghost score of 60 or more.
-- **Warnings that need a tap** (never silent): a new skill or number from the facts check ("Remove it" takes the skill out of this application's tailored resume only); "no sponsorship" while the profile needs it; citizenship required while the profile says otherwise; pay below the floor; a third application to the same employer in 30 days.
+- **Warnings that need a tap** (never silent): a new skill or number from the facts check ("Remove it" takes the skill out of this application's tailored resume only); "no sponsorship" while the profile needs it; citizenship required while the profile says otherwise; a match below 70; pay below the floor; a second application to the same employer in 30 days.
 - **Counter:** "Opened in the last 24 hours: 3 of 5 (ceiling 20)." The dashboard's "Ready to apply" links here.
 
 Approving moves the application `ready` → `approved`. Skipping moves it to `skipped`. Both reuse the Concierge steps (`canTransition` gains `ready` → `approved` or `skipped` for the owner of the application).
@@ -155,35 +161,36 @@ The receipt keeps the resume, letter and answers it stores today, each answer no
 - The email on the form is the client's job-search email (`profiles.job_search_email`) when set, because replies are read through it; otherwise the resume's email.
 - A field with nothing on file can be sent to the client with the existing **Ask client**; the application waits as `waiting_on_client`.
 - The client gets **Approve all** on proposals.
+- **Hand to my specialist:** a client filling their own queue can hand any application to their specialist with one tap, giving a reason (a sign-in wall, a form that isn't recognised, a question they'd rather not answer). It stays `approved` and shows on the specialist's board marked with the reason. Pro has no specialist, so it is not offered there.
 - Receipts record the specialist as the submitter; opening and submitting are audited (`specialist.application.filled`, `specialist.application.submitted`).
 
 ## Standard answers
 
 A typed set on the profile. Each entry has the value and the date the person confirmed it. The existing `work_authorization` and `needs_sponsorship` seed the first suggestion but are not trusted until the person confirms.
 
-| Answer                                                                                                       | Source                                                                                                                     | How it is filled                                                                                                                                                                                                            |
-| ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Name, email, phone, city and region, links                                                                   | The resume attached to the application and the profile; for Concierge clients the email is their job-search email when set | When the label matches                                                                                                                                                                                                      |
-| Work authorization, per country                                                                              | Standard answers                                                                                                           | Yes/No fields and exact-match options only. The country comes from the label, or from the job's country when the form says "this country" and the job lists exactly one. No answer for that country: left blank and flagged |
-| Sponsorship now or later, per country                                                                        | Standard answers                                                                                                           | The same rules                                                                                                                                                                                                              |
-| Relocation, notice period, earliest start                                                                    | Standard answers                                                                                                           | Text, or an exact-match option                                                                                                                                                                                              |
-| Salary expectation                                                                                           | An amount the person typed (never derived from the pay floor)                                                              | A number field with a matching currency; otherwise flagged                                                                                                                                                                  |
-| Gender, race or ethnicity, veteran and disability status                                                     | Standard answers, each defaulting to "Decline to self-identify"                                                            | An exact-match option only                                                                                                                                                                                                  |
-| How did you hear about us                                                                                    | The job came from the GetTargetRole board                                                                                  | "Job board", or "Other: GetTargetRole", when the option exists                                                                                                                                                              |
-| Free-text questions                                                                                          | Answer bank on an exact or near-exact match, else an AI draft                                                              | Marked as a draft until read                                                                                                                                                                                                |
-| Consents and attestations ("I certify", privacy policy, background check, drug test, age and similar)        | Not stored                                                                                                                 | Never filled; the person ticks them                                                                                                                                                                                         |
-| Worked here before? Referral? Street address, postal code, date of birth, government or tax ID, bank details | Not stored                                                                                                                 | Left for the person                                                                                                                                                                                                         |
+| Answer                                                                                                                                      | Source                                                                                                                     | How it is filled                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Name, email, phone, city and region, links                                                                                                  | The resume attached to the application and the profile; for Concierge clients the email is their job-search email when set | When the label matches                                                                                                                                                                                                      |
+| Work authorization, per country                                                                                                             | Standard answers                                                                                                           | Yes/No fields and exact-match options only. The country comes from the label, or from the job's country when the form says "this country" and the job lists exactly one. No answer for that country: left blank and flagged |
+| Sponsorship now or later, per country                                                                                                       | Standard answers                                                                                                           | The same rules                                                                                                                                                                                                              |
+| Relocation, notice period, earliest start                                                                                                   | Standard answers                                                                                                           | Text, or an exact-match option                                                                                                                                                                                              |
+| Salary expectation                                                                                                                          | An amount the person typed (never derived from the pay floor)                                                              | A number field with a matching currency; otherwise flagged                                                                                                                                                                  |
+| Gender, race or ethnicity, veteran and disability status                                                                                    | Standard answers; setup preselects "Decline to self-identify" for each, and nothing is filled until the person confirms    | An exact-match option only                                                                                                                                                                                                  |
+| How did you hear about us                                                                                                                   | The job came from the GetTargetRole board                                                                                  | "Job board", or "Other: GetTargetRole", when the option exists                                                                                                                                                              |
+| Free-text questions                                                                                                                         | Answer bank on an exact or near-exact match, else an AI draft                                                              | Marked as a draft until read                                                                                                                                                                                                |
+| Consents and attestations ("I certify", privacy policy, background check, drug test, criminal history, security clearance, age and similar) | Not stored                                                                                                                 | Never filled; the person ticks them                                                                                                                                                                                         |
+| Worked here before? Referral? Street address, postal code, date of birth, government or tax ID, bank details                                | Not stored                                                                                                                 | Left for the person                                                                                                                                                                                                         |
 
 ## Safety rules
 
 1. **Submit is the person's.** The extension has no code path that clicks a submit control or calls `submit()` or `requestSubmit()`; a lint rule and a test enforce it. The server never contacts an employer to submit.
-2. **No evasion.** The extension never solves or skips captchas, emailed codes or identity checks, never adds artificial delays, proxies or spoofing, and acts only in the person's own browser session.
+2. **No evasion.** The extension never solves or skips captchas, emailed codes or identity checks, never adds artificial delays, proxies or spoofing, and acts only in the person's own browser session. Neither the app nor the extension stores employer passwords or sign-in codes.
 3. **Facts are exact.** Answers to legal and factual questions come only from confirmed standard answers. A select or radio is filled only when an option matches the answer exactly, never the nearest one. Anything else is left blank and flagged.
 4. **Nothing is attested for the person.** Consents and attestations are never ticked or stored.
 5. **Facts check on every resume and letter**, run by fixed rules before an application can be approved and again when it is opened: the tailored resume may not add or change a company, title, date, location, school, degree or certification compared with the main resume (leaving one out is shown, not blocked); any skill not in the main resume needs "I have this" or is removed; any number in the resume, letter or an AI draft that is not in the main resume, the profile or the job post is flagged. Confirmations are kept on the application (`confirmed_claims`).
 6. **AI drafts are labelled.** They are filled, marked "AI draft · tick when read", and the receipt records whether they were left unchanged or edited. The panel's "ready" state needs every draft ticked.
 7. **Allowed sites only.** The manifest's host list is the allowlist: the app's own origin and the Greenhouse, Lever and Ashby hosts (including Greenhouse embeds on employer sites). LinkedIn, Indeed and the like are never in it. Everything else uses the sheet.
-8. **Pace and duplicates.** One application per job (existing unique index). One form is opened at a time. The daily cap counts forms opened in the last 24 hours. A third application to one employer in 30 days needs a tap.
+8. **Pace and duplicates.** One application per job (existing unique index). One form is opened at a time. The daily cap counts forms opened in the last 24 hours. A second application to one employer in 30 days needs a tap.
 9. **Remote switch.** Config is data, never code, and can disable a system, an employer or a version. A disabled system falls back to the sheet.
 10. **Concierge consent holds.** Staff can't open an application without the client's consent and approval, and the client's pause stops it.
 
@@ -201,6 +208,8 @@ A typed set on the profile. Each entry has the value and the date the person con
 Auto-prepare's daily limit still controls how many kits are prepared; the fill ceiling controls how many forms are opened. At 20 a day, most of a Pro user's fills would be quick fills: about 3 kits a day come from auto-prepare and about 3 from the manual allowances. The match gate on quick fill is the quality control, and the ceiling is one constant to lower.
 
 On a plan without assisted apply the settings stay, but the queue, sheet and extension refuse to open applications, as auto-prepare does today.
+
+The Concierge plan card says "25+ tailored applications a day", while a specialist's default target is 15 applications a week (`CONCIERGE_WEEKLY_TARGET`). This design changes neither; the gap is worth settling separately.
 
 | Piece                                                                  | AI  | Cost                                           |
 | ---------------------------------------------------------------------- | --- | ---------------------------------------------- |
@@ -237,7 +246,7 @@ New tables:
 Other changes:
 
 - `SubmissionReceipt` (jsonb): the new optional fields above.
-- `application_events`: new types `fill_opened` and `submit_detected`.
+- `application_events`: new types `fill_opened`, `submit_detected` and `handed_off`.
 - `canTransition`: `ready` → `approved` or `skipped` for the owner.
 - `plans.ts`: `ASSISTED_APPLY_DAILY_MAX`.
 - Rate-limit policies for pairing, opening, drafts and receipts.
@@ -292,34 +301,37 @@ Other changes:
 
 Each step ships on its own.
 
-- **S1, in-app queue, no extension, no new AI.** The plan constant and gating; the settings section (standard answers, cap, skip list); the facts check and confirmations; the `canTransition` change; the Queue tab with approve, skip and approve-all; the apply sheet with Copy buttons; the cap and `fill_opened_at`; receipts for the sheet path; README and architecture docs.
+- **S1, in-app queue, no extension, no new AI.** The plan constant and gating; the settings section (standard answers, cap, skip list); the facts check and confirmations; the `canTransition` change; the Queue tab with preview, approve, skip and approve-all; the apply sheet with Copy buttons; the cap and `fill_opened_at`; receipts for the sheet path; the README (its roadmap line about a form-filling extension moves to features) and the architecture "Applying" section.
 - **S2, Greenhouse questions and answers.** `job_forms` from the public API (through the existing public-only fetch guard); the answer bank for Pro; AI drafts after approval, charged to `answers`; the sheet in the form's own order.
 - **S3, extension core and Greenhouse.** `apps/extension`, pairing and tokens, the endpoints, the Greenhouse handler (hosted and embed), the side panel, field-level receipts, config and fill reports.
 - **S4, Lever and Ashby handlers.**
 - **S5, Concierge.** Specialist open and fill, ask-client from the panel, client approve-all, audit.
 
-Rollout: S1 to Pro and Concierge behind an environment switch. The extension starts as an unlisted store listing, used first on the owner's own account, then widened. The measures under "Goal" are checked after four weeks, and the ceiling and the quick-fill gate are adjusted from them.
+Rollout: S1 to Pro and Concierge behind an environment switch. Before S3 reaches anyone beyond the owner, the three systems' candidate terms and the store's policies get a legal review; this design has not had one. The extension starts as an unlisted store listing, used first on the owner's own account, then widened. The measures under "Goal" are checked after four weeks, and the ceiling and the quick-fill gate are adjusted from them.
 
 ## Out of scope
 
 - Anything that submits for the person: server-side submission, hosted or headless browsers, or any use of employers' application APIs.
 - Solving or skipping captchas, emailed codes and identity checks; proxies, spoofed browsers, artificial delays.
-- LinkedIn, Indeed and other job sites; Easy Apply.
+- LinkedIn, Indeed and other job sites, including saving jobs from them with the extension (LinkedIn forbids extensions that read its pages); Easy Apply.
 - Workday, SmartRecruiters, Oracle and Eightfold forms (the sheet covers them), and forms built on an employer's own custom page.
 - Firefox, Safari and mobile.
 - AI classification of unknown form labels, auto-approving jobs, ticking consents, creating employer accounts, and sending follow-ups.
 - Plus plan access.
+- A per-application human hand-off for Pro, and published outcome statistics. The receipts make both possible later.
 
 ## Risks
 
-| Risk                                       | Answer                                                                                                                                |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| An employer's terms forbid automated tools | The person reads and submits, as with a password manager. Three systems only, a remote switch by system and employer, and no evasion. |
-| A system changes its form                  | Saved-form tests, fill reports, a handler version in the config, and a fall back to the sheet.                                        |
-| Filling triggers a code or screening       | The person handles it. Fill reports count code prompts per system and alert on a rise.                                                |
-| Store review refuses or delists            | Narrow permissions, bundled code only, a privacy policy, an unlisted start. The sheet works without the extension.                    |
-| An AI draft goes out unread                | Labelled drafts, "tick when read", and receipts that record unchanged or edited.                                                      |
-| Volume lowers quality                      | The quick-fill match gate, the per-employer prompt, the response-rate comparison, and a ceiling that is one constant.                 |
+| Risk                                                                    | Answer                                                                                                                                                                 |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| An employer's terms forbid automated tools                              | The person reads and submits, as with a password manager. Three systems only, a remote switch by system and employer, and no evasion.                                  |
+| A system changes its form                                               | Saved-form tests, fill reports, a handler version in the config, and a fall back to the sheet.                                                                         |
+| Filling triggers a code or screening                                    | The person handles it. Fill reports count code prompts per system and alert on a rise.                                                                                 |
+| Store review refuses or delists                                         | Narrow permissions, bundled code only, a privacy policy, an unlisted start. The sheet works without the extension.                                                     |
+| An AI draft goes out unread                                             | Labelled drafts, "tick when read", and receipts that record unchanged or edited.                                                                                       |
+| Employers cap applications per candidate, or turn against mass applying | Low defaults, a prompt for a second application to one employer, match gates, and no retries: if a form refuses an application, the panel shows the message and stops. |
+| Employer terms and store policies have not had a legal review           | A review before S3 reaches anyone beyond the owner (see Rollout).                                                                                                      |
+| Volume lowers quality                                                   | The quick-fill match gate, the per-employer prompt, the response-rate comparison, and a ceiling that is one constant.                                                  |
 
 ## Left to the builder
 
@@ -337,3 +349,4 @@ Rollout: S1 to Pro and Concierge behind an environment switch. The extension sta
 3. **Pro `answers` stays at 100 a month,** about 3 AI-drafted forms a day. A bigger number is a cost decision (see "Plan limits and cost").
 4. **An unlisted store listing first**, public after the owner's own use.
 5. **Order against the customer care branch:** this builds on its hidden jobs and migration 0012.
+6. **Hand-off:** a Concierge client can hand any application to their specialist. Pro gets no per-application hand-off; offering one would be a pricing decision.
