@@ -67,7 +67,11 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    add the fields the job-board filters use, without AI calls: countries and states
    (`locations.ts`, from board-supplied addresses or the location text), employment types
    including explicit W-2, C2C and 1099 arrangements (`employment.ts`), and what the post says
-   about visa sponsorship and citizenship or clearance (`visa.ts`, explicit statements only).
+   about visa sponsorship and citizenship or clearance (`visa.ts`, explicit statements only,
+   read a sentence at a time: a refusal, an offer, or a restriction to citizens, permanent
+   residents and other U.S. persons; a post that says both stays unknown, and so does an offer
+   in a post that also restricts the role to U.S. persons). `explainVisaSignals` returns the
+   sentence behind each label; nothing stores it yet.
 4. **Upsert.** Jobs are upserted on `(company, external id)`. A content hash means an unchanged
    posting only updates `last_seen_at`, and a stored posting whose details come from a second
    request is only marked as still open. Jobs that disappear from a board are closed, but only
