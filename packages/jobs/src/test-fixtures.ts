@@ -495,3 +495,88 @@ export const adzunaSearch = {
     },
   ],
 };
+
+/**
+ * Real job titles from the local dev database and the level each one reads as (null: no cue).
+ * Lines marked "synthetic" are not from a posting. Shared by the title-reading unit tests and the
+ * Postgres test that checks the years filter reads titles the way the TypeScript does.
+ */
+export const TITLE_LEVELS: ReadonlyArray<readonly [title: string, level: string | null]> = [
+  ["Software Engineering Intern, Android", "intern"],
+  ["Analytics Engineer Intern", "intern"],
+  ["Data Engineer Intern (2027)", "intern"],
+  ["Forward Deployed Software Engineer, Internship - Commercial", "intern"],
+  ["Software Engineering Co-op", "intern"], // synthetic
+
+  ["Software Engineer, New Grad", "entry"],
+  ["Software Engineer, Early Career (AI)", "entry"],
+  ["Associate Product Manager (New Grad)", "entry"],
+  ["Associate Recruiter", "entry"],
+  ["Payments Risk Analyst I", "entry"],
+  ["Junior Data Engineer", "entry"], // synthetic
+  ["Jr. Python Developer", "entry"], // synthetic
+  ["Entry-Level Software Engineer", "entry"], // synthetic
+  ["Graduate Software Engineer", "entry"], // synthetic
+
+  ["Software Engineer II, Big Data, tvScientific", "mid"],
+  ["Data Scientist II, ML Infrastructure", "mid"],
+  ["Software Engineer 2", "mid"],
+  ["Associate Technical Services Engineer II", "mid"],
+  ["Site Reliability Engineer (Mid-Level, Senior or Staff), Infrastructure Security", "mid"],
+
+  ["Senior Software Engineer, Data Engineering", "senior"],
+  ["Sr. Lead, Corporate Communications", "senior"],
+  ["Software Engineer 3, Atlas Search Systems", "senior"],
+  ["Salesforce Engineer III, FedRAMP", "senior"],
+  ["Risk & Monitoring Analyst IV", "senior"],
+  ["Lead Physical Security Engineer", "senior"],
+  ["Social Media Lead", "senior"],
+  ["Senior Associate, Strategic Finance", "senior"],
+  ["Site Reliability Engineer (Senior or Staff), Deployments", "senior"],
+  ["Senior Internal Communications Manager, People", "senior"],
+
+  ["Staff Software Engineer, Data Warehouse", "staff"],
+  ["Staff+ Software Engineer, Data Infrastructure", "staff"],
+  ["Senior Staff Data Engineer, Foundational Data", "staff"],
+  ["Staff Product Manager I, Ad Serving", "staff"],
+
+  ["Engineering Manager, Billing Collections", "manager"],
+  ["Engineering Manager, Agentic Internet & Data Insights", "manager"],
+  ["Manager, Scaled Customer Success Strategy & Operations", "manager"],
+  ["Manager II, Recruiting", "manager"],
+
+  ["Principal Engineer, Big Data Platform", "principal"],
+  ["Principal Product Manager, AI Assistant", "principal"],
+  ["Distinguished Engineer, Core DevOps", "principal"],
+  ["Senior Principal Program Manager, GTM Excellence", "principal"],
+
+  ["Director of Engineering, AI Agents", "director"],
+  ["Lakebase Associate Director, Healthcare & Life Sciences", "director"],
+  ["Head of Marketing Operations", "director"],
+  ["Senior Manager, Head of Talent Operations", "director"],
+  ["Senior Director, Data Science", "director"],
+  ["Associate General Counsel, Privacy", "director"],
+
+  ["Vice President, Global Communications", "executive"],
+  ["VP, Global Head of Trust & Safety", "executive"],
+  ["Regional Vice President, Enterprise, Acquisition", "executive"],
+  ["Senior Vice President, Engineering", "executive"], // synthetic
+  ["Chief of Staff, CRO", "executive"],
+  ["Deputy Chief Regulatory Officer", "executive"],
+
+  ["Data Engineer", null],
+  ["Product Manager - Marketplace", null], // a product manager is an individual contributor
+  ["Client Account Manager II", null], // numerals after "manager" don't say much
+  ["Finance Manager I, Platform", null],
+  ["Credit Risk Operations Associate", null], // "Associate" as the role, not a level
+  ["Operations Associate, Financial Crimes EDD/PEP", null],
+  ["Associate, Strategic Finance", null],
+  ["Associate Manager, Internal Audit", null], // "Internal" is not "Intern"
+  ["International Payroll Analyst", null],
+  ["Member of Technical Staff/ Partners", null], // not a staff-level engineer
+  ["Executive Assistant, Chief People Officer", null], // assists a chief; isn't one
+  ["Administrative Business Partner, Office of the President", null],
+  ["Anthropic Fellows Program, AI Safety & Security", null],
+  ["Lead Generation Specialist", null], // synthetic: not a lead-level role
+  ["Staff Accountant", null], // synthetic: "staff" is the workforce here, not a level
+];
