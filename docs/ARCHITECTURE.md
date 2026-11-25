@@ -352,7 +352,7 @@ prep and the Studio chat.
   row in `usage_events` only when a new result is saved, so reused results and failed calls are
   free. The spend cap is about 1.35–1.5× the measured cost of using every allowance
   (`UNIT_COST_USD` and `fullUseCostUsd` in `plans.ts`, which a test keeps in step with the caps),
-  so it only stops outliers: Free $0.30, Plus $5, Pro $12 and Concierge $66 a month. The
+  so it only stops outliers: Free $0.30, Plus $6, Pro $15 and Concierge $90 a month. The
   dashboard, settings and each AI button show what's left this month. Batched calls are recorded
   at the batch price and flagged (`ai_usage.batch`).
 - **Testing.** `AI_PROVIDER=mock` swaps in a deterministic provider for local development and the
@@ -367,27 +367,31 @@ failures that matter most on a resume: changed or invented employers, titles, da
 education; technical skills the resume doesn't show; invented numbers; and hard limits such as a
 LinkedIn note over 300 characters. Two judges from different vendors (Claude Sonnet 5 and
 GPT-5-mini) then compare each candidate with the reference, Claude Sonnet 5, blind and in random
-order. A feature moves to another model only when that model fails no more checks than the
-reference, wins or ties at least half the comparisons with both judges, and answers in under 30
-seconds on average.
+order. They see what the models saw: the resume, the candidate's profile where the feature sends
+it, and the posting with its location. A feature moves to another model only when that model fails
+no more checks than the reference, wins or ties at least half the comparisons with both judges,
+and answers in under 30 seconds on average.
 
-Results from September 2026 (the synthetic pairs) and November 2026. The November run compared
+Results from September 2026 (the synthetic pairs) and two November 2026 runs. The first compared
 `claude-sonnet-5-5`, `claude-haiku-5-5` and `gpt-6-luna` on one real resume against 5 target jobs
 (kept out of git): 5 tailorings, cover letters, answer sets, outreach drafts and fit analyses, 1
-import and 7 Studio requests. The synthetic pairs haven't been run on those three models. Judge
-results below count both judges together; costs are per request.
+import and 7 Studio requests. The second ran each of the four switched features' new model on all
+25 pairs (the synthetic ones and those 5). Until that run the judges weren't given the profile or
+the location, so they counted true facts as invented: its verdicts come after the fix, and the
+other rows' judge results predate it. Judge results from it are wins to losses, per judge, with
+ties left out; costs are per request.
 
-| Feature                       | Route               | Evidence                                                                                                                                                                                                                                                                      |
-| ----------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Resume import                 | `gpt-4o-mini`       | September: tied the reference on all 8 imports with both judges; $0.0005 against $0.015                                                                                                                                                                                       |
-| Fit analysis                  | `gpt-6-luna`        | November: passed all 5 checks where `gpt-4o-mini` passed 3 (verdicts that contradicted the score); 7 wins, 1 tie, 2 losses against the reference; $0.0005 against $0.016                                                                                                      |
-| Tailoring                     | `claude-haiku-5-5`  | November: added no unlisted skills in 5 of 5, where the reference did in 2; 5 wins, 3 ties, 2 losses; $0.0016 against $0.028. In September, Haiku 4.5 and the GPT models added unlisted skills far more often than the reference                                              |
-| Application answers           | `claude-sonnet-5-5` | November: 8 wins, 1 tie, 1 loss, at the reference's price                                                                                                                                                                                                                     |
-| Outreach                      | `claude-haiku-5-5`  | November: passed all checks; 7 wins, 3 losses; $0.0015 against $0.014                                                                                                                                                                                                         |
-| Cover letters, interview prep | `claude-sonnet-5`   | Both judges preferred it for letters in September and November; interview prep last judged in September                                                                                                                                                                       |
-| Studio                        | `claude-sonnet-5`   | November: `claude-haiku-5-5` passed more checks (6 of 7 against 5) but lost all 4 tailoring comparisons; `claude-sonnet-5-5` once returned an edit that failed validation                                                                                                     |
-| Generation                    | `claude-sonnet-5`   | Not judged yet, so it runs on the reference                                                                                                                                                                                                                                   |
-| Job enrichment                | `gpt-4o-mini`       | On 50 real posts it kept the most facts (3.3 a post against 2.1 for GPT-4.1), every quote-checked fact matched GPT-4.1, and 9 of 11 levels fell in the same junior/mid/senior band; $0.0002 a post in batches. GPT-5-nano costs a third as much but found a third fewer facts |
+| Feature                       | Route               | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resume import                 | `gpt-4o-mini`       | September: tied the reference on all 8 imports with both judges; $0.0005 against $0.015                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Fit analysis                  | `gpt-6-luna`        | Kept for beating the model it replaced, though it falls short of the rule against the reference. 25 pairs: passed every check, where `gpt-4o-mini` passed 23, and both judges preferred it to `gpt-4o-mini` in all 23 comparisons. Against the reference the judges split: the Sonnet judge preferred the reference 18 to 2, mainly because Luna scores weak matches higher (where the reference scored under 40, Luna averaged 43 against its 15; `gpt-4o-mini` 46), and the GPT judge preferred Luna 20 to 4; $0.0004 against $0.012 |
+| Tailoring                     | `claude-sonnet-5`   | 25 pairs: `claude-haiku-5-5` passed the checks on 16 against the reference's 18, and once claimed API design experience the resume doesn't show (the checks also flag some fair rewording, from both); $0.020 against $0.0013. On the one real resume alone it had passed 5 of 5 against 3. In September, Haiku 4.5 and the GPT models added unlisted skills far more often than the reference                                                                                                                                         |
+| Application answers           | `claude-sonnet-5-5` | 25 pairs: passed all checks; preferred to the reference 17 to 2 (Sonnet judge) and 19 to 6 (GPT judge); $0.010 against $0.012                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Outreach                      | `claude-haiku-5-5`  | 25 pairs: passed all checks; preferred to the reference 17 to 5 (Sonnet judge) and 18 to 7 (GPT judge); $0.0014 against $0.013                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Cover letters, interview prep | `claude-sonnet-5`   | Both judges preferred it for letters in September and November; interview prep last judged in September                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Studio                        | `claude-sonnet-5`   | November: `claude-haiku-5-5` passed more checks (6 of 7 against 5) but lost all 4 tailoring comparisons; `claude-sonnet-5-5` once returned an edit that failed validation                                                                                                                                                                                                                                                                                                                                                              |
+| Generation                    | `claude-sonnet-5`   | Not judged yet, so it runs on the reference                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Job enrichment                | `gpt-4o-mini`       | On 50 real posts it kept the most facts (3.3 a post against 2.1 for GPT-4.1), every quote-checked fact matched GPT-4.1, and 9 of 11 levels fell in the same junior/mid/senior band; $0.0002 a post in batches. GPT-5-nano costs a third as much but found a third fewer facts                                                                                                                                                                                                                                                          |
 
 Job enrichment has its own check (`eval/enrich.mts`): each model reads the same real posts,
 the quote check runs on every answer, and the facts that survive are compared with GPT-4.1's.
@@ -396,8 +400,11 @@ Run it with
 `NODE_USE_ENV_PROXY=1 node --env-file=../../.env --import tsx eval/run.mts` from `packages/ai`
 (it needs both API keys). Results are cached under `eval/results/`, so a rerun only pays for what's
 missing, `--budget-anthropic` and `--budget-openai` stop the run before it spends more, and
-`--no-spend yes` rebuilds the report from the cache. To check on your own resume, put it in
-`eval/fixtures/private/` (gitignored) and add `--own-only yes`.
+`--no-spend yes` rebuilds the report from the cache. `--only tailor:haiku-5.5` compares just the
+named model with the reference on that feature. Cached judgments are reused even when the judge's
+prompt or inputs have changed, so move a feature's `judge/` folder aside to judge it again. To
+check on your own resume, put it in `eval/fixtures/private/` (gitignored) and add
+`--own-only yes`.
 
 Resume import accepts PDFs, which are sent to the model as document blocks; Word files, which are
 converted to text with mammoth; and pasted text. The model extracts a structured resume (see

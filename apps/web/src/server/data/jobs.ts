@@ -29,6 +29,7 @@ import {
   desc,
   eq,
   gte,
+  inArray,
   isNull,
   lt,
   lte,
@@ -47,6 +48,9 @@ import {
 import { candidateSignals, getProfile } from "./profile";
 import { getPrimaryResume } from "./resumes";
 
+const PAGE_SIZE = 20;
+/** The furthest page of results the board offers. */
+const MAX_PAGES = 100;
 const blankToUndefined = (value: unknown) => (value === "" ? undefined : value);
 const yearlyAmount = z.preprocess(
   blankToUndefined,
@@ -70,7 +74,7 @@ export const jobFiltersSchema = z.object({
   /** Include likely ghost jobs, which are hidden unless asked for. */
   ghosts: z.enum(["show"]).optional().catch(undefined),
   company: z.string().trim().max(100).optional().catch(undefined),
-  page: z.coerce.number().int().min(1).max(100).optional().catch(undefined),
+  page: z.coerce.number().int().min(1).max(MAX_PAGES).optional().catch(undefined),
   /** ISO country code, e.g. "US". */
   country: z.preprocess(
     blankToUndefined,
@@ -111,8 +115,6 @@ export const jobFiltersSchema = z.object({
 });
 export type JobFilters = z.infer<typeof jobFiltersSchema>;
 
-const PAGE_SIZE = 20;
-const MATCH_CANDIDATES = 400;
 const POSTED_WINDOWS: Record<string, number> = { "24h": 1, "3d": 3, "7d": 7, "30d": 30 };
 
 const listColumns = {
@@ -142,6 +144,20 @@ const listColumns = {
   companyName: jobEmployerName(),
   companySlug: companies.slug,
   companyIsAgency: companies.isStaffingAgency,
+};
+
+/** What scoring and ranking read; a job's other columns are loaded only for the page shown. */
+const rankingColumns = {
+  id: jobs.id,
+  title: jobs.title,
+  location: jobs.location,
+  workplaceType: jobs.workplaceType,
+  skills: jobs.skills,
+  salaryMax: jobs.salaryMax,
+  salaryPeriod: jobs.salaryPeriod,
+  seniority: jobs.seniority,
+  yearsMin: jobs.yearsMin,
+  ghostScore: jobs.ghostScore,
 };
 
 export interface JobListItem {
@@ -186,6 +202,7 @@ export interface JobSearchResult {
   total: number;
   page: number;
   pageCount: number;
+  /** More jobs match than the pages can show. */
   capped: boolean;
   /** The visa filter applied, after the profile default. */
   visa: VisaFilter;
@@ -239,8 +256,9 @@ async function visaFilterFor(userId: string, chosen: VisaFilter | undefined): Pr
 }
 
 /**
- * Open jobs matching the filters. "Best match" ranks the most recent candidates with the
- * deterministic scorer; "Newest" pages straight from the database.
+ * Open jobs matching the filters. "Best match" and a minimum match score every job that passes the
+ * filters (scores come from the profile, not SQL) and then load the cards of the page shown.
+ * "Newest" on its own pages straight from the database.
  */
 export async function searchJobs(userId: string, chosen: JobFilters): Promise<JobSearchResult> {
   const db = getDb();
@@ -253,35 +271,38 @@ export async function searchJobs(userId: string, chosen: JobFilters): Promise<Jo
   const page = filters.page ?? 1;
   const sort = filters.sort ?? "match";
 
-  const base = db
-    .select({ ...listColumns, applicationStatus: applications.status })
-    .from(jobs)
-    .innerJoin(companies, eq(jobs.companyId, companies.id))
-    .leftJoin(applications, and(eq(applications.jobId, jobs.id), eq(applications.userId, userId)))
-    .where(conditions);
-
-  const [countRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(jobs)
-    .innerJoin(companies, eq(jobs.companyId, companies.id))
-    .where(conditions);
-  const total = countRow?.count ?? 0;
+  const cards = (where: SQL | undefined) =>
+    db
+      .select({ ...listColumns, applicationStatus: applications.status })
+      .from(jobs)
+      .innerJoin(companies, eq(jobs.companyId, companies.id))
+      .leftJoin(applications, and(eq(applications.jobId, jobs.id), eq(applications.userId, userId)))
+      .where(where);
 
   const newSince = Date.now() - 86_400_000;
-  const score = (row: Omit<JobListItem, "match" | "isNew" | "likelyGhost">): JobListItem => ({
+  const item = (
+    row: Omit<JobListItem, "match" | "isNew" | "likelyGhost">,
+    match: QuickMatch,
+  ): JobListItem => ({
     ...row,
     isNew: row.firstSeenAt.getTime() > newSince,
     likelyGhost: row.ghostScore >= LIKELY_GHOST_SCORE,
-    match: quickMatch(signals, row),
+    match,
   });
 
   if (sort === "newest" && !filters.minMatch) {
-    const rows = await base
+    const [countRow] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(jobs)
+      .innerJoin(companies, eq(jobs.companyId, companies.id))
+      .where(conditions);
+    const total = countRow?.count ?? 0;
+    const rows = await cards(conditions)
       .orderBy(desc(jobs.firstSeenAt))
       .limit(PAGE_SIZE)
       .offset((page - 1) * PAGE_SIZE);
     return {
-      items: rows.map(score),
+      items: rows.map((row) => item(row, quickMatch(signals, row))),
       total,
       page,
       pageCount: Math.max(1, Math.ceil(total / PAGE_SIZE)),
@@ -290,25 +311,47 @@ export async function searchJobs(userId: string, chosen: JobFilters): Promise<Jo
     };
   }
 
-  // Match scores come from the resume, not SQL, so ranking and a minimum match work on the most
-  // relevant (or newest) candidates.
-  const ranking =
+  // Equal scores keep this order: the closest text match for a search, else the newest. The id
+  // settles ties, such as a board's jobs first seen together, so no job moves between pages.
+  const textRank =
     filters.q && sort === "match"
-      ? sql`ts_rank(${jobs.searchVector}, websearch_to_tsquery('english', ${filters.q})) desc`
-      : desc(jobs.firstSeenAt);
-  const candidates = await base.orderBy(ranking).limit(MATCH_CANDIDATES);
+      ? [sql`ts_rank(${jobs.searchVector}, websearch_to_tsquery('english', ${filters.q})) desc`]
+      : [];
+  const eligible = await db
+    .select(rankingColumns)
+    .from(jobs)
+    .innerJoin(companies, eq(jobs.companyId, companies.id))
+    .where(conditions)
+    .orderBy(...textRank, desc(jobs.firstSeenAt), jobs.id);
   const minMatch = Number(filters.minMatch ?? 0);
-  const scored = candidates.map(score).filter((job) => job.match.score >= minMatch);
-  // Signs of a ghost job move it down the ranking without changing its match score.
-  const rank = (job: JobListItem) => job.match.score - job.ghostScore / 4;
-  if (sort === "match") scored.sort((a, b) => rank(b) - rank(a));
-  const considered = scored.length;
+  const scored = eligible.flatMap((job) => {
+    const match = quickMatch(signals, job);
+    // Signs of a ghost job move it down the ranking without changing its match score.
+    return match.score >= minMatch
+      ? [{ id: job.id, match, rank: match.score - job.ghostScore / 4 }]
+      : [];
+  });
+  if (sort === "match") scored.sort((a, b) => b.rank - a.rank);
+
+  const shown = scored.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const rows = shown.length
+    ? await cards(
+        inArray(
+          jobs.id,
+          shown.map((job) => job.id),
+        ),
+      )
+    : [];
+  const byId = new Map(rows.map((row) => [row.id, row]));
   return {
-    items: scored.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    total: considered,
+    items: shown.flatMap(({ id, match }) => {
+      const row = byId.get(id);
+      return row ? [item(row, match)] : [];
+    }),
+    total: scored.length,
     page,
-    pageCount: Math.max(1, Math.ceil(considered / PAGE_SIZE)),
-    capped: total > considered,
+    pageCount: Math.max(1, Math.min(MAX_PAGES, Math.ceil(scored.length / PAGE_SIZE))),
+    capped: scored.length > MAX_PAGES * PAGE_SIZE,
     visa,
   };
 }
