@@ -35,5 +35,6 @@ dump.rdb
 .wrangler/
 .dev.vars*
 
-# Model quality-check outputs (packages/ai/eval)
+# Model quality-check outputs (packages/ai/eval), and the owner's own resume used as test input
 packages/ai/eval/results/
+packages/ai/eval/fixtures/private/

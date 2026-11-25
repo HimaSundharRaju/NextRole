@@ -11,6 +11,7 @@ const PROTECTED_PREFIXES = [
   "/settings",
   "/admin",
   "/specialist",
+  "/care",
 ];
 
 function contentSecurityPolicy(nonce: string): string {

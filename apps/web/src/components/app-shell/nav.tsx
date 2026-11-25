@@ -3,14 +3,17 @@
 import {
   Briefcase,
   FileText,
+  Headset,
   KanbanSquare,
   LayoutDashboard,
+  LifeBuoy,
   Menu,
   Send,
   Settings,
   Shield,
   UsersRound,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -27,38 +30,70 @@ const LINKS = [
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
-function NavLinks({ role, onNavigate }: { role: string; onNavigate?: () => void }) {
+function NavItem({
+  href,
+  label,
+  icon: Icon,
+  onNavigate,
+}: {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
-  const links = [
-    ...LINKS,
+  const active = pathname === href || pathname.startsWith(`${href}/`);
+  return (
+    <Link
+      href={href}
+      onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+        active
+          ? "bg-primary-soft text-primary"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+      )}
+    >
+      <Icon className="h-4 w-4" aria-hidden />
+      {label}
+    </Link>
+  );
+}
+
+function NavLinks({ role, onNavigate }: { role: string; onNavigate?: () => void }) {
+  const staff = [
     ...(role === "specialist" || role === "admin"
-      ? [{ href: "/specialist", label: "Clients", icon: UsersRound }]
+      ? [{ href: "/specialist", label: "Concierge board", icon: UsersRound }]
+      : []),
+    ...(role === "support" || role === "admin"
+      ? [{ href: "/care", label: "Customer care", icon: Headset }]
       : []),
     ...(role === "admin" ? [{ href: "/admin", label: "Admin", icon: Shield }] : []),
   ];
   return (
     <nav className="flex flex-col gap-1" aria-label="App">
-      {links.map(({ href, label, icon: Icon }) => {
-        const active = pathname === href || pathname.startsWith(`${href}/`);
-        return (
-          <Link
-            key={href}
-            href={href}
-            onClick={onNavigate}
-            aria-current={active ? "page" : undefined}
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              active
-                ? "bg-primary-soft text-primary"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
-            )}
-          >
-            <Icon className="h-4 w-4" aria-hidden />
-            {label}
-          </Link>
-        );
-      })}
+      {LINKS.map((link) => (
+        <NavItem key={link.href} {...link} onNavigate={onNavigate} />
+      ))}
+      {staff.length > 0 ? (
+        <>
+          <p className="mt-4 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Staff
+          </p>
+          {staff.map((link) => (
+            <NavItem key={link.href} {...link} onNavigate={onNavigate} />
+          ))}
+        </>
+      ) : null}
     </nav>
+  );
+}
+
+/** Help is always one click away, at the bottom of the menu. */
+function SupportLink({ onNavigate }: { onNavigate?: () => void }) {
+  return (
+    <NavItem href="/support" label="Contact support" icon={LifeBuoy} onNavigate={onNavigate} />
   );
 }
 
@@ -70,6 +105,9 @@ export function Sidebar({ role }: { role: string }) {
       </div>
       <div className="flex-1 px-3 py-2">
         <NavLinks role={role} />
+      </div>
+      <div className="border-t border-border px-3 py-3">
+        <SupportLink />
       </div>
     </aside>
   );
@@ -108,6 +146,9 @@ export function MobileNav({ role }: { role: string }) {
               </button>
             </div>
             <NavLinks role={role} onNavigate={() => setOpen(false)} />
+            <div className="mt-auto border-t border-border pt-3">
+              <SupportLink onNavigate={() => setOpen(false)} />
+            </div>
           </div>
         </div>
       ) : null}

@@ -81,7 +81,9 @@ export async function scoreGhostJobs(
         least(j.repost_count, 2) as reposts,
         (j.title ~* ${TALENT_POOL_TITLE}
           or coalesce((j.enrichment ->> 'evergreen')::boolean, false)) as evergreen,
-        (select least(count(*), 3)::int from ${jobReports} r where r.job_id = j.id) as reports
+        (select least(count(*), 3)::int from ${jobReports} r
+          where r.job_id = j.id and r.reason <> 'wrong_details'
+            and r.resolution is distinct from 'kept') as reports
       from ${jobs} j
       where ${sql.join(where, sql` and `)}
     ),
@@ -141,7 +143,15 @@ export async function reportJob(
     .values({ userId: input.userId, jobId: input.jobId, reason: input.reason, note })
     .onConflictDoUpdate({
       target: [jobReports.userId, jobReports.jobId],
-      set: { reason: input.reason, note, createdAt: new Date() },
+      // Updating a report is a new report: it counts again and returns to customer care's queue.
+      set: {
+        reason: input.reason,
+        note,
+        createdAt: new Date(),
+        reviewedAt: null,
+        reviewedByUserId: null,
+        resolution: null,
+      },
     });
   await scoreGhostJobs(db, { jobIds: [input.jobId] });
 }

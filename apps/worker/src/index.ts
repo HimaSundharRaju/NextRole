@@ -11,7 +11,7 @@ import {
   type SyncCompanyJob,
 } from "@gettargetrole/core/queues";
 import { queueConnection } from "@gettargetrole/core/redis";
-import { closeDb } from "@gettargetrole/db";
+import { closeDb, getDb } from "@gettargetrole/db";
 import { autoPrepareCandidates, createJobAlerts } from "@gettargetrole/jobs/alerts";
 import { importYcCompanies, resolveCompanyRequests } from "@gettargetrole/jobs/companies";
 import { ensureFeedSources } from "@gettargetrole/jobs/feeds";
@@ -19,10 +19,12 @@ import { expireJobs, scoreGhostJobs } from "@gettargetrole/jobs/ghosts";
 import { companiesDueForSync, pruneClosedJobs, syncCompany } from "@gettargetrole/jobs/ingest";
 import { Queue, Worker, type Job } from "bullmq";
 import { pollAiBatches, runStaleRequests, submitAiBatches } from "./batches";
+import { expireProposals, sendConciergeDigests } from "./concierge";
 import { pollEnrichmentBatches, submitEnrichmentBatch } from "./enrichment";
 import { aiConfigured, loadWorkerEnv } from "./env";
 import { autoPrepare } from "./prepare";
 import { createFollowUpReminders } from "./reminders";
+import { runAutoSolve, runConciergeWeeklyCheck } from "./support";
 
 const log = createLogger("worker");
 const env = loadWorkerEnv();
@@ -133,6 +135,14 @@ async function handleNotifications(job: Job): Promise<unknown> {
     }
     case JOB_NAMES.followUpReminders:
       return { created: await createFollowUpReminders() };
+    case JOB_NAMES.expireProposals:
+      return { expired: await expireProposals(getDb()) };
+    case JOB_NAMES.conciergeDigest:
+      return { sent: await sendConciergeDigests() };
+    case JOB_NAMES.supportAutoSolve:
+      return { solved: await runAutoSolve() };
+    case JOB_NAMES.conciergeWeeklyCheck:
+      return runConciergeWeeklyCheck();
     default:
       throw new Error(`Unknown notifications job: ${job.name}`);
   }
@@ -237,6 +247,30 @@ await notificationsQueue.upsertJobScheduler(
   "follow-up-schedule",
   { pattern: "0 */1 * * *" },
   { name: JOB_NAMES.followUpReminders },
+);
+await notificationsQueue.upsertJobScheduler(
+  "expire-proposals-schedule",
+  // Daily at 03:30 UTC.
+  { pattern: "30 3 * * *" },
+  { name: JOB_NAMES.expireProposals },
+);
+await notificationsQueue.upsertJobScheduler(
+  "concierge-digest-schedule",
+  // Daily at 14:00 UTC.
+  { pattern: "0 14 * * *" },
+  { name: JOB_NAMES.conciergeDigest },
+);
+await notificationsQueue.upsertJobScheduler(
+  "support-auto-solve-schedule",
+  // Hourly, on the hour.
+  { pattern: "0 * * * *" },
+  { name: JOB_NAMES.supportAutoSolve },
+);
+await notificationsQueue.upsertJobScheduler(
+  "concierge-weekly-check-schedule",
+  // Mondays at 06:00 UTC, for the week that just ended.
+  { pattern: "0 6 * * 1" },
+  { name: JOB_NAMES.conciergeWeeklyCheck },
 );
 if (batching) {
   await autoPrepareQueue.upsertJobScheduler(

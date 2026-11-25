@@ -1,8 +1,11 @@
 "use server";
 
+import { answerTask, CLIENT_SKIP_REASONS, decideProposals, getDb } from "@gettargetrole/db";
 import { APPLICATION_STATUSES } from "@gettargetrole/db/schema";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { withConcierge } from "@/lib/concierge-errors";
+import { CLIENT_SELECTABLE_STATUSES } from "@/lib/statuses";
 import { authedAction } from "@/server/action";
 import {
   addEvent,
@@ -56,7 +59,7 @@ export const addApplication = authedAction(
     jobTitle: z.string().trim().min(1, "Job title is required").max(160),
     jobUrl: httpsUrl,
     location: z.string().trim().max(120),
-    status: z.enum(APPLICATION_STATUSES),
+    status: z.enum(CLIENT_SELECTABLE_STATUSES),
     notes: z.string().max(5000),
   }),
   async (input, user) => {
@@ -102,6 +105,42 @@ export const removeApplication = authedAction(
     await deleteApplication(user.id, applicationId);
     revalidatePath("/applications");
     revalidatePath("/dashboard");
+    return null;
+  },
+);
+
+export const decideSpecialistProposals = authedAction(
+  z.object({
+    applicationIds: z.array(z.uuid()).min(1).max(50),
+    decision: z.enum(["approve", "skip"]),
+    reason: z.enum(CLIENT_SKIP_REASONS).optional(),
+  }),
+  async ({ applicationIds, decision, reason }, user) => {
+    const changed = await withConcierge(() =>
+      decideProposals(getDb(), {
+        clientId: user.id,
+        applicationIds,
+        decision,
+        reason,
+      }),
+    );
+    revalidatePath("/applications");
+    revalidatePath("/dashboard");
+    return { changed };
+  },
+);
+
+export const answerSpecialistQuestion = authedAction(
+  z.object({
+    taskId: z.uuid(),
+    answer: z.string().trim().min(1).max(2000),
+    saveToBank: z.boolean(),
+  }),
+  async ({ taskId, answer, saveToBank }, user) => {
+    await withConcierge(() =>
+      answerTask(getDb(), { clientId: user.id, taskId, answer, saveToBank }),
+    );
+    revalidatePath("/applications");
     return null;
   },
 );

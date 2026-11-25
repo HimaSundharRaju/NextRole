@@ -7,6 +7,8 @@
     ".": "./src/index.ts",
     "./connectors": "./src/connectors/index.ts",
     "./match": "./src/match.ts",
+    "./seniority": "./src/seniority.ts",
+    "./years-filter": "./src/years-filter.ts",
     "./locations": "./src/locations.ts",
     "./sanitize": "./src/sanitize.ts",
     "./ingest": "./src/ingest.ts",

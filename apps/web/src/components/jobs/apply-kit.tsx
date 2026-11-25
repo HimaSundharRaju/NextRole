@@ -53,7 +53,7 @@ interface TailorNotes {
 }
 
 /** What the kit is for: a job on the board, or an application with a pasted job description. */
-export type KitTarget = { jobId: string } | { applicationId: string };
+export type KitTarget = ({ jobId: string } | { applicationId: string }) & { clientId?: string };
 
 export type KitAllowances = Record<"tailor" | "letter" | "answers" | "outreach", UnitAllowance>;
 
@@ -102,6 +102,7 @@ export function ApplyKit({
   tailored,
   allowances,
   matchScore,
+  submitBlocked = null,
 }: {
   target: KitTarget;
   /** The employer's application page; empty when unknown. */
@@ -111,9 +112,12 @@ export function ApplyKit({
   allowances: KitAllowances;
   /** How well the job matches the main resume; null for pasted job descriptions. */
   matchScore: number | null;
+  /** Why marking it submitted is off, such as missing consent; the button says so. */
+  submitBlocked?: string | null;
 }) {
   const router = useRouter();
   const toast = useToast();
+  const clientQuery = target.clientId ? `&client=${encodeURIComponent(target.clientId)}` : "";
   const [busy, setBusy] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -192,20 +196,23 @@ export function ApplyKit({
         <Step done={Boolean(application?.resumeId)} icon={FileText} title="Tailored resume">
           {application?.resumeId ? (
             <div className="flex flex-wrap gap-2">
-              <Link
-                href={`/resumes/${application.resumeId}`}
-                className={buttonVariants({ variant: "secondary", size: "sm" })}
-              >
-                <PenLine className="h-3.5 w-3.5" aria-hidden /> Review in Studio
-              </Link>
+              {/* Studio is the owner's; a specialist downloads the client's copy instead. */}
+              {target.clientId ? null : (
+                <Link
+                  href={`/resumes/${application.resumeId}`}
+                  className={buttonVariants({ variant: "secondary", size: "sm" })}
+                >
+                  <PenLine className="h-3.5 w-3.5" aria-hidden /> Review in Studio
+                </Link>
+              )}
               <a
-                href={`/api/resumes/${application.resumeId}/export?format=pdf`}
+                href={`/api/resumes/${application.resumeId}/export?format=pdf${clientQuery}`}
                 className={buttonVariants({ variant: "secondary", size: "sm" })}
               >
                 <Download className="h-3.5 w-3.5" aria-hidden /> PDF
               </a>
               <a
-                href={`/api/resumes/${application.resumeId}/export?format=docx`}
+                href={`/api/resumes/${application.resumeId}/export?format=docx${clientQuery}`}
                 className={buttonVariants({ variant: "secondary", size: "sm" })}
               >
                 <Download className="h-3.5 w-3.5" aria-hidden /> Word
@@ -399,7 +406,13 @@ export function ApplyKit({
               onClick={() =>
                 run(
                   "save",
-                  () => saveKit({ applicationId: application.id, coverLetter, answers }),
+                  () =>
+                    saveKit({
+                      applicationId: application.id,
+                      clientId: target.clientId,
+                      coverLetter,
+                      answers,
+                    }),
                   () => {
                     setDirty(false);
                     toast.success("Changes saved.");
@@ -491,9 +504,11 @@ export function ApplyKit({
                 <p className="mt-2">{outreach.linkedinNote}</p>
                 <CopyButton text={outreach.linkedinNote} className="mt-2" />
               </div>
-              <Link href="/outreach" className="text-xs font-medium text-primary">
-                All drafts, including a follow-up →
-              </Link>
+              {target.clientId ? null : (
+                <Link href="/outreach" className="text-xs font-medium text-primary">
+                  All drafts, including a follow-up →
+                </Link>
+              )}
             </div>
           ) : null}
         </Step>
@@ -522,7 +537,7 @@ export function ApplyKit({
             ) : (
               <Button
                 loading={busy === "applied"}
-                disabled={busy !== null}
+                disabled={busy !== null || Boolean(submitBlocked)}
                 onClick={() =>
                   run(
                     "applied",
@@ -535,17 +550,21 @@ export function ApplyKit({
                       }
                       if (!applicationId)
                         return { ok: false as const, error: "Save the job first." };
-                      return markApplied({ applicationId });
+                      return markApplied({ applicationId, clientId: target.clientId });
                     },
                     () =>
                       toast.success("Marked as applied. We'll remind you to follow up in a week."),
                   )
                 }
               >
-                <CheckCircle2 className="h-4 w-4" aria-hidden /> I&apos;ve applied
+                <CheckCircle2 className="h-4 w-4" aria-hidden />{" "}
+                {target.clientId ? "Mark submitted" : "I've applied"}
               </Button>
             )}
           </div>
+          {submitBlocked && !applied ? (
+            <p className="mt-2 text-xs text-danger">{submitBlocked}</p>
+          ) : null}
           <p className="mt-2 text-xs text-muted-foreground">
             You submit on the company&apos;s site, so nothing is sent without your review.
           </p>

@@ -2,7 +2,7 @@
  * Inputs for the model quality check. Resumes are synthetic (fictional people, companies and
  * example.com addresses); job descriptions are real public postings, trimmed.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { emptyResume, type Resume } from "@gettargetrole/resume/schema";
 import type { CandidateProfile, JobContext } from "../src/types";
 
@@ -16,6 +16,8 @@ export interface Persona {
   id: string;
   resume: Resume;
   profile: CandidateProfile;
+  /** The owner's own resume rather than a synthetic one. */
+  own?: boolean;
 }
 
 const baseProfile: CandidateProfile = {
@@ -233,17 +235,50 @@ export interface EvalJob extends JobContext {
   url: string;
 }
 
-export const JOBS: EvalJob[] = jobsJson.map((job) => ({
+const toEvalJob = (job: EvalJob): EvalJob => ({
   key: job.key,
   url: job.url,
   title: job.title,
   company: job.company,
   location: job.location,
   description: job.description,
-}));
+});
+
+export const JOBS: EvalJob[] = jobsJson.map(toEvalJob);
 
 /** Every persona against every job: good fits and mismatches, to test honesty as well. */
 export const PAIRS = PERSONAS.flatMap((persona) => JOBS.map((job) => ({ persona, job })));
+
+/*
+ * Optionally, the owner's own resume and the jobs they're after, so the check also runs on a real
+ * profile. fixtures/private/ is gitignored and holds resume.json (a Resume), profile.json (a
+ * CandidateProfile), jobs.json (the same shape as jobs.json) and resume.pdf, the original file
+ * for the import check.
+ */
+const PRIVATE = new URL("./fixtures/private/", import.meta.url);
+const hasPrivate = (name: string) => existsSync(new URL(name, PRIVATE));
+
+export const OWN_PERSONA: Persona | null =
+  hasPrivate("resume.json") && hasPrivate("profile.json")
+    ? {
+        id: "owner",
+        own: true,
+        resume: readJson<Resume>("private/resume.json"),
+        profile: readJson<CandidateProfile>("private/profile.json"),
+      }
+    : null;
+
+/** The owner's resume against the jobs they're after. */
+export const OWN_PAIRS =
+  OWN_PERSONA && hasPrivate("jobs.json")
+    ? readJson<EvalJob[]>("private/jobs.json").map((job) => ({
+        persona: OWN_PERSONA,
+        job: toEvalJob(job),
+      }))
+    : [];
+
+export const OWN_RESUME_PDF =
+  OWN_PERSONA && hasPrivate("resume.pdf") ? readFileSync(new URL("resume.pdf", PRIVATE)) : null;
 
 export const QUESTIONS = [
   "Why do you want to work here?",
