@@ -99,4 +99,110 @@ describe.skipIf(!TEST_DATABASE_URL)("job search (Postgres integration)", () => {
       "Software Engineer II, Big Data",
     ]);
   });
+
+  describe("ranking by match", () => {
+    const HOUR = 3_600_000;
+
+    beforeEach(async () => {
+      await db
+        .getDb()
+        .insert(db.profiles)
+        .values({
+          userId,
+          skills: ["python", "sql", "aws"],
+          targetTitles: ["Data Engineer"],
+          remotePreference: "any",
+          seniority: "mid",
+        });
+    });
+
+    /** `count` postings that suit the candidate badly, all first seen at the same moment. */
+    async function addWeakJobs(count: number, title = "Account Executive") {
+      await db
+        .getDb()
+        .insert(db.jobs)
+        .values(
+          Array.from({ length: count }, () => ({
+            companyId,
+            source: "greenhouse" as const,
+            externalId: `weak-${++externalIds}`,
+            title,
+            skills: ["salesforce"],
+            location: "Austin, TX",
+            applyUrl: "https://job-boards.greenhouse.io/acme/jobs/1",
+            contentHash: "hash",
+            firstSeenAt: new Date(Date.now() - HOUR),
+          })),
+        );
+    }
+
+    /** A posting the candidate is a strong match for, first seen a month ago. */
+    async function addOlderStrongJob() {
+      await db
+        .getDb()
+        .insert(db.jobs)
+        .values({
+          companyId,
+          source: "greenhouse",
+          externalId: `strong-${++externalIds}`,
+          title: "Data Engineer",
+          skills: ["python", "sql", "aws", "etl"],
+          location: "Austin, TX",
+          applyUrl: "https://job-boards.greenhouse.io/acme/jobs/2",
+          contentHash: "hash",
+          firstSeenAt: new Date(Date.now() - 30 * 24 * HOUR),
+        });
+    }
+
+    it("puts an older strong match first, ahead of hundreds of newer weak ones", async () => {
+      await addOlderStrongJob();
+      await addWeakJobs(450);
+
+      const best = await jobSearch.searchJobs(userId, {});
+      expect(best.items[0]?.title).toBe("Data Engineer");
+      expect(best).toMatchObject({ total: 451, pageCount: 23, capped: false });
+
+      // Every job is on exactly one page.
+      const listedIds = new Set<string>();
+      for (let page = 1; page <= best.pageCount; page++) {
+        for (const job of (await jobSearch.searchJobs(userId, { page })).items) {
+          expect(listedIds.has(job.id)).toBe(false);
+          listedIds.add(job.id);
+        }
+      }
+      expect(listedIds.size).toBe(451);
+    });
+
+    it("applies a minimum match to every job, whichever way it is sorted", async () => {
+      await addOlderStrongJob();
+      await addWeakJobs(450);
+
+      for (const sort of ["match", "newest"] as const) {
+        const result = await jobSearch.searchJobs(userId, { sort, minMatch: "60" });
+        expect(result.items.map((job) => job.title)).toEqual(["Data Engineer"]);
+        expect(result).toMatchObject({ total: 1, pageCount: 1, capped: false });
+      }
+    });
+
+    it("ranks every text search result, not just the ones the text ranking puts first", async () => {
+      await addOlderStrongJob();
+      // Repeating the searched word makes the text ranking place these above the strong match.
+      await addWeakJobs(450, "Engineer, Engineer and Engineer");
+
+      const result = await jobSearch.searchJobs(userId, { q: "engineer" });
+      expect(result.items[0]?.title).toBe("Data Engineer");
+      expect(result).toMatchObject({ total: 451, capped: false });
+    });
+
+    it("counts every match and says so when there are more than the pages can show", async () => {
+      await addOlderStrongJob();
+      await addWeakJobs(2_000);
+
+      const first = await jobSearch.searchJobs(userId, {});
+      expect(first.items[0]?.title).toBe("Data Engineer");
+      // 100 pages of 20 is as far as the page filter goes.
+      expect(first).toMatchObject({ total: 2_001, pageCount: 100, capped: true });
+      expect((await jobSearch.searchJobs(userId, { page: 100 })).items).toHaveLength(20);
+    });
+  });
 });
