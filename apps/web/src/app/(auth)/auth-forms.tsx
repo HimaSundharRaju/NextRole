@@ -96,6 +96,12 @@ export function SignInForm({ next, googleEnabled }: { next: string; googleEnable
             Create an account
           </Link>
         </div>
+        <p className="mt-3 text-center text-sm text-muted-foreground">
+          Can&apos;t sign in?{" "}
+          <Link href="/support" className="font-medium text-primary">
+            Contact support
+          </Link>
+        </p>
       </div>
     </div>
   );

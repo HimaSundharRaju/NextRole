@@ -58,12 +58,18 @@ const PRE_ADAPTIVE_MODEL = /^claude-(?:3-|(?:opus|sonnet|haiku)-4(?:-[015])?$)/;
 const REFUSAL_FALLBACK_MODELS = new Set([
   "claude-opus-5",
   "claude-opus-5-5",
+  "claude-sonnet-5-5",
   "claude-fable-5",
   "claude-fable-5-1",
 ]);
 
 /** Models that reject a forced tool choice (`tool_choice` of type "tool" or "any"). */
-const NO_FORCED_TOOL_MODELS = new Set(["claude-opus-5-5", "claude-fable-5-1", "claude-mythos-5-1"]);
+const NO_FORCED_TOOL_MODELS = new Set([
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-fable-5-1",
+  "claude-mythos-5-1",
+]);
 
 export interface ModelCapabilities {
   /** Adaptive thinking and the effort setting, which the API rejects before Claude 4.6. */
@@ -87,6 +93,8 @@ export function modelCapabilities(model: string): ModelCapabilities {
 interface ModelPricing {
   input: number;
   output: number;
+  /** A higher rate for the whole request once its prompt (cached tokens included) passes a size. */
+  longPrompt?: { aboveTokens: number; input: number; output: number };
 }
 
 const PRICING: Record<string, ModelPricing> = {
@@ -97,10 +105,16 @@ const PRICING: Record<string, ModelPricing> = {
   "claude-opus-4-8": { input: 5, output: 25 },
   "claude-opus-4-7": { input: 5, output: 25 },
   "claude-opus-4-6": { input: 5, output: 25 },
+  "claude-sonnet-5-5": { input: 2, output: 10 },
   "claude-sonnet-5": { input: 2, output: 10 },
   "claude-sonnet-4-6": { input: 3, output: 15 },
   "claude-opus-4-5": { input: 5, output: 25 },
   "claude-sonnet-4-5": { input: 3, output: 15 },
+  "claude-haiku-5-5": {
+    input: 0.1,
+    output: 0.5,
+    longPrompt: { aboveTokens: 100_000, input: 0.5, output: 2.5 },
+  },
   "claude-haiku-4-5": { input: 1, output: 5 },
 };
 
@@ -109,6 +123,8 @@ const PRICING: Record<string, ModelPricing> = {
  * cache-write charge.
  */
 const OPENAI_PRICING: Record<string, ModelPricing & { cachedInput: number }> = {
+  "gpt-6.1-terra": { input: 1, cachedInput: 0.05, output: 5 },
+  "gpt-6-luna": { input: 0.1, cachedInput: 0.01, output: 0.5 },
   "gpt-5.2": { input: 1.75, cachedInput: 0.175, output: 14 },
   "gpt-5.1": { input: 1.25, cachedInput: 0.125, output: 10 },
   "gpt-5": { input: 1.25, cachedInput: 0.125, output: 10 },
@@ -156,7 +172,10 @@ export function estimateCostMicroUsd(
       1_000_000;
     return Math.round(usd * discount * 1_000_000);
   }
-  const price = PRICING[baseModelId(model)] ?? PRICING[DEFAULT_MODEL]!;
+  const listed = PRICING[baseModelId(model)] ?? PRICING[DEFAULT_MODEL]!;
+  const promptTokens = tokens.inputTokens + tokens.cacheReadTokens + tokens.cacheWriteTokens;
+  const price =
+    listed.longPrompt && promptTokens > listed.longPrompt.aboveTokens ? listed.longPrompt : listed;
   const longWrites = Math.min(tokens.cacheWrite1hTokens ?? 0, tokens.cacheWriteTokens);
   const usd =
     (tokens.inputTokens * price.input +

@@ -49,7 +49,8 @@ jobs:
 
   e2e:
     name: End-to-end (Playwright)
-    runs-on: ubuntu-latest
+    # Pinned: Playwright can't install Chromium on Ubuntu 26.04, which ubuntu-latest now is.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     services:
       postgres:

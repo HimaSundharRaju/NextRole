@@ -93,6 +93,9 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
             <Badge tone={STATUS_META[application.status].tone}>
               {STATUS_META[application.status].label}
             </Badge>
+            {detail.submittedByName ? (
+              <Badge tone="outline">Submitted by {detail.submittedByName}</Badge>
+            ) : null}
             {application.appliedAt ? (
               <Badge tone="outline">Applied {formatDate(application.appliedAt)}</Badge>
             ) : null}

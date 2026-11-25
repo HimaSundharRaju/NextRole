@@ -175,6 +175,60 @@ describe.skipIf(!TEST_DATABASE_URL)("job ingestion (Postgres integration)", () =
     });
   });
 
+  it("reads sponsorship and citizenship wording the way real postings phrase it", async () => {
+    const database = db.getDb();
+    const [company] = await database
+      .insert(db.companies)
+      .values({ name: "Acme Labs", slug: "acme-labs", ats: "ashby", boardToken: "acme-labs" })
+      .returning();
+    const [listed] = ashbyResponse.jobs;
+    const post = (id: string, descriptionHtml: string) => ({
+      ...listed,
+      id,
+      jobUrl: `https://jobs.ashbyhq.com/acme-labs/${id}`,
+      applyUrl: `https://jobs.ashbyhq.com/acme-labs/${id}/application`,
+      descriptionHtml,
+    });
+    const board = {
+      jobs: [
+        // Wording from postings in the dev database; see visa.test.ts.
+        post(
+          "sponsors",
+          "<p>Visa sponsorship: We do sponsor visas! However, we aren't able to successfully sponsor visas for every role and every candidate.</p>",
+        ),
+        post(
+          "citizens",
+          "<p>Due to requirements associated with work this role may support, applicants for this position must be U.S. citizens.</p>",
+        ),
+        post(
+          "export-license",
+          "<p>Please note that any offer of employment may be conditioned on your authorization to receive software or technology controlled under these U.S. export laws without sponsorship for an export license.</p>",
+        ),
+      ],
+    };
+
+    await ingest.syncCompany(company!.id, {
+      fetch: fakeFetch({ "https://api.ashbyhq.com/posting-api/job-board/acme-labs": board }),
+    });
+    const rows = await database
+      .select({
+        externalId: db.jobs.externalId,
+        visaSponsorship: db.jobs.visaSponsorship,
+        citizenshipRequired: db.jobs.citizenshipRequired,
+      })
+      .from(db.jobs)
+      .where(drizzle.eq(db.jobs.companyId, company!.id));
+    expect(
+      Object.fromEntries(
+        rows.map((row) => [row.externalId, [row.visaSponsorship, row.citizenshipRequired]]),
+      ),
+    ).toEqual({
+      sponsors: ["yes", false],
+      citizens: ["unknown", true],
+      "export-license": ["unknown", false],
+    });
+  });
+
   async function companyRow(id = companyId) {
     const [row] = await db
       .getDb()

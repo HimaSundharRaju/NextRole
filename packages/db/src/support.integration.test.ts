@@ -1,0 +1,1136 @@
+import { DEFAULT_RESUME_SETTINGS, emptyResume } from "@gettargetrole/resume/schema";
+import type * as DrizzleModule from "drizzle-orm";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { Database } from "./client";
+import type { JobReportReason } from "./schema";
+import type * as DbModule from "./index";
+import { ensureTestDatabase, testDatabaseUrl } from "./test-database";
+
+const TEST_DATABASE_URL = testDatabaseUrl("db");
+
+describe.skipIf(!TEST_DATABASE_URL)("customer care (Postgres integration)", () => {
+  // Modules are imported after DATABASE_URL points at the test database.
+  let db: typeof DbModule;
+  let drizzle: typeof DrizzleModule;
+  let database: Database;
+  const riya = "user-riya";
+  const ana = "agent-ana";
+  const ada = "admin-ada";
+  const priya = "specialist-priya";
+
+  beforeAll(async () => {
+    await ensureTestDatabase(TEST_DATABASE_URL!);
+    process.env.DATABASE_URL = TEST_DATABASE_URL;
+    const { runMigrations } = await import("./migrate-lib");
+    await runMigrations();
+    db = await import("./index");
+    drizzle = await import("drizzle-orm");
+    database = db.getDb();
+  });
+
+  beforeEach(async () => {
+    await database.execute(drizzle.sql`TRUNCATE users, companies RESTART IDENTITY CASCADE`);
+    await database.insert(db.users).values([
+      { id: riya, name: "Riya", email: "riya@example.com" },
+      { id: ana, name: "Ana", email: "ana@example.com", role: "support" },
+      { id: ada, name: "Ada", email: "ada@example.com", role: "admin" },
+      { id: priya, name: "Priya", email: "priya@example.com", role: "specialist" },
+    ]);
+  });
+
+  afterAll(async () => {
+    await db?.closeDb();
+  });
+
+  type CaseInput = Parameters<typeof DbModule.createCase>[1];
+
+  /** A signed-out help request from riya@example.com. */
+  const helpInput = (overrides: Partial<CaseInput> = {}): CaseInput => ({
+    kind: "help",
+    source: "form",
+    topic: "account",
+    subject: "Can't sign in",
+    body: "I never got the email.",
+    userId: null,
+    contactName: "Riya",
+    contactEmail: "riya@example.com",
+    raisedByUserId: null,
+    verified: false,
+    visibility: "public",
+    authorKind: "user",
+    authorUserId: null,
+    ...overrides,
+  });
+
+  /** A specialist's escalation about riya, with an internal note from priya. */
+  const escalationInput = (overrides: Partial<CaseInput> = {}): CaseInput => ({
+    kind: "escalation",
+    source: "specialist",
+    topic: "concierge",
+    subject: "Escalation from Priya",
+    body: "Client says nothing has been submitted for two weeks.",
+    userId: riya,
+    contactName: "Riya",
+    contactEmail: "riya@example.com",
+    raisedByUserId: priya,
+    specialistId: priya,
+    verified: false,
+    visibility: "internal",
+    authorKind: "agent",
+    authorUserId: priya,
+    ...overrides,
+  });
+
+  const caseRow = async (id: string) => {
+    const [row] = await database
+      .select()
+      .from(db.supportCases)
+      .where(drizzle.eq(db.supportCases.id, id));
+    return row!;
+  };
+
+  const messageBodies = async (id: string, visibility: "public" | "internal") =>
+    (
+      await database
+        .select({ body: db.supportMessages.body })
+        .from(db.supportMessages)
+        .where(
+          drizzle.and(
+            drizzle.eq(db.supportMessages.caseId, id),
+            drizzle.eq(db.supportMessages.visibility, visibility),
+          ),
+        )
+    ).map((row) => row.body);
+
+  describe("cases", () => {
+    it("creates a signed-in request as verified, with a link that opens it", async () => {
+      const notice = await db.createCase(database, helpInput({ userId: riya, verified: true }));
+      const [row] = await database
+        .select()
+        .from(db.supportCases)
+        .where(drizzle.eq(db.supportCases.id, notice.caseId));
+      expect(row).toMatchObject({ status: "open", kind: "help", number: 1001, userId: riya });
+      expect(row!.verifiedAt).toBeInstanceOf(Date);
+      expect(await db.caseForLink(database, notice.token)).toBe(notice.caseId);
+    });
+
+    it("links a signed-out request to the account by email, ignoring case and spaces, without verifying it", async () => {
+      const accountId = await db.accountIdForEmail(database, "  RIYA@Example.com ");
+      expect(accountId).toBe(riya);
+      const notice = await db.createCase(
+        database,
+        helpInput({ userId: accountId, verified: false, contactEmail: " RIYA@Example.com " }),
+      );
+      const [row] = await database
+        .select()
+        .from(db.supportCases)
+        .where(drizzle.eq(db.supportCases.id, notice.caseId));
+      expect(row).toMatchObject({ contactEmail: "riya@example.com", verifiedAt: null });
+    });
+
+    it("lets only one agent take a case", async () => {
+      const { caseId } = await db.createCase(database, helpInput());
+      const results = await Promise.allSettled([
+        db.takeCase(database, { caseId, agentId: ana }),
+        db.takeCase(database, { caseId, agentId: ada }),
+      ]);
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect(results.find((r) => r.status === "rejected")).toMatchObject({
+        reason: { code: "conflict" },
+      });
+    });
+
+    it("waits on the user after an agent's reply, takes the case, and reopens when the user answers", async () => {
+      const { caseId } = await db.createCase(database, helpInput({ userId: riya, verified: true }));
+      await db.replyAsAgent(database, { caseId, agentId: ana, body: "Try the reset link." });
+      expect(await caseRow(caseId)).toMatchObject({ status: "waiting_on_user", assigneeId: ana });
+      const firstReply = (await caseRow(caseId)).firstRepliedAt;
+      await db.replyAsRequester(database, { caseId, userId: riya, body: "Still stuck." });
+      await db.replyAsAgent(database, { caseId, agentId: ada, body: "Fixed now." });
+      expect(await caseRow(caseId)).toMatchObject({
+        status: "waiting_on_user",
+        assigneeId: ana,
+        firstRepliedAt: firstReply,
+      });
+      await expect(
+        db.replyAsAgent(database, { caseId, agentId: ana, body: "   " }),
+      ).rejects.toMatchObject({ code: "not_allowed" });
+    });
+
+    it("refuses a hand-off to someone who isn't staff, or by an agent who doesn't own the case", async () => {
+      const { caseId } = await db.createCase(database, helpInput());
+      await db.takeCase(database, { caseId, agentId: ana });
+      await expect(
+        db.assignCase(database, { caseId, actorId: ana, actorIsAdmin: false, toAgentId: riya }),
+      ).rejects.toMatchObject({ code: "not_allowed" });
+      await expect(
+        db.assignCase(database, { caseId, actorId: priya, actorIsAdmin: false, toAgentId: ada }),
+      ).rejects.toMatchObject({ code: "forbidden" });
+      await db.assignCase(database, { caseId, actorId: ada, actorIsAdmin: true, toAgentId: ada });
+      expect((await caseRow(caseId)).assigneeId).toBe(ada);
+    });
+
+    it("reopens on a reply within 14 days of solving, and refuses replies and links after that", async () => {
+      const solvedAt = new Date("2026-11-01T00:00:00Z");
+      const { caseId, token } = await db.createCase(
+        database,
+        helpInput({ userId: riya, verified: true, now: new Date("2026-10-30T00:00:00Z") }),
+      );
+      await db.solveCase(database, { caseId, agentId: ana, now: solvedAt });
+      const day = (n: number) => new Date(solvedAt.getTime() + n * 86_400_000);
+      expect(await db.caseForLink(database, token, day(15))).toBeNull();
+      await expect(
+        db.replyAsRequester(database, { caseId, userId: riya, body: "Hello?", now: day(15) }),
+      ).rejects.toMatchObject({ code: "not_allowed" });
+      await db.replyAsRequester(database, { caseId, userId: riya, body: "Hello?", now: day(13) });
+      expect((await caseRow(caseId)).status).toBe("open");
+    });
+
+    it("tells an expired link from an unknown one, so an old email can say the request is closed", async () => {
+      const solvedAt = new Date("2026-11-01T00:00:00Z");
+      const day = (n: number) => new Date(solvedAt.getTime() + n * 86_400_000);
+      const { caseId, token } = await db.createCase(
+        database,
+        helpInput({ now: new Date("2026-10-30T00:00:00Z") }),
+      );
+      expect(await db.linkStatus(database, token, solvedAt)).toEqual({ caseId, expired: false });
+      await db.solveCase(database, { caseId, agentId: ana, now: solvedAt });
+      expect(await db.linkStatus(database, token, day(13))).toEqual({ caseId, expired: false });
+      expect(await db.linkStatus(database, token, day(15))).toEqual({ caseId, expired: true });
+      expect(await db.linkStatus(database, "not-a-real-token")).toBeNull();
+    });
+
+    it("solves cases left waiting on the user for 7 days, with a note", async () => {
+      const start = new Date("2026-11-01T00:00:00Z");
+      const { caseId } = await db.createCase(database, helpInput({ now: start }));
+      await db.replyAsAgent(database, {
+        caseId,
+        agentId: ana,
+        body: "Can you send a screenshot?",
+        now: start,
+      });
+      expect(await db.autoSolveCases(database, new Date("2026-11-07T23:00:00Z"))).toHaveLength(0);
+      const solved = await db.autoSolveCases(database, new Date("2026-11-08T00:00:00Z"));
+      expect(solved.map((notice) => notice.caseId)).toEqual([caseId]);
+      expect(await messageBodies(caseId, "internal")).toContain(
+        "Solved automatically after 7 days without a reply.",
+      );
+    });
+
+    it("refuses an empty subject or message, and cuts long ones to the limits", async () => {
+      await expect(db.createCase(database, helpInput({ subject: "  " }))).rejects.toMatchObject({
+        code: "not_allowed",
+      });
+      await expect(db.createCase(database, helpInput({ body: "" }))).rejects.toMatchObject({
+        code: "not_allowed",
+      });
+      const long = await db.createCase(
+        database,
+        helpInput({ subject: "s".repeat(200), body: "b".repeat(6000) }),
+      );
+      expect((await caseRow(long.caseId)).subject).toHaveLength(120);
+      expect((await messageBodies(long.caseId, "public"))[0]).toHaveLength(5000);
+    });
+
+    it("mints a fresh link for each notice, and every link opens the case", async () => {
+      const created = await db.createCase(database, helpInput());
+      const replied = await db.replyAsAgent(database, {
+        caseId: created.caseId,
+        agentId: ana,
+        body: "On it.",
+      });
+      expect(replied.token).not.toBe(created.token);
+      expect(await db.caseForLink(database, created.token)).toBe(created.caseId);
+      expect(await db.caseForLink(database, replied.token)).toBe(created.caseId);
+      expect(await db.caseForLink(database, "not-a-real-token")).toBeNull();
+      const stored = await database.select().from(db.supportCaseLinks);
+      expect(stored.map((link) => link.tokenHash)).not.toContain(created.token);
+    });
+
+    it("solves and reopens a case once, and refuses to do either twice", async () => {
+      const { caseId } = await db.createCase(database, helpInput());
+      await db.solveCase(database, { caseId, agentId: ana });
+      await expect(db.solveCase(database, { caseId, agentId: ana })).rejects.toMatchObject({
+        code: "conflict",
+      });
+      await db.reopenCase(database, { caseId, agentId: ana });
+      expect(await caseRow(caseId)).toMatchObject({ status: "open", solvedAt: null });
+      await expect(db.reopenCase(database, { caseId, agentId: ana })).rejects.toMatchObject({
+        code: "conflict",
+      });
+    });
+
+    it("keeps notes internal without changing the status, and verifies a case only once", async () => {
+      const { caseId } = await db.createCase(database, helpInput({ userId: riya }));
+      await db.addNote(database, { caseId, authorId: ana, body: "Their email has a typo." });
+      await expect(
+        db.addNote(database, { caseId, authorId: ana, body: "  " }),
+      ).rejects.toMatchObject({ code: "not_allowed" });
+      expect(await messageBodies(caseId, "internal")).toEqual(["Their email has a typo."]);
+      expect((await caseRow(caseId)).status).toBe("open");
+      const first = new Date("2026-11-02T00:00:00Z");
+      await db.verifyCase(database, { caseId, now: first });
+      await db.verifyCase(database, { caseId, now: new Date("2026-11-03T00:00:00Z") });
+      expect((await caseRow(caseId)).verifiedAt).toEqual(first);
+    });
+  });
+
+  describe("queues and threads", () => {
+    it("lists the queues: overdue first, mine and unassigned, and solved in the last 30 days", async () => {
+      const now = new Date("2026-11-10T12:00:00Z");
+      const old = await db.createCase(
+        database,
+        helpInput({ now: new Date("2026-11-09T00:00:00Z") }),
+      );
+      const fresh = await db.createCase(
+        database,
+        helpInput({ now: new Date("2026-11-10T11:00:00Z") }),
+      );
+      await db.takeCase(database, { caseId: fresh.caseId, agentId: ana });
+      const open = await db.listCases(database, { queue: "open", agentId: ana, now });
+      expect(open.map((row) => row.id)).toEqual([old.caseId, fresh.caseId]);
+      expect(open[0]!.due?.overdue).toBe(true);
+      expect(
+        (await db.listCases(database, { queue: "mine", agentId: ana, now })).map((r) => r.id),
+      ).toEqual([fresh.caseId]);
+      expect(
+        (await db.listCases(database, { queue: "unassigned", agentId: ana, now })).map((r) => r.id),
+      ).toEqual([old.caseId]);
+      expect(
+        (
+          await db.listCases(database, {
+            queue: "open",
+            agentId: ana,
+            search: `#${old.number}`,
+            now,
+          })
+        ).map((r) => r.id),
+      ).toEqual([old.caseId]);
+    });
+
+    it("filters the queues by topic, search and status, and shows solved cases from the last 30 days", async () => {
+      const now = new Date("2026-11-10T12:00:00Z");
+      const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000);
+      const billing = await db.createCase(
+        database,
+        helpInput({
+          topic: "billing",
+          subject: "Refund question",
+          contactEmail: "pat@example.com",
+          now: hoursAgo(2),
+        }),
+      );
+      const waiting = await db.createCase(database, helpInput({ now: hoursAgo(30) }));
+      await db.replyAsAgent(database, {
+        caseId: waiting.caseId,
+        agentId: ana,
+        body: "Can you send a screenshot?",
+        now: hoursAgo(20),
+      });
+      const overdue = await db.createCase(
+        database,
+        helpInput({ subject: "Still waiting", now: hoursAgo(30) }),
+      );
+      const recentlySolved = await db.createCase(database, helpInput({ now: hoursAgo(100) }));
+      await db.solveCase(database, {
+        caseId: recentlySolved.caseId,
+        agentId: ana,
+        now: hoursAgo(90),
+      });
+      const longAgo = await db.createCase(
+        database,
+        helpInput({ now: new Date("2026-09-01T00:00:00Z") }),
+      );
+      await db.solveCase(database, {
+        caseId: longAgo.caseId,
+        agentId: ana,
+        now: new Date("2026-09-02T00:00:00Z"),
+      });
+      const ids = async (query: Parameters<typeof db.listCases>[1]) =>
+        (await db.listCases(database, query)).map((row) => row.id);
+      expect(await ids({ queue: "waiting", agentId: ana, now })).toEqual([waiting.caseId]);
+      expect(await ids({ queue: "overdue", agentId: ana, now })).toEqual([overdue.caseId]);
+      expect(await ids({ queue: "solved", agentId: ana, now })).toEqual([recentlySolved.caseId]);
+      expect(await ids({ queue: "open", agentId: ana, topic: "billing", now })).toEqual([
+        billing.caseId,
+      ]);
+      expect(await ids({ queue: "open", agentId: ana, search: "pat@", now })).toEqual([
+        billing.caseId,
+      ]);
+      expect(await ids({ queue: "open", agentId: ana, search: "refund", now })).toEqual([
+        billing.caseId,
+      ]);
+    });
+
+    it("counts unassigned, overdue and waiting cases, and the typical first reply", async () => {
+      const now = new Date("2026-11-10T12:00:00Z");
+      const at = (h: number) => new Date(now.getTime() - h * 3_600_000);
+      const a = await db.createCase(database, helpInput({ now: at(5) }));
+      const b = await db.createCase(database, helpInput({ now: at(6) }));
+      await db.createCase(database, helpInput({ now: at(48) })); // unanswered, so it's overdue
+      await db.replyAsAgent(database, {
+        caseId: a.caseId,
+        agentId: ana,
+        body: "On it.",
+        now: at(4),
+      }); // after 60 minutes
+      await db.replyAsAgent(database, {
+        caseId: b.caseId,
+        agentId: ana,
+        body: "On it.",
+        now: at(4),
+      }); // after 120 minutes
+      expect(await db.careCounts(database, now)).toEqual({
+        unassigned: 1,
+        overdue: 1,
+        waiting: 2,
+        typicalFirstReplyMinutes: 90,
+      });
+    });
+
+    it("shows users their own requests, and escalations only once an agent has written to them", async () => {
+      const own = await db.createCase(
+        database,
+        helpInput({ userId: riya, raisedByUserId: riya, verified: true }),
+      );
+      const escalation = await db.createCase(database, escalationInput({ userId: riya }));
+      expect((await db.userCases(database, riya)).map((row) => row.id)).toEqual([own.caseId]);
+      await db.replyAsAgent(database, {
+        caseId: escalation.caseId,
+        agentId: ana,
+        body: "Checking in.",
+      });
+      expect((await db.userCases(database, riya)).map((row) => row.id).sort()).toEqual(
+        [own.caseId, escalation.caseId].sort(),
+      );
+    });
+
+    it("tells who can see a case: its requester, and an escalation's client only after an agent wrote to them", async () => {
+      const own = await db.createCase(
+        database,
+        helpInput({ userId: riya, raisedByUserId: riya, verified: true }),
+      );
+      const escalation = await db.createCase(database, escalationInput());
+      expect(await db.canUserSeeCase(database, { caseId: own.caseId, userId: riya })).toBe(true);
+      expect(await db.canUserSeeCase(database, { caseId: own.caseId, userId: priya })).toBe(false);
+      expect(await db.canUserSeeCase(database, { caseId: escalation.caseId, userId: riya })).toBe(
+        false,
+      );
+      await db.replyAsAgent(database, {
+        caseId: escalation.caseId,
+        agentId: ana,
+        body: "Checking in.",
+      });
+      expect(await db.canUserSeeCase(database, { caseId: escalation.caseId, userId: riya })).toBe(
+        true,
+      );
+    });
+
+    it("keeps internal notes out of the requester's thread and the data export", async () => {
+      const { caseId } = await db.createCase(
+        database,
+        helpInput({ userId: riya, raisedByUserId: riya, verified: true }),
+      );
+      await db.addNote(database, {
+        caseId,
+        authorId: ana,
+        body: "Looks like a typo in their email.",
+      });
+      const thread = await db.caseThread(database, caseId, { includeInternal: false });
+      expect(thread!.messages.map((m) => m.visibility)).toEqual(["public"]);
+      const exported = await db.supportExport(database, riya);
+      expect(exported.messages.every((m) => m.visibility === "public")).toBe(true);
+    });
+
+    it("exports every case about a user with only the public messages, never internal notes", async () => {
+      const own = await db.createCase(
+        database,
+        helpInput({ userId: riya, raisedByUserId: riya, verified: true }),
+      );
+      const escalation = await db.createCase(database, escalationInput());
+      const exported = await db.supportExport(database, riya);
+      expect(exported.cases.map((row) => row.id).sort()).toEqual(
+        [own.caseId, escalation.caseId].sort(),
+      );
+      // The escalation holds only an internal note, so none of its text is exported.
+      expect(exported.messages.map((row) => row.caseId)).toEqual([own.caseId]);
+      expect(exported.messages.map((row) => row.body)).not.toContain(
+        "Client says nothing has been submitted for two weeks.",
+      );
+      expect(exported.cases[0]).not.toHaveProperty("assigneeId");
+    });
+
+    it("shows staff the whole thread, oldest first, with who wrote each message", async () => {
+      const start = new Date("2026-11-01T00:00:00Z");
+      const { caseId } = await db.createCase(
+        database,
+        helpInput({ userId: riya, raisedByUserId: riya, authorUserId: riya, now: start }),
+      );
+      await db.addNote(database, {
+        caseId,
+        authorId: ana,
+        body: "Checking their account.",
+        now: new Date(start.getTime() + 60_000),
+      });
+      await db.replyAsAgent(database, {
+        caseId,
+        agentId: ana,
+        body: "Try the reset link.",
+        now: new Date(start.getTime() + 120_000),
+      });
+      const thread = await db.caseThread(database, caseId, { includeInternal: true });
+      expect(thread!.messages.map((m) => [m.authorName, m.visibility, m.body])).toEqual([
+        ["Riya", "public", "I never got the email."],
+        ["Ana", "internal", "Checking their account."],
+        ["Ana", "public", "Try the reset link."],
+      ]);
+      expect(
+        await db.caseThread(database, "00000000-0000-0000-0000-000000000000", {
+          includeInternal: true,
+        }),
+      ).toBeNull();
+    });
+
+    it("tells whether the requester knows about a case: help requests always, escalations once staff wrote to them", async () => {
+      const help = await db.createCase(database, helpInput());
+      const escalation = await db.createCase(database, escalationInput());
+      expect(await db.requesterKnows(database, help.caseId)).toBe(true);
+      expect(await db.requesterKnows(database, escalation.caseId)).toBe(false);
+      await db.addNote(database, { caseId: escalation.caseId, authorId: ana, body: "Looking." });
+      expect(await db.requesterKnows(database, escalation.caseId)).toBe(false);
+      await db.replyAsAgent(database, {
+        caseId: escalation.caseId,
+        agentId: ana,
+        body: "Checking in.",
+      });
+      expect(await db.requesterKnows(database, escalation.caseId)).toBe(true);
+    });
+
+    it("finds a requester's other cases by account or by email", async () => {
+      const first = await db.createCase(database, helpInput({ userId: riya, subject: "First" }));
+      const second = await db.createCase(database, helpInput({ subject: "Second" }));
+      await db.createCase(
+        database,
+        helpInput({ contactEmail: "pat@example.com", subject: "A stranger's" }),
+      );
+      const found = await db.otherCases(database, {
+        caseId: first.caseId,
+        userId: riya,
+        contactEmail: "riya@example.com",
+      });
+      expect(found.map((row) => row.id)).toEqual([second.caseId]);
+      expect(
+        await db.otherCases(database, { caseId: first.caseId, userId: null, contactEmail: "" }),
+      ).toEqual([]);
+    });
+
+    it("gives care the Concierge context: specialist, setup and this week and last week against target", async () => {
+      const now = new Date("2026-11-10T12:00:00Z"); // a Tuesday; the week began Nov 9
+      await database
+        .update(db.users)
+        .set({ plan: "concierge" })
+        .where(drizzle.eq(db.users.id, riya));
+      await database.insert(db.profiles).values({
+        userId: riya,
+        applyConsentAt: new Date("2026-10-01T00:00:00Z"),
+        inboxAccessConfirmedAt: new Date("2026-10-02T00:00:00Z"),
+      });
+      await database
+        .insert(db.specialistAssignments)
+        .values({ specialistId: priya, clientId: riya });
+      const applied = (count: number, appliedAt: Date) =>
+        Array.from({ length: count }, (_, i) => ({
+          userId: riya,
+          companyName: `Company ${i}`,
+          jobTitle: "Engineer",
+          status: "applied" as const,
+          appliedAt,
+        }));
+      await database
+        .insert(db.applications)
+        .values([
+          ...applied(9, new Date("2026-11-04T12:00:00Z")),
+          ...applied(2, new Date("2026-11-09T06:00:00Z")),
+          { userId: riya, companyName: "Acme", jobTitle: "Engineer", status: "proposed" as const },
+        ]);
+      expect(await db.conciergeContext(database, riya, now)).toMatchObject({
+        specialistName: "Priya",
+        specialistEmail: "priya@example.com",
+        setupDone: true,
+        thisWeek: { applied: 2, target: 15 },
+        lastWeek: { applied: 9, target: 15 },
+        openProposals: 1,
+      });
+      expect((await db.conciergeContext(database, riya, now))?.lastActivity).toBeInstanceOf(Date);
+      expect(await db.conciergeContext(database, ana)).toBeNull();
+    });
+
+    it("shows unfinished setup and a missing specialist, and uses the client's own target", async () => {
+      await database
+        .update(db.users)
+        .set({ plan: "concierge" })
+        .where(drizzle.eq(db.users.id, riya));
+      await database.insert(db.profiles).values({ userId: riya, weeklyTargetOverride: 6 });
+      expect(await db.conciergeContext(database, riya)).toMatchObject({
+        specialistName: null,
+        specialistEmail: null,
+        setupDone: false,
+        thisWeek: { applied: 0, target: 6 },
+        lastWeek: { applied: 0, target: 6 },
+        openProposals: 0,
+        lastActivity: null,
+      });
+    });
+
+    it("finds a client's active specialist and their latest escalation", async () => {
+      expect(await db.activeSpecialistId(database, riya)).toBeNull();
+      await database
+        .insert(db.specialistAssignments)
+        .values({ specialistId: priya, clientId: riya });
+      expect(await db.activeSpecialistId(database, riya)).toBe(priya);
+      await database.update(db.specialistAssignments).set({ active: false });
+      expect(await db.activeSpecialistId(database, riya)).toBeNull();
+
+      expect(await db.latestEscalation(database, riya)).toBeNull();
+      await db.createCase(
+        database,
+        escalationInput({ subject: "Older", now: new Date("2026-11-01T00:00:00Z") }),
+      );
+      const newer = await db.createCase(
+        database,
+        escalationInput({ subject: "Newer", now: new Date("2026-11-05T00:00:00Z") }),
+      );
+      expect(await db.latestEscalation(database, riya)).toMatchObject({
+        id: newer.caseId,
+        status: "open",
+      });
+      await db.solveCase(database, { caseId: newer.caseId, agentId: ana });
+      expect(await db.latestEscalation(database, riya)).toMatchObject({
+        id: newer.caseId,
+        status: "solved",
+      });
+    });
+  });
+
+  describe("accounts and export links", () => {
+    it("summarizes an account: plan, last sign-in, applications by status and cases", async () => {
+      const signInAt = new Date("2026-11-09T09:30:00Z");
+      await database.insert(db.applications).values([
+        { userId: riya, companyName: "Acme", jobTitle: "Engineer", status: "applied" },
+        { userId: riya, companyName: "Globex", jobTitle: "Engineer", status: "applied" },
+        { userId: riya, companyName: "Initech", jobTitle: "Engineer", status: "saved" },
+      ]);
+      await database.insert(db.resumes).values({
+        userId: riya,
+        title: "Main",
+        content: emptyResume(),
+        settings: DEFAULT_RESUME_SETTINGS,
+      });
+      await db.createCase(database, helpInput({ userId: riya }));
+      const solved = await db.createCase(database, helpInput({ userId: riya }));
+      await db.solveCase(database, { caseId: solved.caseId, agentId: ana });
+      await database.insert(db.auditLogs).values([
+        {
+          actorUserId: riya,
+          action: "auth.sign_in",
+          targetType: "session",
+          targetId: "s1",
+          createdAt: new Date("2026-11-01T00:00:00Z"),
+        },
+        {
+          actorUserId: riya,
+          action: "auth.sign_in",
+          targetType: "session",
+          targetId: "s2",
+          createdAt: signInAt,
+        },
+      ]);
+      expect(await db.accountSummary(database, riya)).toMatchObject({
+        id: riya,
+        email: "riya@example.com",
+        emailVerified: false,
+        plan: "free",
+        role: "user",
+        banned: false,
+        banReason: null,
+        applicationsByStatus: { applied: 2, saved: 1 },
+        resumes: 1,
+        openCases: 1,
+        solvedCases: 1,
+        lastSignInAt: signInAt,
+      });
+      expect(await db.accountSummary(database, "nobody")).toBeNull();
+    });
+
+    it("lists what happened to an account, newest first, as actor or target", async () => {
+      await database.insert(db.auditLogs).values([
+        {
+          actorUserId: riya,
+          action: "auth.sign_in",
+          targetType: "session",
+          targetId: "s1",
+          createdAt: new Date("2026-11-01T00:00:00Z"),
+        },
+        {
+          actorUserId: ada,
+          action: "admin.user.ban",
+          targetType: "user",
+          targetId: riya,
+          createdAt: new Date("2026-11-02T00:00:00Z"),
+        },
+        {
+          actorUserId: ana,
+          action: "auth.sign_in",
+          targetType: "session",
+          targetId: "s9",
+          createdAt: new Date("2026-11-03T00:00:00Z"),
+        },
+      ]);
+      const activity = await db.accountActivity(database, riya);
+      expect(activity.map((row) => [row.action, row.actorEmail])).toEqual([
+        ["admin.user.ban", "ada@example.com"],
+        ["auth.sign_in", "riya@example.com"],
+      ]);
+      expect(await db.accountActivity(database, riya, 1)).toHaveLength(1);
+    });
+
+    it("allows deletion only for an open, verified 'My data' request from that account", async () => {
+      const data = (o = {}) => helpInput({ topic: "data", userId: riya, verified: true, ...o });
+      const ok = await db.createCase(database, data());
+      const wrongTopic = await db.createCase(database, data({ topic: "account" }));
+      const unverified = await db.createCase(database, data({ verified: false }));
+      const solved = await db.createCase(database, data());
+      await db.solveCase(database, { caseId: solved.caseId, agentId: ana });
+      expect(await db.deletableForCase(database, { userId: riya, caseId: ok.caseId })).toBe(true);
+      for (const c of [wrongTopic, unverified, solved]) {
+        expect(await db.deletableForCase(database, { userId: riya, caseId: c.caseId })).toBe(false);
+      }
+      expect(await db.deletableForCase(database, { userId: ana, caseId: ok.caseId })).toBe(false);
+    });
+
+    it("uses an export link once, only on redeem, and not after 24 hours", async () => {
+      const now = new Date("2026-11-10T00:00:00Z");
+      const token = await db.createExportLink(database, { userId: riya, createdBy: ana, now });
+      expect(await db.exportLinkUsable(database, token, now)).toBe(true);
+      expect(await db.exportLinkUsable(database, token, now)).toBe(true); // a scanner's visit doesn't use it up
+      expect(await db.redeemExportLink(database, token, now)).toBe(riya);
+      expect(await db.redeemExportLink(database, token, now)).toBeNull();
+      expect(await db.exportLinkUsable(database, token, now)).toBe(false);
+      const late = await db.createExportLink(database, { userId: riya, createdBy: ana, now });
+      expect(await db.exportLinkUsable(database, late, new Date("2026-11-11T00:00:01Z"))).toBe(
+        false,
+      );
+      expect(
+        await db.redeemExportLink(database, late, new Date("2026-11-11T00:00:01Z")),
+      ).toBeNull();
+      expect(await db.redeemExportLink(database, "not-a-real-token", now)).toBeNull();
+      const stored = await database.select().from(db.exportLinks);
+      expect(stored.map((link) => link.tokenHash)).not.toContain(token);
+    });
+  });
+
+  describe("job reports", () => {
+    let companyId: string;
+    let externalIds = 0;
+
+    beforeEach(async () => {
+      const [company] = await database
+        .insert(db.companies)
+        .values({ name: "Acme", slug: "acme", ats: "greenhouse", boardToken: "acme" })
+        .returning();
+      companyId = company!.id;
+    });
+
+    async function addJob(title: string, values: Partial<typeof DbModule.jobs.$inferInsert> = {}) {
+      const [job] = await database
+        .insert(db.jobs)
+        .values({
+          companyId,
+          source: "greenhouse",
+          externalId: `job-${++externalIds}`,
+          title,
+          location: "Austin, TX",
+          applyUrl: "https://example.com/apply",
+          contentHash: "hash",
+          ...values,
+        })
+        .returning({ id: db.jobs.id });
+      return job!.id;
+    }
+
+    async function report(
+      userId: string,
+      jobId: string,
+      reason: JobReportReason = "not_real",
+      note = "",
+      createdAt = new Date(),
+    ) {
+      await database
+        .insert(db.users)
+        .values({ id: userId, name: userId, email: `${userId}@example.com` })
+        .onConflictDoNothing();
+      await database.insert(db.jobReports).values({ userId, jobId, reason, note, createdAt });
+    }
+
+    it("queues jobs with unreviewed reports, most reported first, and clears them when kept or hidden", async () => {
+      const jobA = await addJob("Backend Engineer");
+      const jobB = await addJob("Data Analyst");
+      await report("u1", jobA, "not_real");
+      await report("u2", jobA, "closed");
+      await report("u3", jobB, "other");
+      expect((await db.reportQueue(database)).map((j) => j.jobId)).toEqual([jobA, jobB]);
+      await db.keepReportedJob(database, { jobId: jobA, agentId: ana });
+      await db.hideJob(database, {
+        jobId: jobB,
+        agentId: ana,
+        reason: "Duplicate of another post",
+      });
+      expect(await db.reportQueue(database)).toEqual([]);
+      expect((await db.recentlyHiddenJobs(database, {})).map((j) => j.jobId)).toEqual([jobB]);
+      await db.unhideJob(database, { jobId: jobB });
+      expect(await db.recentlyHiddenJobs(database, {})).toEqual([]);
+      // Showing it again undoes the hide completely, so its reports are up for review again.
+      expect((await db.reportQueue(database)).map((j) => j.jobId)).toEqual([jobB]);
+    });
+
+    it("describes each queued job: reports by reason, the latest notes and the first report", async () => {
+      const job = await addJob("Backend Engineer");
+      const day = (d: number) => new Date(Date.UTC(2026, 10, d));
+      await report("u1", job, "not_real", "first note", day(1));
+      await report("u2", job, "not_real", "", day(2));
+      await report("u3", job, "closed", "second note", day(3));
+      await report("u4", job, "other", "third note", day(4));
+      await report("u5", job, "closed", "fourth note", day(5));
+      const [queued] = await db.reportQueue(database);
+      expect(queued).toMatchObject({
+        jobId: job,
+        title: "Backend Engineer",
+        companyName: "Acme",
+        location: "Austin, TX",
+        applyUrl: "https://example.com/apply",
+        reports: 5,
+        reasons: { not_real: 2, closed: 2, other: 1 },
+        notes: ["fourth note", "third note", "second note"],
+        firstReportedAt: day(1),
+      });
+    });
+
+    it("leaves closed and hidden jobs out of the queue, and counts only the reports it cleared", async () => {
+      const closed = await addJob("Closed role", { closedAt: new Date() });
+      const hidden = await addJob("Hidden role", { hiddenAt: new Date() });
+      const open = await addJob("Open role");
+      for (const job of [closed, hidden, open]) await report("u1", job);
+      expect((await db.reportQueue(database)).map((j) => j.jobId)).toEqual([open]);
+      expect(await db.keepReportedJob(database, { jobId: open, agentId: ana })).toBe(1);
+      expect(await db.keepReportedJob(database, { jobId: open, agentId: ana })).toBe(0);
+    });
+
+    it("needs a reason to hide a job, and a job that exists", async () => {
+      const job = await addJob("Backend Engineer");
+      await expect(
+        db.hideJob(database, { jobId: job, agentId: ana, reason: "   " }),
+      ).rejects.toMatchObject({ code: "not_allowed" });
+      await expect(
+        db.hideJob(database, {
+          jobId: "00000000-0000-0000-0000-000000000000",
+          agentId: ana,
+          reason: "Looks fake",
+        }),
+      ).rejects.toMatchObject({ code: "not_found" });
+    });
+
+    it("lists recently hidden jobs with who hid them and why, for 30 days", async () => {
+      const job = await addJob("Backend Engineer");
+      await db.hideJob(database, {
+        jobId: job,
+        agentId: ana,
+        reason: "Looks fake",
+        now: new Date("2026-11-08T00:00:00Z"),
+      });
+      expect(
+        await db.recentlyHiddenJobs(database, { now: new Date("2026-11-20T00:00:00Z") }),
+      ).toEqual([
+        expect.objectContaining({
+          jobId: job,
+          title: "Backend Engineer",
+          companyName: "Acme",
+          hiddenReason: "Looks fake",
+          hiddenByName: "Ana",
+        }),
+      ]);
+      expect(
+        await db.recentlyHiddenJobs(database, { now: new Date("2026-12-20T00:00:00Z") }),
+      ).toEqual([]);
+    });
+  });
+
+  describe("company requests", () => {
+    const day = (n: number) => new Date(Date.UTC(2026, 10, n));
+    const now = day(10);
+
+    async function request(
+      values: Partial<typeof DbModule.companyRequests.$inferInsert> & { name: string },
+    ) {
+      const [row] = await database
+        .insert(db.companyRequests)
+        .values({ userId: riya, source: "user", status: "pending", createdAt: day(9), ...values })
+        .returning({ id: db.companyRequests.id });
+      return row!.id;
+    }
+
+    async function addCompany(name: string) {
+      const [company] = await database
+        .insert(db.companies)
+        .values({
+          name,
+          slug: name.toLowerCase(),
+          ats: "greenhouse",
+          boardToken: name.toLowerCase(),
+        })
+        .returning({ id: db.companies.id });
+      return company!.id;
+    }
+
+    const requestRow = async (id: string) => {
+      const [row] = await database
+        .select()
+        .from(db.companyRequests)
+        .where(drizzle.eq(db.companyRequests.id, id));
+      return row!;
+    };
+
+    it("queues user requests that weren't found or have been pending 3 days, and leaves out YC imports", async () => {
+      await request({ name: "Globex", status: "not_found", createdAt: day(4) });
+      await request({ name: "Initech", createdAt: day(6) });
+      await request({ name: "Hooli", createdAt: day(9) }); // pending only one day
+      await request({ name: "Pied Piper", source: "yc", userId: null, status: "not_found" });
+      await request({ name: "Umbrella", status: "added", createdAt: day(1) });
+      const queue = await db.companyRequestQueue(database, now);
+      expect(queue.map((r) => r.name)).toEqual(["Globex", "Initech"]);
+      expect(queue[0]).toMatchObject({
+        status: "not_found",
+        requesterId: riya,
+        requesterEmail: "riya@example.com",
+      });
+    });
+
+    it("resolves every open request for the same company, by name or careers host", async () => {
+      const companyId = await addCompany("Globex");
+      const first = await request({ name: "Globex", url: "https://globex.com/jobs" });
+      const sameName = await request({ name: " globex ", userId: ana, status: "not_found" });
+      const sameHost = await request({
+        name: "Globex Corp",
+        url: "https://www.globex.com/careers",
+        userId: ada,
+      });
+      const declined = await request({ name: "Globex", userId: priya, status: "declined" });
+      const other = await request({ name: "Initech", url: "https://initech.com" });
+      const yc = await request({ name: "Globex", source: "yc", userId: null });
+      const unparseable = await request({ name: "Hooli", url: "globex.com", userId: ana });
+      const told = await db.resolveCompanyRequests(database, {
+        requestId: first,
+        companyId,
+        status: "added",
+      });
+      expect(told.map((t) => t.userId).sort()).toEqual([ada, ana, riya].sort());
+      for (const id of [first, sameName, sameHost]) {
+        expect(await requestRow(id)).toMatchObject({ status: "added", companyId });
+      }
+      // The declined request stays declined; unrelated, YC and unparseable ones stay as they were.
+      expect(await requestRow(declined)).toMatchObject({ status: "declined", companyId: null });
+      expect((await requestRow(other)).status).toBe("pending");
+      expect((await requestRow(yc)).status).toBe("pending");
+      expect((await requestRow(unparseable)).status).toBe("pending");
+    });
+
+    it("tells each requester once, and records an already-tracked company as tracked", async () => {
+      const companyId = await addCompany("Globex");
+      const first = await request({ name: "Globex", url: "https://globex.com/jobs" });
+      await request({ name: "Globex Corp", url: "https://globex.com", status: "not_found" });
+      await request({ name: "globex" });
+      const told = await db.resolveCompanyRequests(database, {
+        requestId: first,
+        companyId,
+        status: "tracked",
+      });
+      expect(told).toEqual([{ userId: riya, name: "Globex" }]);
+      const rows = await database.select().from(db.companyRequests);
+      expect(rows.every((row) => row.status === "tracked")).toBe(true);
+    });
+
+    it("refuses to resolve a request someone already handled", async () => {
+      const companyId = await addCompany("Globex");
+      const handled = await request({ name: "Globex", status: "added" });
+      await expect(
+        db.resolveCompanyRequests(database, { requestId: handled, companyId, status: "added" }),
+      ).rejects.toMatchObject({ code: "conflict" });
+      await expect(
+        db.resolveCompanyRequests(database, {
+          requestId: "00000000-0000-0000-0000-000000000000",
+          companyId,
+          status: "added",
+        }),
+      ).rejects.toMatchObject({ code: "not_found" });
+    });
+
+    it("declines a request with the reason saved", async () => {
+      const requestId = await request({ name: "Globex", status: "not_found" });
+      const told = await db.declineCompanyRequest(database, {
+        requestId,
+        reason: "Their jobs are only on LinkedIn.",
+      });
+      expect(told).toEqual({ userId: riya, name: "Globex" });
+      expect(await requestRow(requestId)).toMatchObject({
+        status: "declined",
+        note: "Their jobs are only on LinkedIn.",
+      });
+    });
+
+    it("needs a reason to decline, and a request that is still open", async () => {
+      const requestId = await request({ name: "Globex" });
+      await expect(
+        db.declineCompanyRequest(database, { requestId, reason: "  " }),
+      ).rejects.toMatchObject({ code: "not_allowed" });
+      await db.declineCompanyRequest(database, { requestId, reason: "No public board." });
+      await expect(
+        db.declineCompanyRequest(database, { requestId, reason: "Again" }),
+      ).rejects.toMatchObject({ code: "conflict" });
+      await expect(
+        db.declineCompanyRequest(database, {
+          requestId: "00000000-0000-0000-0000-000000000000",
+          reason: "No public board.",
+        }),
+      ).rejects.toMatchObject({ code: "not_found" });
+    });
+  });
+
+  describe("the Monday missed-target check", () => {
+    const monday = new Date("2026-11-09T06:00:00Z"); // checks the week of Nov 2
+    const nextMonday = new Date("2026-11-16T06:00:00Z");
+    const wednesday = new Date("2026-11-04T12:00:00Z"); // inside the week being checked
+
+    /** A Concierge client assigned to priya, with a profile unless told otherwise. */
+    async function conciergeClient(
+      id: string,
+      options: {
+        assignedAt?: Date;
+        paused?: boolean;
+        noProfile?: boolean;
+        override?: number;
+        plan?: "concierge" | "plus";
+      } = {},
+    ) {
+      const plan = options.plan ?? "concierge";
+      await database
+        .insert(db.users)
+        .values({ id, name: id, email: `${id}@example.com`, plan })
+        .onConflictDoUpdate({ target: db.users.id, set: { plan } });
+      if (!options.noProfile) {
+        await database.insert(db.profiles).values({
+          userId: id,
+          weeklyTargetOverride: options.override ?? null,
+          conciergePausedAt: options.paused ? new Date("2026-10-20T00:00:00Z") : null,
+        });
+      }
+      await database.insert(db.specialistAssignments).values({
+        specialistId: priya,
+        clientId: id,
+        createdAt: options.assignedAt ?? new Date("2026-10-01T00:00:00Z"),
+      });
+    }
+
+    async function applied(userId: string, count: number, appliedAt = wednesday) {
+      if (count === 0) return;
+      await database.insert(db.applications).values(
+        Array.from({ length: count }, (_, i) => ({
+          userId,
+          companyName: `Company ${i}`,
+          jobTitle: "Engineer",
+          status: "applied" as const,
+          appliedAt,
+        })),
+      );
+    }
+
+    const escalations = () =>
+      database.select().from(db.supportCases).where(drizzle.eq(db.supportCases.kind, "escalation"));
+
+    it("opens one escalation for a client who missed last week, then notes the next miss", async () => {
+      await conciergeClient(riya);
+      await applied(riya, 9);
+      await applied(riya, 1, new Date("2026-11-09T01:00:00Z")); // this week's, not last week's
+      await applied(riya, 1, new Date("2026-11-01T23:59:00Z")); // the week before's
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 1, noted: 0 });
+      const [escalation] = await escalations();
+      expect(escalation).toMatchObject({
+        kind: "escalation",
+        source: "weekly_check",
+        topic: "concierge",
+        status: "open",
+        subject: "Missed weekly target: 9 of 15",
+        userId: riya,
+        contactName: "Riya",
+        contactEmail: "riya@example.com",
+        specialistId: priya,
+        raisedByUserId: null,
+      });
+      expect(await messageBodies(escalation!.id, "internal")).toEqual([
+        "Missed the week of Nov 2: 9 of 15",
+      ]);
+      expect(await messageBodies(escalation!.id, "public")).toEqual([]);
+
+      expect(await db.runWeeklyCheck(database, nextMonday)).toEqual({ opened: 0, noted: 1 });
+      expect(await escalations()).toHaveLength(1);
+      // The application made early on Monday Nov 9 counts toward the week it fell in.
+      expect(await messageBodies(escalation!.id, "internal")).toContain(
+        "Missed the week of Nov 9: 1 of 15",
+      );
+    });
+
+    it("skips paused clients, clients assigned during the week and other plans, and runs once a week", async () => {
+      await conciergeClient("paused-client", { paused: true });
+      await conciergeClient("new-client", { assignedAt: new Date("2026-11-04T00:00:00Z") });
+      await conciergeClient("plus-client", { plan: "plus" });
+      await conciergeClient("on-target");
+      await applied("on-target", 15);
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 0, noted: 0 });
+      await conciergeClient(riya);
+      await applied(riya, 9);
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 1, noted: 0 });
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 0, noted: 0 });
+      expect(await escalations()).toHaveLength(1);
+    });
+
+    it("uses the plan's default target when the client has no profile row", async () => {
+      await conciergeClient(riya, { noProfile: true });
+      await applied(riya, 3);
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 1, noted: 0 });
+      const [escalation] = await escalations();
+      expect(escalation!.subject).toBe("Missed weekly target: 3 of 15");
+    });
+
+    it("holds a client to their own weekly target", async () => {
+      await conciergeClient(riya, { override: 5 });
+      await conciergeClient("on-own-target", { override: 5 });
+      await applied(riya, 4);
+      await applied("on-own-target", 5);
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 1, noted: 0 });
+      expect((await escalations())[0]!.subject).toBe("Missed weekly target: 4 of 5");
+    });
+
+    it("adds the miss to an escalation a specialist already raised, but opens a new case once it is solved", async () => {
+      await conciergeClient(riya);
+      const raised = await db.createCase(
+        database,
+        escalationInput({ now: new Date("2026-11-05T00:00:00Z") }),
+      );
+      expect(await db.runWeeklyCheck(database, monday)).toEqual({ opened: 0, noted: 1 });
+      expect(await messageBodies(raised.caseId, "internal")).toContain(
+        "Missed the week of Nov 2: 0 of 15",
+      );
+      await db.solveCase(database, { caseId: raised.caseId, agentId: ana });
+      expect(await db.runWeeklyCheck(database, nextMonday)).toEqual({ opened: 1, noted: 0 });
+      expect(await escalations()).toHaveLength(2);
+    });
+  });
+});
