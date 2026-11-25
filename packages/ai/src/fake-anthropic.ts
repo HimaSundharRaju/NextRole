@@ -4,8 +4,7 @@ import type { AddressInfo } from "node:net";
 /** Minimal stand-in for the Messages API that replays scripted streaming responses. */
 
 export type FakeBlock =
-  | { type: "text"; text: string }
-  | { type: "tool_use"; name: string; input: unknown };
+  { type: "text"; text: string } | { type: "tool_use"; name: string; input: unknown };
 
 export interface FakeResponse {
   blocks: FakeBlock[];

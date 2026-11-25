@@ -437,11 +437,7 @@ export const CONCIERGE_STEPS: readonly ApplicationStatus[] = [
 ];
 
 export type ConciergeErrorCode =
-  | "not_allowed"
-  | "conflict"
-  | "consent_required"
-  | "paused"
-  | "not_found";
+  "not_allowed" | "conflict" | "consent_required" | "paused" | "not_found";
 
 /** A Concierge rule was broken; the web app shows `message` to the person. */
 export class ConciergeError extends Error {
@@ -1980,12 +1976,7 @@ import { behindPace, targetFor, weekStart } from "./rules";
 const DAY_MS = 86_400_000;
 
 export type BoardColumn =
-  | "proposed"
-  | "approved"
-  | "waiting"
-  | "applied_week"
-  | "in_progress"
-  | "closed";
+  "proposed" | "approved" | "waiting" | "applied_week" | "in_progress" | "closed";
 
 /** Where a status sits on the specialist's board; null for the client's own tracker steps. */
 export function columnOf(

@@ -31,8 +31,7 @@ const log = createLogger("ai-batch");
 export type AnyFeatureRequest = FeatureRequest<unknown, unknown>;
 
 export type RequestResult<Output = unknown> =
-  | { status: "succeeded"; output: Output }
-  | { status: "failed"; error: string; retryable: boolean };
+  { status: "succeeded"; output: Output } | { status: "failed"; error: string; retryable: boolean };
 
 export interface RequestBatches {
   readonly vendor: AiVendor;

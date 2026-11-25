@@ -18,11 +18,7 @@ export const CONCIERGE_STEPS: readonly ApplicationStatus[] = [
 ];
 
 export type ConciergeErrorCode =
-  | "not_allowed"
-  | "conflict"
-  | "consent_required"
-  | "paused"
-  | "not_found";
+  "not_allowed" | "conflict" | "consent_required" | "paused" | "not_found";
 
 /** A Concierge rule was broken; the web app shows `message` to the person. */
 export class ConciergeError extends Error {

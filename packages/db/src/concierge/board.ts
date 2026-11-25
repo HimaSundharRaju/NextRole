@@ -15,12 +15,7 @@ import { behindPace, targetFor, weekStart } from "./rules";
 const DAY_MS = 86_400_000;
 
 export type BoardColumn =
-  | "proposed"
-  | "approved"
-  | "waiting"
-  | "applied_week"
-  | "in_progress"
-  | "closed";
+  "proposed" | "approved" | "waiting" | "applied_week" | "in_progress" | "closed";
 
 /** Where a status sits on the specialist's board; null for the client's own tracker steps. */
 export function columnOf(

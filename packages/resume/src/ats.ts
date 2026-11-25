@@ -14,8 +14,7 @@ export type AtsEditSection = "basics" | "experience" | "education";
  * must never make up.
  */
 export type AtsFix =
-  | { kind: "ai"; request: string; ask?: boolean }
-  | { kind: "edit"; section: AtsEditSection };
+  { kind: "ai"; request: string; ask?: boolean } | { kind: "edit"; section: AtsEditSection };
 
 export interface AtsIssue {
   severity: AtsSeverity;
