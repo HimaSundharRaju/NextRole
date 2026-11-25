@@ -88,14 +88,14 @@ export const CONCIERGE_WEEKLY_TARGET = 15;
  */
 export const UNIT_COST_USD: Record<UsageUnit, number> = {
   import: 0.0005,
-  tailor: 0.002,
+  tailor: 0.02,
   letter: 0.012,
   answers: 0.014,
   outreach: 0.002,
   fit: 0.0005,
   interview: 0.037,
   studio: 0.02,
-  auto: (0.002 + 0.012) / 2,
+  auto: (0.02 + 0.012) / 2,
 };
 
 /** What a month of using every allowance costs on `plan`, in USD. */
@@ -113,9 +113,9 @@ export function fullUseCostUsd(plan: Plan): number {
  */
 export const MONTHLY_AI_BUDGET_USD: Record<Plan, number> = {
   free: 0.3,
-  plus: 5,
-  pro: 12,
-  concierge: 66,
+  plus: 6,
+  pro: 15,
+  concierge: 90,
 };
 
 /**
