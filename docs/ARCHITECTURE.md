@@ -230,6 +230,44 @@ Specialists apply for Concierge clients; the design is in
 - **Jobs.** The worker expires proposals left for 7 days (03:30 UTC) and emails a daily digest
   of new proposals (14:00 UTC).
 
+## Customer care board
+
+A support team works from `/care`; the design is in
+`docs/superpowers/specs/2026-11-08-customer-care-board-design.md`.
+
+- **Cases.** A help request or a Concierge escalation is a case: `support_cases` and its
+  `support_messages`, each message public or internal. `packages/db/src/support/` holds the
+  rules, the case operations, the board's queries, account help, the job-report and
+  company-request queues, and the Monday check. `canMoveCase` decides who may move a case:
+  agents reply, solve and reopen; the requester's answer reopens it, within 14 days once it is
+  solved; only the system solves a case by itself. Every update checks the current state, so a
+  stale action fails with "This changed — refresh".
+- **Private links.** Each email to a requester carries a link of its own. Only its hash is
+  stored, in `support_case_links`, one row per email; the link works signed out, shows only the
+  public thread, never signs anyone in, and stops 14 days after the case is solved. A signed-out
+  request linked to an account stays unverified until the requester confirms it from the link.
+  Deleting an account takes an open, verified "My data" request about that account, and the
+  agent typing the account's email to confirm.
+- **Signed-out requests.** `publicAction` (`apps/web/src/server/action.ts`) is
+  `authedAction` without the session check. Visitors are rate limited by address, taken by
+  `clientIp` from the right-hand end of `X-Forwarded-For`, so `TRUSTED_PROXIES` decides which
+  hops count as ours; signed-in users are limited per account.
+- **Who may act.** Support agents act only on regular user accounts, admins on anyone else, and
+  nobody on their own account. Only admins change roles. Every staff action is audited as
+  `care.*`.
+- **Data export links.** An agent can email a user a single-use link, valid for 24 hours, that
+  downloads their data without signing in. Opening the link only shows a page; the button posts
+  to the download route, which uses it up, so a mail scanner can't waste it. Internal notes are
+  never emailed, shown to the user or exported.
+- **Hidden jobs.** Customer care can hide a reported job with `jobs.hidden_at`. Search, top
+  matches, alerts, auto-prepare and Concierge proposals skip it, and a sync never clears it
+  because the ingest upsert lists its columns one by one. Keeping a job marks its reports
+  reviewed so they stop adding ghost points, and "wrong details" reports never add any.
+- **Jobs.** The worker solves cases left waiting on the user for 7 days every hour, and on
+  Mondays at 06:00 UTC opens an escalation for each Concierge client who missed last week's
+  target (or adds the miss to the one already open). `concierge_week_checks` makes a second run
+  for the same week do nothing.
+
 ## AI integration
 
 All AI features go through the `AiProvider` interface in `packages/ai`: resume import and

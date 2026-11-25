@@ -18,6 +18,7 @@ const STATUS: Record<
   added: { label: "Added", tone: "success" },
   tracked: { label: "Already here", tone: "primary" },
   not_found: { label: "No board found", tone: "warning" },
+  declined: { label: "Couldn't add", tone: "warning" },
 };
 
 /** "Missing a company?": asks for one by name or careers link, and shows past requests. */

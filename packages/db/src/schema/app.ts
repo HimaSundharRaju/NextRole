@@ -171,7 +171,13 @@ export const companies = pgTable(
   (table) => [uniqueIndex("companies_ats_board_uq").on(table.ats, table.boardToken)],
 ).enableRLS();
 
-export const COMPANY_REQUEST_STATUSES = ["pending", "added", "tracked", "not_found"] as const;
+export const COMPANY_REQUEST_STATUSES = [
+  "pending",
+  "added",
+  "tracked",
+  "not_found",
+  "declined",
+] as const;
 export type CompanyRequestStatus = (typeof COMPANY_REQUEST_STATUSES)[number];
 export const COMPANY_REQUEST_SOURCES = ["user", "admin", "yc"] as const;
 
@@ -330,6 +336,12 @@ export const jobs = pgTable(
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     closedAt: timestamp("closed_at", { withTimezone: true }),
+    /** Set by customer care to remove a job from search, alerts and proposals. Syncs never clear it. */
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+    hiddenByUserId: text("hidden_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    hiddenReason: text("hidden_reason").notNull().default(""),
     contentHash: text("content_hash").notNull(),
     searchVector: tsvector("search_vector").generatedAlwaysAs(
       (): SQL =>
@@ -364,8 +376,18 @@ export const jobEmployerName = () => sql<string>`coalesce(${jobs.employerName}, 
 export const MATCH_VERDICTS = ["strong", "good", "stretch", "poor"] as const;
 export type MatchVerdict = (typeof MATCH_VERDICTS)[number];
 
-export const JOB_REPORT_REASONS = ["closed", "no_reply", "not_real", "other"] as const;
+export const JOB_REPORT_REASONS = [
+  "closed",
+  "no_reply",
+  "not_real",
+  "wrong_details",
+  "other",
+] as const;
 export type JobReportReason = (typeof JOB_REPORT_REASONS)[number];
+
+/** What customer care decided about a job's reports: it's real, or it's hidden from search. */
+export const JOB_REPORT_RESOLUTIONS = ["kept", "hidden"] as const;
+export type JobReportResolution = (typeof JOB_REPORT_RESOLUTIONS)[number];
 
 /** A job seeker's report that a job isn't really open; one per user and job. */
 export const jobReports = pgTable(
@@ -378,6 +400,12 @@ export const jobReports = pgTable(
     reason: text("reason", { enum: JOB_REPORT_REASONS }).notNull(),
     note: text("note").notNull().default(""),
     createdAt,
+    /** Customer care's review: when, by whom, and what they decided. */
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewedByUserId: text("reviewed_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    resolution: text("resolution", { enum: JOB_REPORT_RESOLUTIONS }),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.jobId] }),
@@ -679,6 +707,7 @@ export const NOTIFICATION_TYPES = [
   "application_ready",
   "system",
   "concierge",
+  "support",
 ] as const;
 
 export const notifications = pgTable(

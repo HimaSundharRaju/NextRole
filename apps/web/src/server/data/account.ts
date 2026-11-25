@@ -12,6 +12,7 @@ import {
   profiles,
   resumeMessages,
   resumes,
+  supportExport,
   users,
 } from "@gettargetrole/db";
 import { and, eq, inArray, ne } from "drizzle-orm";
@@ -59,6 +60,7 @@ export async function exportUserData(userId: string) {
     jobMatches: await db.select().from(jobMatches).where(eq(jobMatches.userId, userId)),
     jobReports: await db.select().from(jobReports).where(eq(jobReports.userId, userId)),
     clientTasks: await db.select().from(clientTasks).where(eq(clientTasks.clientId, userId)),
+    support: await supportExport(db, userId),
     notifications: await db.select().from(notifications).where(eq(notifications.userId, userId)),
     aiUsage: await db
       .select({ feature: aiUsage.feature, model: aiUsage.model, createdAt: aiUsage.createdAt })

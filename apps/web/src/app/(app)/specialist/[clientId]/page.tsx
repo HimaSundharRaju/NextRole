@@ -1,4 +1,4 @@
-import { columnOf, getDb, markClientViewed, targetFor } from "@gettargetrole/db";
+import { columnOf, getDb, latestEscalation, markClientViewed, targetFor } from "@gettargetrole/db";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -22,6 +22,7 @@ import {
   AnswerBankEditor,
   ClientStatusSelect,
   ConfirmInboxButton,
+  EscalateForm,
   ExternalProposalForm,
   ProposeJobsForm,
 } from "./client-panel";
@@ -56,7 +57,10 @@ export default async function ClientWorkspacePage({
     targetType: "user",
     targetId: clientId,
   });
-  const setup = await clientSetup(clientId);
+  const [setup, escalation] = await Promise.all([
+    clientSetup(clientId),
+    latestEscalation(getDb(), clientId),
+  ]);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -66,6 +70,16 @@ export default async function ClientWorkspacePage({
       <PageHeader
         title={client.name}
         description={`${client.email} · ${client.plan} plan · target ${targetFor(setup.weeklyTargetOverride)} a week`}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {escalation ? (
+              <Badge tone={escalation.status === "solved" ? "success" : "warning"}>
+                Escalated to care · {escalation.status === "solved" ? "solved" : "open"}
+              </Badge>
+            ) : null}
+            <EscalateForm clientId={clientId} />
+          </div>
+        }
       />
       <nav className="mb-4 flex gap-2 border-b border-border" aria-label="Client tabs">
         {TABS.map((item) => (

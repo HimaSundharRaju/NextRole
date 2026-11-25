@@ -12,7 +12,15 @@ import {
   PLAN_ORDER,
   USAGE_UNITS,
 } from "./plans";
-import { APPLICATION_STATUSES } from "./schema";
+import {
+  APPLICATION_STATUSES,
+  CASE_STATUSES,
+  COMPANY_REQUEST_STATUSES,
+  JOB_REPORT_REASONS,
+  NOTIFICATION_TYPES,
+  ROLES,
+  SUPPORT_TOPICS,
+} from "./schema";
 import { DEFAULT_COMPANIES } from "./seed-lib";
 import { slugify } from "./slug";
 import { resumeHash } from "./tailored";
@@ -124,5 +132,24 @@ describe("concierge configuration", () => {
       expect.arrayContaining(["proposed", "approved", "waiting_on_client", "skipped"]),
     );
     expect(CONCIERGE_WEEKLY_TARGET).toBeGreaterThan(0);
+  });
+});
+
+describe("customer care configuration", () => {
+  it("adds the support role, the case enums and the new report, request and notification values", () => {
+    expect(ROLES).toContain("support");
+    expect(SUPPORT_TOPICS).toEqual([
+      "account",
+      "billing",
+      "concierge",
+      "jobs",
+      "bug",
+      "data",
+      "other",
+    ]);
+    expect(CASE_STATUSES).toEqual(["open", "waiting_on_user", "solved"]);
+    expect(JOB_REPORT_REASONS).toContain("wrong_details");
+    expect(COMPANY_REQUEST_STATUSES).toContain("declined");
+    expect(NOTIFICATION_TYPES).toContain("support");
   });
 });

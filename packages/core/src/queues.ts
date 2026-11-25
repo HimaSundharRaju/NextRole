@@ -36,6 +36,10 @@ export const JOB_NAMES = {
   expireProposals: "expire-proposals",
   /** Scheduled daily: one email per Concierge client with new proposals. */
   conciergeDigest: "concierge-digest",
+  /** Scheduled hourly: support cases left waiting on the requester for a week are solved. */
+  supportAutoSolve: "support-auto-solve",
+  /** Scheduled Mondays: Concierge clients who missed last week's target get an escalation. */
+  conciergeWeeklyCheck: "concierge-weekly-check",
 } as const;
 
 export interface SyncCompanyJob {
