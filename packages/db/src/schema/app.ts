@@ -270,11 +270,11 @@ export const jobs = pgTable(
     salaryMax: integer("salary_max"),
     salaryCurrency: text("salary_currency"),
     salaryPeriod: text("salary_period", { enum: SALARY_PERIODS }),
-    salaryAnnualMin: bigint("salary_annual_min", { mode: "number" }).generatedAlwaysAs(
-      (): SQL => annualized("salary_min"),
+    salaryAnnualMin: bigint("salary_annual_min", { mode: "number" }).generatedAlwaysAs((): SQL =>
+      annualized("salary_min"),
     ),
-    salaryAnnualMax: bigint("salary_annual_max", { mode: "number" }).generatedAlwaysAs(
-      (): SQL => annualized("salary_max"),
+    salaryAnnualMax: bigint("salary_annual_max", { mode: "number" }).generatedAlwaysAs((): SQL =>
+      annualized("salary_max"),
     ),
     /** ISO 3166-1 codes of every country the post names or its board reports ("US", "IN"). */
     countries: text("countries").array().notNull().default(emptyTextArray),

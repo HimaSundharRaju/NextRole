@@ -36,8 +36,7 @@ const LINKEDIN_NOTE_LIMIT = 300;
 
 /** A block of a request: text, or a PDF the model reads directly. */
 export type RequestPart =
-  | { type: "text"; text: string }
-  | { type: "pdf"; data: Buffer; fileName: string };
+  { type: "text"; text: string } | { type: "pdf"; data: Buffer; fileName: string };
 
 /**
  * One AI feature call, independent of vendor: the instructions, the parts that repeat across a

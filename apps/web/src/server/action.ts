@@ -13,8 +13,7 @@ import { getCurrentUser, type SessionUser } from "./session";
 const log = createLogger("action");
 
 export type ActionResult<T = null> =
-  | { ok: true; data: T }
-  | { ok: false; error: string; fieldErrors?: Record<string, string> };
+  { ok: true; data: T } | { ok: false; error: string; fieldErrors?: Record<string, string> };
 
 interface ActionOptions {
   rateLimit?: RateLimitPolicy;
