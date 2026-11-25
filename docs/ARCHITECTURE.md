@@ -67,7 +67,11 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    add the fields the job-board filters use, without AI calls: countries and states
    (`locations.ts`, from board-supplied addresses or the location text), employment types
    including explicit W-2, C2C and 1099 arrangements (`employment.ts`), and what the post says
-   about visa sponsorship and citizenship or clearance (`visa.ts`, explicit statements only).
+   about visa sponsorship and citizenship or clearance (`visa.ts`, explicit statements only,
+   read a sentence at a time: a refusal, an offer, or a restriction to citizens, permanent
+   residents and other U.S. persons; a post that says both stays unknown, and so does an offer
+   in a post that also restricts the role to U.S. persons). `explainVisaSignals` returns the
+   sentence behind each label; nothing stores it yet.
 4. **Upsert.** Jobs are upserted on `(company, external id)`. A content hash means an unchanged
    posting only updates `last_seen_at`, and a stored posting whose details come from a second
    request is only marked as still open. Jobs that disappear from a board are closed, but only
@@ -87,8 +91,11 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    word (or whose number isn't in its quote) is dropped. The board's data and the parsers win;
    enrichment only fills what they left unknown, and keeps its additions until the post
    changes. The job board filters on required years, and the match score uses the post's level
-   and years instead of guessing from the title. Feeds that share only a snippet of each post
-   (Adzuna) aren't enriched or auto-prepared: there's too little to go on.
+   and years instead of guessing from the title; until a post is enriched, both fall back to
+   the level its title implies (`seniority.ts`: Intern, New Grad, Senior, Staff, Principal,
+   Director and the like; `years-filter.ts` is the SQL twin for the filter). Feeds that share
+   only a snippet of each post (Adzuna) aren't enriched or auto-prepared: there's too little to
+   go on.
 6. **Score ghost jobs.** Each sync scores the company's open jobs for signs that no one is being
    hired (`ghosts.ts`, below), and a job listed past its closing date (USAJOBS gives one) is
    closed rather than reopened.
@@ -159,9 +166,13 @@ and the request records what happened, which the user and admins can see.
 
 Matching (`packages/jobs/src/match.ts`) is deterministic and costs nothing to run, so the whole
 feed can be ranked. The score is skill overlap (50%), title similarity to the target roles (30%)
-and location fit (20%). It is reduced for a seniority mismatch or pay below the salary floor, and
-each score comes with the reasons behind it. The AI's deeper fit analysis runs only when a
-candidate asks for it on a single job.
+and location fit (20%). A job that lists fewer than four skills can't earn full skill credit
+(its share is blended toward the neutral 50%), and a title that shares only a job noun such as
+"Engineer" with the target roles keeps a quarter of its title credit unless three or more of
+the job's skills match. The score is reduced for a seniority mismatch (a mid-level candidate
+loses 6 points for a Senior role, 15 for Staff, 20 for Principal and above, 25 for an
+internship) or pay below the salary floor, and each score comes with the reasons behind it.
+The AI's deeper fit analysis runs only when a candidate asks for it on a single job.
 
 ## Applying
 

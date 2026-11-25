@@ -21,6 +21,7 @@ import {
 } from "@gettargetrole/db";
 import { LIKELY_GHOST_SCORE } from "@gettargetrole/jobs/ghosts";
 import { quickMatch, type QuickMatch } from "@gettargetrole/jobs/match";
+import { withinMaxYears } from "@gettargetrole/jobs/years-filter";
 import {
   and,
   arrayContains,
@@ -59,7 +60,10 @@ export const jobFiltersSchema = z.object({
   sort: z.enum(["match", "newest"]).optional().catch(undefined),
   /** Hide jobs that match the user's resume less well than this. */
   minMatch: z.enum(["60", "70", "80"]).optional().catch(undefined),
-  /** Roles asking for at most this many years; posts that don't say are kept. */
+  /**
+   * Roles asking for at most this many years. A post that states no years is judged by the level
+   * enrichment read or its title implies; one with neither is kept.
+   */
   maxYears: z.enum(["2", "5", "8"]).optional().catch(undefined),
   /** Only roles posted by employers themselves, or only by staffing agencies. */
   employer: z.enum(["direct", "agency"]).optional().catch(undefined),
@@ -210,11 +214,7 @@ function whereFor(filters: JobFilters): SQL[] {
     conditions.push(eq(companies.isStaffingAgency, filters.employer === "agency"));
   }
   if (filters.ghosts !== "show") conditions.push(lt(jobs.ghostScore, LIKELY_GHOST_SCORE));
-  if (filters.maxYears) {
-    conditions.push(
-      sql`(${jobs.yearsMin} is null or ${jobs.yearsMin} <= ${Number(filters.maxYears)})`,
-    );
-  }
+  if (filters.maxYears) conditions.push(withinMaxYears(Number(filters.maxYears)));
   if (filters.salaryMin || filters.salaryMax) {
     conditions.push(eq(jobs.salaryCurrency, filters.currency ?? "USD"));
     // A range such as 140-180k matches a floor of 150k: it can reach it.
