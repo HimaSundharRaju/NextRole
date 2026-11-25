@@ -59,6 +59,13 @@ export const SENIORITY_LEVELS = [
 ] as const;
 export type Seniority = (typeof SENIORITY_LEVELS)[number];
 
+/** One of a Concierge client's standard answers, reused on every application. */
+export interface BankAnswer {
+  question: string;
+  answer: string;
+  updatedAt: string;
+}
+
 export const profiles = pgTable(
   "profiles",
   {
@@ -90,6 +97,17 @@ export const profiles = pgTable(
     autoPrepareEnabled: boolean("auto_prepare_enabled").notNull().default(false),
     autoPrepareMinScore: integer("auto_prepare_min_score").notNull().default(80),
     autoPrepareDailyLimit: integer("auto_prepare_daily_limit").notNull().default(3),
+    /** Concierge: the dedicated job-search Gmail the client shares with their specialist. */
+    jobSearchEmail: text("job_search_email").notNull().default(""),
+    /** When the specialist confirmed Gmail delegation works. */
+    inboxAccessConfirmedAt: timestamp("inbox_access_confirmed_at", { withTimezone: true }),
+    /** When the client authorized their specialist to apply on their behalf. */
+    applyConsentAt: timestamp("apply_consent_at", { withTimezone: true }),
+    /** Applications per week; null uses CONCIERGE_WEEKLY_TARGET. */
+    weeklyTargetOverride: integer("weekly_target_override"),
+    /** Set while the client has paused their search. */
+    conciergePausedAt: timestamp("concierge_paused_at", { withTimezone: true }),
+    answerBank: jsonb("answer_bank").$type<BankAnswer[]>().notNull().default([]),
     createdAt,
     updatedAt,
   },
@@ -153,7 +171,13 @@ export const companies = pgTable(
   (table) => [uniqueIndex("companies_ats_board_uq").on(table.ats, table.boardToken)],
 ).enableRLS();
 
-export const COMPANY_REQUEST_STATUSES = ["pending", "added", "tracked", "not_found"] as const;
+export const COMPANY_REQUEST_STATUSES = [
+  "pending",
+  "added",
+  "tracked",
+  "not_found",
+  "declined",
+] as const;
 export type CompanyRequestStatus = (typeof COMPANY_REQUEST_STATUSES)[number];
 export const COMPANY_REQUEST_SOURCES = ["user", "admin", "yc"] as const;
 
@@ -312,6 +336,12 @@ export const jobs = pgTable(
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     closedAt: timestamp("closed_at", { withTimezone: true }),
+    /** Set by customer care to remove a job from search, alerts and proposals. Syncs never clear it. */
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+    hiddenByUserId: text("hidden_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    hiddenReason: text("hidden_reason").notNull().default(""),
     contentHash: text("content_hash").notNull(),
     searchVector: tsvector("search_vector").generatedAlwaysAs(
       (): SQL =>
@@ -346,8 +376,18 @@ export const jobEmployerName = () => sql<string>`coalesce(${jobs.employerName}, 
 export const MATCH_VERDICTS = ["strong", "good", "stretch", "poor"] as const;
 export type MatchVerdict = (typeof MATCH_VERDICTS)[number];
 
-export const JOB_REPORT_REASONS = ["closed", "no_reply", "not_real", "other"] as const;
+export const JOB_REPORT_REASONS = [
+  "closed",
+  "no_reply",
+  "not_real",
+  "wrong_details",
+  "other",
+] as const;
 export type JobReportReason = (typeof JOB_REPORT_REASONS)[number];
+
+/** What customer care decided about a job's reports: it's real, or it's hidden from search. */
+export const JOB_REPORT_RESOLUTIONS = ["kept", "hidden"] as const;
+export type JobReportResolution = (typeof JOB_REPORT_RESOLUTIONS)[number];
 
 /** A job seeker's report that a job isn't really open; one per user and job. */
 export const jobReports = pgTable(
@@ -360,6 +400,12 @@ export const jobReports = pgTable(
     reason: text("reason", { enum: JOB_REPORT_REASONS }).notNull(),
     note: text("note").notNull().default(""),
     createdAt,
+    /** Customer care's review: when, by whom, and what they decided. */
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewedByUserId: text("reviewed_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    resolution: text("resolution", { enum: JOB_REPORT_RESOLUTIONS }),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.jobId] }),
@@ -490,6 +536,11 @@ export const APPLICATION_STATUSES = [
   "offer",
   "rejected",
   "withdrawn",
+  // Concierge: a specialist proposes, the client approves or skips, staff submit.
+  "proposed",
+  "approved",
+  "waiting_on_client",
+  "skipped",
 ] as const;
 export type ApplicationStatus = (typeof APPLICATION_STATUSES)[number];
 
@@ -506,6 +557,17 @@ export interface SubmissionReceipt {
   coverLetter: string;
   answers: ApplicationAnswer[];
 }
+
+/** Why a client declined a proposed job; "expired" is set when a proposal goes unanswered. */
+export const SKIP_REASONS = [
+  "company",
+  "location",
+  "pay",
+  "not_a_fit",
+  "other",
+  "expired",
+] as const;
+export type SkipReason = (typeof SKIP_REASONS)[number];
 
 export const applications = pgTable(
   "applications",
@@ -530,6 +592,18 @@ export const applications = pgTable(
     createdByUserId: text("created_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    /** Concierge: the specialist who proposed the job, their note, and the client's decision. */
+    proposedByUserId: text("proposed_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    proposedAt: timestamp("proposed_at", { withTimezone: true }),
+    proposalNote: text("proposal_note").notNull().default(""),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    skipReason: text("skip_reason", { enum: SKIP_REASONS }),
+    /** Who pressed Submit on the employer's site: the specialist or the client. */
+    submittedByUserId: text("submitted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     createdAt,
     updatedAt,
   },
@@ -549,6 +623,13 @@ export const APPLICATION_EVENT_TYPES = [
   "outreach_drafted",
   "submitted",
   "auto_prepared",
+  "proposed",
+  "approved",
+  "skipped",
+  "question_asked",
+  "question_answered",
+  /** Internal to staff; never shown to the client. */
+  "staff_note",
 ] as const;
 
 export const applicationEvents = pgTable(
@@ -564,6 +645,33 @@ export const applicationEvents = pgTable(
     createdAt,
   },
   (table) => [index("application_events_app_idx").on(table.applicationId, table.createdAt)],
+).enableRLS();
+
+export const CLIENT_TASK_KINDS = ["setup_inbox", "answer_question"] as const;
+export type ClientTaskKind = (typeof CLIENT_TASK_KINDS)[number];
+export const CLIENT_TASK_STATUSES = ["open", "done", "cancelled"] as const;
+
+/** Something a Concierge client must do: share their job-search inbox, or answer a question. */
+export const clientTasks = pgTable(
+  "client_tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    specialistId: text("specialist_id").references(() => users.id, { onDelete: "set null" }),
+    applicationId: uuid("application_id").references(() => applications.id, {
+      onDelete: "cascade",
+    }),
+    kind: text("kind", { enum: CLIENT_TASK_KINDS }).notNull(),
+    question: text("question").notNull().default(""),
+    answer: text("answer").notNull().default(""),
+    saveToBank: boolean("save_to_bank").notNull().default(false),
+    status: text("status", { enum: CLIENT_TASK_STATUSES }).notNull().default("open"),
+    createdAt,
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [index("client_tasks_client_idx").on(table.clientId, table.status)],
 ).enableRLS();
 
 export const OUTREACH_CHANNELS = ["email", "linkedin"] as const;
@@ -598,6 +706,8 @@ export const NOTIFICATION_TYPES = [
   "follow_up",
   "application_ready",
   "system",
+  "concierge",
+  "support",
 ] as const;
 
 export const notifications = pgTable(
@@ -752,6 +862,8 @@ export const specialistAssignments = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     active: boolean("active").notNull().default(true),
+    /** When the specialist last opened this client's workspace, for "new answers" counts. */
+    lastViewedAt: timestamp("last_viewed_at", { withTimezone: true }),
     createdAt,
   },
   (table) => [

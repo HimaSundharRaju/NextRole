@@ -78,21 +78,24 @@ export const AUTO_PREPARE_DAILY_MAX: Record<Plan, number> = {
   concierge: 25,
 };
 
+/** Applications a Concierge client's specialist aims to submit each week, unless an admin overrides it. */
+export const CONCIERGE_WEEKLY_TARGET = 15;
+
 /**
  * Average AI cost of one unit in USD on the default model routes, measured in the quality check
- * (packages/ai/eval): writing on Claude Sonnet 5, imports and fit on GPT-4o-mini, auto-prepare
- * through the batch API at half price. Studio is an estimate for a turn with some history.
+ * (packages/ai/eval) and rounded up; auto-prepare runs through the batch API at half price.
+ * Studio is an estimate for a turn with some history.
  */
 export const UNIT_COST_USD: Record<UsageUnit, number> = {
   import: 0.0005,
-  tailor: 0.018,
+  tailor: 0.002,
   letter: 0.012,
-  answers: 0.011,
-  outreach: 0.013,
-  fit: 0.0004,
+  answers: 0.014,
+  outreach: 0.002,
+  fit: 0.0005,
   interview: 0.037,
   studio: 0.02,
-  auto: (0.018 + 0.012) / 2,
+  auto: (0.002 + 0.012) / 2,
 };
 
 /** What a month of using every allowance costs on `plan`, in USD. */
@@ -110,9 +113,9 @@ export function fullUseCostUsd(plan: Plan): number {
  */
 export const MONTHLY_AI_BUDGET_USD: Record<Plan, number> = {
   free: 0.3,
-  plus: 6,
-  pro: 15,
-  concierge: 95,
+  plus: 5,
+  pro: 12,
+  concierge: 66,
 };
 
 /**

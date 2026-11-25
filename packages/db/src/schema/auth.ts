@@ -8,7 +8,7 @@ import { boolean, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 export const PLANS = ["free", "plus", "pro", "concierge"] as const;
 export type Plan = (typeof PLANS)[number];
 
-export const ROLES = ["user", "specialist", "admin"] as const;
+export const ROLES = ["user", "specialist", "support", "admin"] as const;
 export type Role = (typeof ROLES)[number];
 
 const timestamps = {

@@ -10,6 +10,7 @@ import { SaveJobButton } from "@/components/jobs/save-job-button";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
+import { Alert } from "@/components/ui/misc";
 import {
   EDUCATION_LABEL,
   FEED_CREDIT,
@@ -58,6 +59,8 @@ export default async function JobPage({ params }: Props) {
     tailored,
   } = await load(id);
   const user = await requireOnboardedUser();
+  // Customer care can take a posting out of search; the page stays for anyone who has it saved.
+  const removed = job.hiddenAt !== null;
   const allowances = allowancesFor(user.plan, await monthlyUsage(user.id));
   const matchScore = aiMatch?.score ?? match.score;
   const salary = formatSalary(job.salaryMin, job.salaryMax, job.salaryCurrency, job.salaryPeriod);
@@ -151,17 +154,19 @@ export default async function JobPage({ params }: Props) {
             {job.department ? <Badge tone="outline">{job.department}</Badge> : null}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <SaveJobButton jobId={job.id} saved={Boolean(application)} />
-          <a
-            href={job.applyUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={buttonVariants({ variant: "secondary" })}
-          >
-            View posting <ExternalLink className="h-4 w-4" aria-hidden />
-          </a>
-        </div>
+        {removed ? null : (
+          <div className="flex shrink-0 items-center gap-2">
+            <SaveJobButton jobId={job.id} saved={Boolean(application)} />
+            <a
+              href={job.applyUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={buttonVariants({ variant: "secondary" })}
+            >
+              View posting <ExternalLink className="h-4 w-4" aria-hidden />
+            </a>
+          </div>
+        )}
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
@@ -198,37 +203,45 @@ export default async function JobPage({ params }: Props) {
         </Card>
 
         <div className="space-y-6 lg:sticky lg:top-20 lg:self-start">
-          <FitPanel
-            jobId={job.id}
-            quick={match}
-            aiMatch={aiMatch}
-            stale={aiMatchStale}
-            allowance={allowances.fit}
-          />
-          <ApplyKit
-            target={{ jobId: job.id }}
-            applyUrl={job.applyUrl}
-            application={
-              application
-                ? {
-                    id: application.id,
-                    status: application.status,
-                    resumeId: application.resumeId,
-                    coverLetter: application.coverLetter,
-                    answers: application.answers,
-                    appliedAt: application.appliedAt?.toISOString() ?? null,
-                  }
-                : null
-            }
-            tailored={tailored}
-            allowances={allowances}
-            matchScore={matchScore}
-          />
-          <Card>
-            <CardBody className="p-4">
-              <ReportJob jobId={job.id} reported={report} />
-            </CardBody>
-          </Card>
+          {removed ? (
+            <Alert tone="warning">
+              This posting was removed by our team, so it no longer appears in search.
+            </Alert>
+          ) : (
+            <>
+              <FitPanel
+                jobId={job.id}
+                quick={match}
+                aiMatch={aiMatch}
+                stale={aiMatchStale}
+                allowance={allowances.fit}
+              />
+              <ApplyKit
+                target={{ jobId: job.id }}
+                applyUrl={job.applyUrl}
+                application={
+                  application
+                    ? {
+                        id: application.id,
+                        status: application.status,
+                        resumeId: application.resumeId,
+                        coverLetter: application.coverLetter,
+                        answers: application.answers,
+                        appliedAt: application.appliedAt?.toISOString() ?? null,
+                      }
+                    : null
+                }
+                tailored={tailored}
+                allowances={allowances}
+                matchScore={matchScore}
+              />
+              <Card>
+                <CardBody className="p-4">
+                  <ReportJob jobId={job.id} reported={report} />
+                </CardBody>
+              </Card>
+            </>
+          )}
         </div>
       </div>
     </div>

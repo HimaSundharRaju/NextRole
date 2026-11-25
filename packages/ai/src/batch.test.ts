@@ -134,8 +134,14 @@ describe("ClaudeBatches", () => {
     expect(create!.headers.get("anthropic-beta")).toBe("message-batches-2024-09-24");
     const sent = create!.body!.requests as Array<{ custom_id: string; params: SentParams }>;
     expect(sent.map((entry) => entry.custom_id)).toEqual(entries.map((entry) => entry.id));
+    // Each entry runs on its feature's route.
+    expect(sent.map((entry) => entry.params.model)).toEqual([
+      "claude-haiku-5-5",
+      "claude-haiku-5-5",
+      "claude-haiku-5-5",
+      "claude-sonnet-5",
+    ]);
     for (const { params } of sent) {
-      expect(params.model).toBe("claude-sonnet-5");
       expect(params).not.toHaveProperty("fallbacks");
       expect(params).not.toHaveProperty("betas");
       // Every entry for a feature shares the instructions: cached for an hour.
