@@ -11,6 +11,8 @@ import type {
 } from "openai/resources/responses/responses";
 import type { ReasoningEffort } from "openai/resources/shared";
 import { estimateCostMicroUsd, type AiFeature } from "./config";
+import { ModelUnavailableError, studioError } from "./errors";
+import { isTrainingModel } from "./meta";
 import { STUDIO_SYSTEM } from "./prompts";
 import {
   answersRequest,
@@ -39,9 +41,12 @@ export function getOpenAI(): OpenAI {
   return client;
 }
 
-/** GPT-5, GPT-6 and o-series models reason and take an effort setting; GPT-4.x models reject it. */
+/**
+ * GPT-5, GPT-6, o-series and Muse models reason and take an effort setting; GPT-4.x models
+ * reject it. Muse's own default is the highest effort, so it's always set.
+ */
 export function isReasoningModel(model: string): boolean {
-  return /^(?:gpt-[56]|o\d)/.test(model);
+  return /^(?:gpt-[56]|o\d|muse-)/.test(model);
 }
 
 /**
@@ -149,7 +154,7 @@ async function recordUsage(record: UsageRecord, ctx: AiCallContext): Promise<voi
 /** Converts SDK errors into user-safe application errors; rethrows anything already mapped. */
 export function mapOpenAIError(error: unknown): Error {
   if (error instanceof OpenAI.RateLimitError) {
-    return new ExternalServiceError(
+    return new ModelUnavailableError(
       "The AI service",
       "The AI service is busy right now. Please try again in a minute.",
     );
@@ -158,22 +163,28 @@ export function mapOpenAIError(error: unknown): Error {
     error instanceof OpenAI.AuthenticationError ||
     error instanceof OpenAI.PermissionDeniedError
   ) {
-    log.error({ err: error }, "OpenAI credentials rejected");
-    return new ExternalServiceError(
+    log.error({ err: error }, "AI credentials rejected");
+    return new ModelUnavailableError(
       "The AI service",
       "The AI service is not configured correctly. Please contact support.",
     );
   }
   if (error instanceof OpenAI.BadRequestError) {
-    log.error({ err: error }, "OpenAI rejected the request");
+    log.error({ err: error }, "AI request rejected");
     return new ExternalServiceError(
       "The AI service",
       "The AI couldn't process this request. Please try different input.",
     );
   }
   if (error instanceof OpenAI.APIError) {
-    log.error({ err: error, status: error.status }, "OpenAI API error");
-    return new ExternalServiceError("The AI service");
+    log.error({ err: error, status: error.status }, "AI API error");
+    const unavailable =
+      error instanceof OpenAI.APIConnectionError ||
+      error instanceof OpenAI.InternalServerError ||
+      error instanceof OpenAI.NotFoundError;
+    return unavailable
+      ? new ModelUnavailableError("The AI service")
+      : new ExternalServiceError("The AI service");
   }
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -210,6 +221,13 @@ export class OpenAIProvider implements AiProvider {
 
   private options(feature: AiFeature, ctx: AiCallContext) {
     const model = this.modelFor(feature);
+    if (isTrainingModel(model)) {
+      log.error({ model }, "refused a model that trains on what it's sent");
+      throw new ExternalServiceError(
+        "The AI service",
+        "The AI service is not configured correctly. Please contact support.",
+      );
+    }
     const key = userKey(ctx.userId);
     const effort = reasoningEffortFor(model, feature);
     return {
@@ -359,14 +377,15 @@ export class OpenAIProvider implements AiProvider {
   async *studioChat(
     ...[input, ctx]: Parameters<AiProvider["studioChat"]>
   ): AsyncGenerator<StudioEvent> {
-    const options = this.options("studio", ctx);
     const history: ResponseInputItem[] = recentHistory(input.history).map((turn) => ({
       role: turn.role,
       content: turn.content,
     }));
     let reply = "";
+    let options: ReturnType<OpenAIProvider["options"]>;
     let response: Response;
     try {
+      options = this.options("studio", ctx);
       const stream = this.api().responses.stream(
         {
           ...options,
@@ -394,7 +413,7 @@ export class OpenAIProvider implements AiProvider {
       }
       response = await stream.finalResponse();
     } catch (error) {
-      yield { type: "error", message: mapOpenAIError(error).message };
+      yield studioError(mapOpenAIError(error));
       return;
     }
 

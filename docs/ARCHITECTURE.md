@@ -285,16 +285,20 @@ All AI features go through the `AiProvider` interface in `packages/ai`: resume i
 generation, tailoring, fit analysis, cover letters, application answers, outreach, interview
 prep and the Studio chat.
 
-- **Hybrid routing.** Each feature runs on the cheapest model, Claude or OpenAI, that matched the
-  reference in the quality check below (`DEFAULT_ROUTES` in `routing.ts`). `RoutedProvider` sends
-  each call to its route. When an OpenAI call fails, or `OPENAI_API_KEY` isn't set, the same
-  request runs on the feature's Claude fallback, so users see a result rather than an error.
-  `AI_ROUTE_<FEATURE>` overrides one route (`openai:gpt-5-mini`, `anthropic:claude-sonnet-5`), and
+- **Auto mode.** Each feature tries a list of models in order (`routeChain` in `routing.ts`): the
+  models that passed the quality check below, cheapest first (`verified-routes.json`, written by
+  the check), or the feature's default (`DEFAULT_ROUTES`) until a check has listed others, then its
+  Claude fallback. `RoutedProvider` skips vendors without an API key, and when a call fails
+  (outage, rate limit, refusal or unusable output) sends the same request to the next model, so
+  users see a result rather than an error. A model whose API is unavailable is rested for a
+  minute. A Studio turn moves on only if nothing has reached the user yet. `AI_ROUTE_<FEATURE>`
+  pins one feature (`openai:gpt-6-luna`, `meta:muse-ember-1.0`, `anthropic:claude-sonnet-5`) and
   `AI_MODEL` puts every feature on one Claude model.
-- **One prompt, two vendors.** `requests.ts` builds every feature's request once (instructions,
+- **One prompt, three vendors.** `requests.ts` builds every feature's request once (instructions,
   the parts that repeat across a user's calls, the per-call parts, the schema and how the output
   becomes the result), and each provider only translates it: `AnthropicProvider` through the
-  Anthropic TypeScript SDK, `OpenAIProvider` through the OpenAI SDK's Responses API. Quality
+  Anthropic TypeScript SDK, `OpenAIProvider` through the OpenAI SDK's Responses API, which
+  Meta's Model API also speaks, so it serves the Muse models too (`meta.ts`). Quality
   comparisons between models are therefore like for like.
 - **Model and reasoning.** Claude models run with adaptive thinking at a per-feature effort:
   `high` for writing judged on quality (generation, tailoring), `medium` for interactive and
@@ -306,6 +310,9 @@ prep and the Studio chat.
   on the user's resume prefix without revealing the account. Results come back as strict
   JSON-schema outputs (optional fields sent as nullable) and are validated with the same Zod
   schemas as Claude's.
+- **Meta specifics.** Muse requests go out the same way, always with a set reasoning effort
+  (Muse's own default is the highest). Models ending in `-contributor`, which Meta trains on,
+  are refused, and the Meta client never carries the OpenAI key or account ids.
 - **Structured outputs.** Every non-chat feature gets JSON that matches a Zod schema, so results
   are typed and validated before they reach the database or the UI. Most features request a
   structured output. Tailoring returns its result through a non-strict `submit_result` tool
@@ -334,7 +341,7 @@ prep and the Studio chat.
   (equal-opportunity, accommodation, privacy and background-check text).
 - **Batches.** Background work goes through a batch API at half price (`batch.ts`): Claude's
   Message Batches for auto-prepare, OpenAI's Batch API (a JSONL file in, one out) for job
-  enrichment. `RequestBatches` takes any feature request: entries are built by the same code as
+  enrichment. Meta has no batch API, so Muse never does batch work. `RequestBatches` takes any feature request: entries are built by the same code as
   live calls and their results read by the same code, so a batched tailored resume is identical
   in kind to a live one. Only refusal fallbacks are left out, since their beta header would
   apply to the whole batch.
@@ -366,11 +373,17 @@ and mismatches), 8 imports (4 PDFs, 4 text) and 15 Studio edits. Automatic check
 failures that matter most on a resume: changed or invented employers, titles, dates or
 education; technical skills the resume doesn't show; invented numbers; and hard limits such as a
 LinkedIn note over 300 characters. Two judges from different vendors (Claude Sonnet 5 and
-GPT-5-mini) then compare each candidate with the reference, Claude Sonnet 5, blind and in random
-order. They see what the models saw: the resume, the candidate's profile where the feature sends
-it, and the posting with its location. A feature moves to another model only when that model fails
-no more checks than the reference, wins or ties at least half the comparisons with both judges,
-and answers in under 30 seconds on average.
+GPT-5-mini) then compare each candidate with the bar, blind and in random order. They see what
+the models saw: the resume, the candidate's profile where the feature sends it, and the posting
+with its location.
+
+The bar is the reference, Claude Sonnet 5, unless a premium model (Claude Opus 5.5, GPT-6.1 Sol
+or Muse Spark 1.3, tried on tailoring, cover letters and answers) is no worse on checks, job
+skills and speed and each judge prefers it more often than not: then that model is the bar. A
+model passes a feature only when it ties the bar: it fails no more checks, keeps at least as many
+of the job's skills the candidate has (tailoring), each judge prefers it at least as often as the
+bar, and it answers in under 30 seconds on average. With `--write-routes yes`, a full run saves
+each feature's passing models, cheapest first, to `verified-routes.json`, which auto mode follows.
 
 Results from September 2026 (the synthetic pairs) and two November 2026 runs. The first compared
 `claude-sonnet-5-5`, `claude-haiku-5-5` and `gpt-6-luna` on one real resume against 5 target jobs

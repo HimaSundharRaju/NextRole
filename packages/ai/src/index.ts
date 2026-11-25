@@ -1,12 +1,13 @@
 import { MockProvider } from "./mock-provider";
-import { RoutedProvider } from "./routing";
+import { configuredVendors, RoutedProvider } from "./routing";
 import type { AiProvider } from "./types";
 
 let provider: AiProvider | undefined;
 
 /**
- * The configured AI provider: each feature on its routed model (Claude, or OpenAI when
- * OPENAI_API_KEY is set), or a deterministic mock in tests.
+ * The configured AI provider: auto mode, which runs each feature on its first tested model whose
+ * vendor has a key (Claude, plus OpenAI and Meta when theirs are set), or a deterministic mock
+ * in tests.
  */
 export function getAi(): AiProvider {
   if (!provider) {
@@ -16,7 +17,7 @@ export function getAi(): AiProvider {
     }
     provider = useMock
       ? new MockProvider()
-      : new RoutedProvider(undefined, { openai: Boolean(process.env.OPENAI_API_KEY) });
+      : new RoutedProvider(undefined, { vendors: configuredVendors() });
   }
   return provider;
 }
@@ -59,12 +60,16 @@ export { OpenAIProvider } from "./openai-provider";
 export {
   claudeModelFor,
   CLAUDE_FALLBACK,
+  configuredVendors,
   DEFAULT_ROUTES,
-  effectiveRoute,
   parseRoute,
+  routeChain,
   routeFor,
   RoutedProvider,
+  usableRoutes,
   type Route,
+  type VerifiedRoutes,
+  type Vendors,
 } from "./routing";
 export {
   estimateCostMicroUsd,

@@ -104,6 +104,14 @@ describe("pickEnv", () => {
       INGEST_CONCURRENCY: "4",
     });
   });
+
+  it("gives both containers every model vendor's key", () => {
+    for (const keys of [WEB_ENV_KEYS, JOBS_ENV_KEYS]) {
+      expect(keys).toEqual(
+        expect.arrayContaining(["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "META_API_KEY"]),
+      );
+    }
+  });
 });
 
 describe("instanceCount", () => {

@@ -44,11 +44,15 @@ export function baseModelId(model: string): string {
   return model.replace(/-\d{8}$/, "").replace(/-\d{4}-\d{2}-\d{2}$/, "");
 }
 
-export type AiVendor = "anthropic" | "openai";
+export type AiVendor = "anthropic" | "openai" | "meta";
 
-/** Which API serves a model: Claude models are Anthropic's, GPT and o-series models OpenAI's. */
+/**
+ * Which API serves a model: Claude models are Anthropic's, Muse models Meta's, and GPT and
+ * o-series models OpenAI's.
+ */
 export function vendorOf(model: string): AiVendor {
-  return model.startsWith("claude") ? "anthropic" : "openai";
+  if (model.startsWith("claude")) return "anthropic";
+  return model.startsWith("muse") ? "meta" : "openai";
 }
 
 /** Claude 4.5 and earlier (Haiku 4.5, Sonnet 4.5, ...): no adaptive thinking or effort. */
@@ -118,11 +122,28 @@ const PRICING: Record<string, ModelPricing> = {
   "claude-haiku-4-5": { input: 1, output: 5 },
 };
 
-/**
- * OpenAI list prices, USD per million tokens. OpenAI prices cached input on its own and has no
- * cache-write charge.
- */
-const OPENAI_PRICING: Record<string, ModelPricing & { cachedInput: number }> = {
+/** A model on OpenAI's Responses format: cached input has its own price, cache writes none. */
+interface ResponsesPricing {
+  input: number;
+  cachedInput: number;
+  output: number;
+  longPrompt?: { aboveTokens: number; input: number; cachedInput: number; output: number };
+}
+
+/** OpenAI and Meta list prices, USD per million tokens. */
+const RESPONSES_PRICING: Record<string, ResponsesPricing> = {
+  // Meta lists no cached price past 200K tokens: it's taken to rise as input does.
+  "muse-ember-1.0": {
+    input: 0.1,
+    cachedInput: 0.004,
+    output: 0.5,
+    longPrompt: { aboveTokens: 200_000, input: 0.3, cachedInput: 0.012, output: 1.5 },
+  },
+  "muse-spark-1.1": { input: 1.25, cachedInput: 0.15, output: 4.25 },
+  "muse-spark-1.2": { input: 1.25, cachedInput: 0.15, output: 4.25 },
+  "muse-spark-1.3": { input: 1.25, cachedInput: 0.15, output: 4.25 },
+  // Cached input is assumed to be a tenth of input, as for GPT-6 Luna.
+  "gpt-6.1-sol": { input: 2, cachedInput: 0.2, output: 10 },
   "gpt-6.1-terra": { input: 1, cachedInput: 0.05, output: 5 },
   "gpt-6-luna": { input: 0.1, cachedInput: 0.01, output: 0.5 },
   "gpt-5.2": { input: 1.75, cachedInput: 0.175, output: 14 },
@@ -163,12 +184,15 @@ export function estimateCostMicroUsd(
   options: { batch?: boolean } = {},
 ): number {
   const discount = options.batch ? BATCH_MULTIPLIER : 1;
-  const openai = OPENAI_PRICING[baseModelId(model)];
-  if (openai) {
+  const responses = RESPONSES_PRICING[baseModelId(model)];
+  if (responses) {
+    const { longPrompt } = responses;
+    const long = longPrompt && tokens.inputTokens + tokens.cacheReadTokens > longPrompt.aboveTokens;
+    const price = long ? longPrompt : responses;
     const usd =
-      (tokens.inputTokens * openai.input +
-        tokens.cacheReadTokens * openai.cachedInput +
-        tokens.outputTokens * openai.output) /
+      (tokens.inputTokens * price.input +
+        tokens.cacheReadTokens * price.cachedInput +
+        tokens.outputTokens * price.output) /
       1_000_000;
     return Math.round(usd * discount * 1_000_000);
   }

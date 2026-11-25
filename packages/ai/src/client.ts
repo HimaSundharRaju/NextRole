@@ -20,6 +20,7 @@ import {
   modelCapabilities,
   type AiFeature,
 } from "./config";
+import { ModelUnavailableError } from "./errors";
 import type { AiCallContext, UsageRecord } from "./types";
 
 const log = createLogger("ai");
@@ -171,7 +172,7 @@ export function textOf(message: BetaMessage): string {
 /** Converts SDK errors into user-safe application errors; rethrows anything already mapped. */
 export function mapAnthropicError(error: unknown): Error {
   if (error instanceof Anthropic.RateLimitError) {
-    return new ExternalServiceError(
+    return new ModelUnavailableError(
       "The AI service",
       "The AI service is busy right now. Please try again in a minute.",
     );
@@ -181,7 +182,7 @@ export function mapAnthropicError(error: unknown): Error {
     error instanceof Anthropic.PermissionDeniedError
   ) {
     log.error({ err: error }, "Anthropic credentials rejected");
-    return new ExternalServiceError(
+    return new ModelUnavailableError(
       "The AI service",
       "The AI service is not configured correctly. Please contact support.",
     );
@@ -195,9 +196,10 @@ export function mapAnthropicError(error: unknown): Error {
   }
   if (
     error instanceof Anthropic.APIConnectionError ||
-    error instanceof Anthropic.InternalServerError
+    error instanceof Anthropic.InternalServerError ||
+    error instanceof Anthropic.NotFoundError
   ) {
-    return new ExternalServiceError("The AI service");
+    return new ModelUnavailableError("The AI service");
   }
   if (error instanceof Anthropic.APIError) {
     log.error({ err: error, status: error.status }, "Anthropic API error");

@@ -122,7 +122,7 @@ const FEATURE_LABEL: Record<string, string> = {
   enrich: "Job enrichment",
 };
 
-const VENDOR_LABEL = { anthropic: "Anthropic", openai: "OpenAI" } as const;
+const VENDOR_LABEL = { anthropic: "Anthropic", openai: "OpenAI", meta: "Meta" } as const;
 
 function money(value: number): string {
   if (value >= 100) return `$${Math.round(value).toLocaleString()}`;

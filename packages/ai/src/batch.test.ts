@@ -116,7 +116,7 @@ describe("ClaudeBatches", () => {
 
   beforeEach(() => {
     api = fakeBatchApi();
-    batches = new ClaudeBatches((feature) => DEFAULT_ROUTES[feature], { api: () => api.client });
+    batches = new ClaudeBatches((feature) => [DEFAULT_ROUTES[feature]], { api: () => api.client });
   });
 
   it("sends each task with its live prompt, caching what other entries will reuse", async () => {
@@ -226,12 +226,15 @@ describe("ClaudeBatches", () => {
   });
 
   it("batches only features that run on Claude", () => {
-    const routes = (tailor: Route) => (feature: keyof typeof DEFAULT_ROUTES) =>
-      feature === "tailor" ? tailor : DEFAULT_ROUTES[feature];
+    const routes = (tailor: Route) => (feature: keyof typeof DEFAULT_ROUTES) => [
+      feature === "tailor" ? tailor : DEFAULT_ROUTES[feature],
+    ];
     const onOpenAi = routes({ vendor: "openai", model: "gpt-5-mini" });
-    expect(new ClaudeBatches(onOpenAi, { openai: true }).supports("tailor")).toBe(false);
+    expect(new ClaudeBatches(onOpenAi, { vendors: { openai: true } }).supports("tailor")).toBe(
+      false,
+    );
     // Without OpenAI configured the route falls back to Claude, which batches.
-    expect(new ClaudeBatches(onOpenAi, { openai: false }).supports("tailor")).toBe(true);
+    expect(new ClaudeBatches(onOpenAi).supports("tailor")).toBe(true);
     expect(batches.supports("cover_letter")).toBe(true);
   });
 });

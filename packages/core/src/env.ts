@@ -45,8 +45,10 @@ export const serverEnvSchema = z
     AI_PROVIDER: z.enum(["anthropic", "mock"]).default("anthropic"),
     AI_MODEL: z.string().min(1).default("claude-opus-5"),
     ANTHROPIC_API_KEY: z.string().optional(),
-    /** Enables features routed to OpenAI models; without it they stay on Claude. */
+    /** Enables OpenAI models; without it auto mode skips them. */
     OPENAI_API_KEY: z.string().optional(),
+    /** Enables Muse models (Meta's Model API); without it auto mode skips them. */
+    META_API_KEY: z.string().optional(),
 
     SMTP_URL: z.string().optional(),
     EMAIL_FROM: z.string().default("GetTargetRole <no-reply@gettargetrole.app>"),

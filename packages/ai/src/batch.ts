@@ -11,11 +11,13 @@ import { getOpenAI, mapOpenAIError, OpenAIProvider } from "./openai-provider";
 import { coverLetterRequest, tailorRequest, type FeatureRequest } from "./requests";
 import {
   claudeModelFor,
+  configuredVendors,
   DEFAULT_ROUTES,
-  effectiveRoute,
   parseRoute,
-  routeFor,
+  routeChain,
+  usableRoutes,
   type Route,
+  type Vendors,
 } from "./routing";
 import type { CoverLetter, TailorResult } from "./schemas";
 import type { AiCallContext, AiProvider } from "./types";
@@ -34,8 +36,11 @@ export type RequestResult<Output = unknown> =
   | { status: "succeeded"; output: Output }
   | { status: "failed"; error: string; retryable: boolean };
 
+/** The vendors with a batch API. */
+export type BatchVendor = Exclude<AiVendor, "meta">;
+
 export interface RequestBatches {
-  readonly vendor: AiVendor;
+  readonly vendor: BatchVendor;
   /** Sends the requests as one batch and returns its id. */
   submit(
     entries: Array<{ id: string; request: AnyFeatureRequest; cache?: CachePlan }>,
@@ -299,29 +304,30 @@ function featureRequest(task: BatchTask): AnyFeatureRequest {
 }
 
 /**
- * Batches on Claude (Message Batches API) for features routed to Claude. The instructions are
- * cached for an hour, since every entry for a feature shares them and a batch can run for longer
- * than five minutes; a resume is cached only when the same user has more than one entry for a
- * feature, because a cache write costs more than it saves when nothing reads it.
+ * Batches on Claude (Message Batches API) for features whose first model is Claude's. The
+ * instructions are cached for an hour, since every entry for a feature shares them and a batch
+ * can run for longer than five minutes; a resume is cached only when the same user has more than
+ * one entry for a feature, because a cache write costs more than it saves when nothing reads it.
  */
 export class ClaudeBatches implements AiBatches {
   private readonly requests: ClaudeRequestBatches;
 
   constructor(
-    private readonly routes: (feature: AiFeature) => Route = (feature) => routeFor(feature),
-    private readonly options: { openai?: boolean; api?: () => Anthropic } = {},
+    private readonly chain: (feature: AiFeature) => Route[] = (feature) => routeChain(feature),
+    private readonly options: { vendors?: Vendors; api?: () => Anthropic } = {},
   ) {
     const provider = new AnthropicProvider((feature) =>
-      claudeModelFor(this.routes(feature), feature),
+      claudeModelFor(this.first(feature), feature),
     );
     this.requests = new ClaudeRequestBatches(provider, options.api);
   }
 
+  private first(feature: AiFeature): Route {
+    return usableRoutes(this.chain(feature), feature, this.options.vendors ?? {})[0]!;
+  }
+
   supports(feature: BatchFeature): boolean {
-    return (
-      effectiveRoute(this.routes(feature), feature, Boolean(this.options.openai)).vendor ===
-      "anthropic"
-    );
+    return this.first(feature).vendor === "anthropic";
   }
 
   submit(entries: BatchEntry[]): Promise<string> {
@@ -366,7 +372,7 @@ export function getAiBatches(): AiBatches | null {
     batches =
       process.env.AI_PROVIDER === "mock"
         ? null
-        : new ClaudeBatches(undefined, { openai: Boolean(process.env.OPENAI_API_KEY) });
+        : new ClaudeBatches(undefined, { vendors: configuredVendors() });
   }
   return batches;
 }
@@ -381,7 +387,9 @@ export function enrichmentBatches(
   env: NodeJS.ProcessEnv = process.env,
 ): { batches: RequestBatches; model: string } | null {
   if (env.AI_PROVIDER === "mock" || env.ENRICH_JOBS === "off") return null;
-  const route = (env.AI_ROUTE_ENRICH && parseRoute(env.AI_ROUTE_ENRICH)) || DEFAULT_ROUTES.enrich;
+  const asked = (env.AI_ROUTE_ENRICH && parseRoute(env.AI_ROUTE_ENRICH)) || DEFAULT_ROUTES.enrich;
+  // Meta has no batch API, so a Muse route can't do this bulk work.
+  const route = asked.vendor === "meta" ? DEFAULT_ROUTES.enrich : asked;
   if (route.vendor === "openai") {
     if (!env.OPENAI_API_KEY) return null;
     return {

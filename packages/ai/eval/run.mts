@@ -1,19 +1,23 @@
 /*
  * Model quality check. Runs each candidate model on the same inputs for every feature, applies
  * the automatic checks, has two judges from different vendors compare each candidate with the
- * reference (Claude Sonnet 5), and reports the cheapest model per feature that matches it.
+ * bar, and reports every model per feature that ties it, cheapest first. The bar is Claude
+ * Sonnet 5, unless a premium model (Opus 5.5, GPT-6.1 Sol, Muse Spark 1.3 on tailoring, cover
+ * letters and answers) clearly beats it. Tailoring must also keep as many of the job's skills.
  *
  *   NODE_USE_ENV_PROXY=1 node --env-file=.env --import tsx packages/ai/eval/run.mts
  *
  * Options: --features tailor,cover_letter   --judge-items 8   --items 2 (smoke test)
- *          --budget-anthropic 5   --budget-openai 5 (USD of new spending per vendor)
+ *          --budget-anthropic 5   --budget-openai 5   --budget-meta 5 (USD of new spending)
  *          --no-spend yes (rebuild the report from cached results only; nothing new is called)
  *          --own-only yes (only the items built from your own resume; give --judge-items 10 or more
  *                          to judge all of them)
- *          --spot-check yes (also compare Opus 5.5 with Sonnet 5 on tailoring)
  *          --only tailor:haiku-5.5,match:gpt-6-luna (compare just these candidates with the
  *                          reference on those features, e.g. to retest the routed models)
- * Sonnet 5.5, priced like the reference, is compared on every writing feature.
+ *          --write-routes yes (save the passing models as the app's verified list,
+ *                          src/verified-routes.json; from a full run only)
+ * Sonnet 5.5, priced like the reference, is compared on every writing feature. Muse models need
+ * META_API_KEY and are skipped without it.
  * Every model and judge result is cached under packages/ai/eval/results/, so a rerun only pays
  * for what's missing. Results that failed on an API error (out of credit, overloaded) are retried
  * instead of reused. Cheaper models run cheapest tier first: a feature moves on to the next tier
@@ -23,10 +27,12 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import type { AiVendor } from "../src/config";
 import type { Resume } from "@gettargetrole/resume/schema";
 import { resumeToPlainText } from "@gettargetrole/resume/text";
 import { AnthropicProvider } from "../src/anthropic-provider";
 import { profileBlock } from "../src/context";
+import { getMeta } from "../src/meta";
 import { OpenAIProvider } from "../src/openai-provider";
 import type {
   ApplicationAnswers,
@@ -47,6 +53,7 @@ import {
   checkOutreach,
   checkStudioEdit,
   checkTailor,
+  keptJobSkills,
 } from "./checks";
 import {
   OWN_PAIRS,
@@ -59,21 +66,22 @@ import {
   type Persona,
 } from "./fixtures";
 import { judge, JUDGES, type JudgeId, type JudgeResult } from "./judge";
+import { barFrom, MAX_AVG_MS, tiesBar, verifiedList, type Judged, type Scores } from "./verdict";
 
 const args = new Map<string, string>();
 for (let index = 2; index < process.argv.length; index += 2) {
   args.set(process.argv[index]!.replace(/^--/, ""), process.argv[index + 1] ?? "");
 }
-type Vendor = "anthropic" | "openai";
-const BUDGET_MICRO: Record<Vendor, number> = {
+const BUDGET_MICRO: Record<AiVendor, number> = {
   anthropic: Number(args.get("budget-anthropic") ?? 5) * 1_000_000,
   openai: Number(args.get("budget-openai") ?? 5) * 1_000_000,
+  meta: Number(args.get("budget-meta") ?? 5) * 1_000_000,
 };
 const JUDGE_ITEMS = Number(args.get("judge-items") ?? 8);
 const ITEM_LIMIT = Number(args.get("items") ?? Number.POSITIVE_INFINITY);
 const NO_SPEND = args.has("no-spend");
 const OWN_ONLY = args.has("own-only");
-const SPOT = args.has("spot-check");
+const WRITE_ROUTES = args.has("write-routes");
 const ONLY = new Map<string, string[]>();
 for (const entry of (args.get("only") ?? "").split(",").filter(Boolean)) {
   const [feature, candidate] = entry.split(":") as [string, string | undefined];
@@ -81,10 +89,11 @@ for (const entry of (args.get("only") ?? "").split(",").filter(Boolean)) {
   ONLY.set(feature, [...(ONLY.get(feature) ?? []), candidate]);
 }
 const RESULTS = new URL("./results/", import.meta.url);
+const VERIFIED_ROUTES = new URL("../src/verified-routes.json", import.meta.url);
 
 interface Candidate {
   id: string;
-  vendor: Vendor;
+  vendor: AiVendor;
   model: string;
 }
 
@@ -111,9 +120,13 @@ const TIERS: Candidate[][] = [
   [
     { id: "haiku-5.5", vendor: "anthropic", model: "claude-haiku-5-5" },
     { id: "gpt-6-luna", vendor: "openai", model: "gpt-6-luna" },
+    { id: "muse-ember-1.0", vendor: "meta", model: "muse-ember-1.0" },
   ],
-  // $1 / $5: half the reference's price.
-  [{ id: "gpt-6.1-terra", vendor: "openai", model: "gpt-6.1-terra" }],
+  // $1 / $5 to $1.25 / $4.25: about half the reference's price.
+  [
+    { id: "gpt-6.1-terra", vendor: "openai", model: "gpt-6.1-terra" },
+    { id: "muse-spark-1.3", vendor: "meta", model: "muse-spark-1.3" },
+  ],
 ];
 /** The reference's successor at the same price: an upgrade rather than a saving. */
 const UPGRADE: Candidate = { id: "sonnet-5.5", vendor: "anthropic", model: "claude-sonnet-5-5" };
@@ -125,10 +138,16 @@ const UPGRADE_FEATURES = new Set([
   "interview",
   "studio",
 ]);
-/** People wait on these features, so a route must answer this fast on average. */
-const MAX_AVG_MS = 30_000;
-/** Checked against the reference on a few tailors: is the premium model worth its price? */
-const SPOT_CHECK: Candidate = { id: "opus-5.5", vendor: "anthropic", model: "claude-opus-5-5" };
+/** The best models going: where one clearly beats the reference, it becomes the bar. */
+const PREMIUM: Candidate[] = [
+  { id: "opus-5.5", vendor: "anthropic", model: "claude-opus-5-5" },
+  { id: "gpt-6.1-sol", vendor: "openai", model: "gpt-6.1-sol" },
+  { id: "muse-spark-1.3", vendor: "meta", model: "muse-spark-1.3" },
+];
+const PREMIUM_FEATURES = new Set(["tailor", "cover_letter", "answers"]);
+/** Muse is only tried with a Meta key; cached results are still reported without one. */
+const available = (candidate: Candidate) =>
+  candidate.vendor !== "meta" || NO_SPEND || Boolean(process.env.META_API_KEY);
 
 interface Item {
   id: string;
@@ -142,6 +161,8 @@ interface Item {
   render: (output: unknown) => string;
   /** Built from the owner's own resume (fixtures/private/). */
   own?: boolean;
+  /** The job skills the output kept (tailoring). */
+  coverage?: (output: unknown) => number;
 }
 
 interface Generated {
@@ -154,7 +175,7 @@ interface Generated {
 // --- Ledger -------------------------------------------------------------------------------------
 
 /** New spending this run, per vendor; only this counts toward the budgets. */
-const spent: Record<Vendor, number> = { anthropic: 0, openai: 0 };
+const spent: Record<AiVendor, number> = { anthropic: 0, openai: 0, meta: 0 };
 /** What the cached results this run reused cost when they were made. */
 let reusedMicro = 0;
 const counted = new Set<string>();
@@ -190,13 +211,15 @@ function writeCache(path: string, value: unknown): void {
   writeFile(path, JSON.stringify(value, null, 2));
 }
 
-function guardBudget(vendor: Vendor): void {
+function guardBudget(vendor: AiVendor): void {
   if (spent[vendor] >= BUDGET_MICRO[vendor]) {
     throw new BudgetExceeded(`the ${vendor} budget was reached`);
   }
 }
 
-const totalSpent = () => spent.anthropic + spent.openai;
+const totalSpent = () => spent.anthropic + spent.openai + spent.meta;
+const spending = () =>
+  `Claude ${usd(spent.anthropic)}, OpenAI ${usd(spent.openai)}, Meta ${usd(spent.meta)}`;
 
 async function pool<T>(tasks: Array<() => Promise<T>>, size: number): Promise<T[]> {
   const results: T[] = [];
@@ -212,8 +235,9 @@ async function pool<T>(tasks: Array<() => Promise<T>>, size: number): Promise<T[
 }
 
 function providerFor(candidate: Candidate): AiProvider {
-  return candidate.vendor === "anthropic"
-    ? new AnthropicProvider(() => candidate.model)
+  if (candidate.vendor === "anthropic") return new AnthropicProvider(() => candidate.model);
+  return candidate.vendor === "meta"
+    ? new OpenAIProvider(() => candidate.model, getMeta)
     : new OpenAIProvider(() => candidate.model);
 }
 
@@ -232,6 +256,7 @@ function pairItems<T>(
   check: (pair: (typeof PAIRS)[number], output: T) => string[],
   render: (output: T) => string,
   limit = PAIRS.length,
+  coverage?: (pair: (typeof PAIRS)[number], output: T) => number,
 ): Item[] {
   return [...PAIRS.slice(0, limit), ...OWN_PAIRS].map((pair) => ({
     id: `${pair.persona.id}__${pair.job.key}`,
@@ -243,6 +268,7 @@ function pairItems<T>(
     check: (output) => check(pair, output as T),
     render: (output) => render(output as T),
     own: pair.persona.own === true,
+    coverage: coverage && ((output: unknown) => coverage(pair, output as T)),
   }));
 }
 
@@ -271,6 +297,8 @@ async function buildItems(): Promise<Record<string, Item[]>> {
       ({ persona }, output) => checkTailor(persona.resume, output),
       (output) =>
         `${text(output.resume)}\n\nWhat changed:\n${bullets(output.summaryOfChanges)}\nMissing: ${output.missingKeywords.join(", ")}`,
+      PAIRS.length,
+      ({ persona, job }, output) => keptJobSkills(persona.resume, job, output.resume),
     ),
     cover_letter: pairItems<CoverLetter>(
       "cover_letter",
@@ -461,11 +489,13 @@ async function compare(
   candidate: Candidate,
   item: Item,
   mine: Generated,
-  reference: Generated,
+  theirs: Generated,
+  opponent: Candidate,
 ): Promise<JudgeResult[]> {
+  const against = opponent.id === REFERENCE ? "" : `__vs__${opponent.id}`;
   const results = await Promise.all(
     JUDGES.map(async ({ id, vendor }): Promise<JudgeResult | null> => {
-      const path = `${feature}/judge/${candidate.id}/${item.id}__${id}.json`;
+      const path = `${feature}/judge/${candidate.id}${against}/${item.id}__${id}.json`;
       const cached = readCache<JudgeResult>(path);
       if (cached) return cached;
       if (NO_SPEND) return null;
@@ -476,7 +506,7 @@ async function compare(
         profile: item.profile,
         job: item.job,
         candidate: item.render(mine.output),
-        reference: item.render(reference.output),
+        reference: item.render(theirs.output),
         candidateFirst: candidateFirst(`${feature}/${candidate.id}/${item.id}`),
       });
       spent[vendor] += result.costMicroUsd;
@@ -487,16 +517,16 @@ async function compare(
   return results.filter((result): result is JudgeResult => result !== null);
 }
 
-interface Row {
+interface Row extends Scores {
   candidate: string;
   model: string;
+  vendor: AiVendor;
   ok: number;
   total: number;
-  hardFailures: number;
   sampleFailures: string[];
   costPerSuccessMicro: number;
-  avgMs: number;
-  judged: Record<JudgeId, { win: number; tie: number; loss: number }>;
+  /** The model the others were judged against. */
+  bar: boolean;
   eligible: boolean;
   /** Passed the checks but has no verdict from one of the judges yet. */
   pending: boolean;
@@ -516,40 +546,61 @@ const runAll = (feature: string, candidate: Candidate, items: Item[]) =>
 async function runFeature(feature: string, items: Item[]): Promise<Row[]> {
   const failuresOf = (generated: Generated, item: Item) =>
     generated.error ? [`error: ${generated.error}`] : item.check(generated.output);
-  const reference = await runAll(feature, REFERENCE_CANDIDATE, items);
-  const referenceFailures = reference.filter(
-    (generated, index) => failuresOf(generated, items[index]!).length > 0,
-  ).length;
-  // Judge on items where the reference itself passed, so the comparison is against a good output.
-  // Up to half of them come from the owner's own resume, when it's set up.
-  const passing = items
-    .map((item, index) => ({ item, index }))
-    .filter(({ item, index }) => failuresOf(reference[index]!, item).length === 0);
-  const judgeable = [
-    ...passing.filter(({ item }) => item.own).slice(0, Math.ceil(JUDGE_ITEMS / 2)),
-    ...passing.filter(({ item }) => !item.own),
-  ].slice(0, JUDGE_ITEMS);
-
-  async function rowFor(candidate: Candidate): Promise<Row> {
-    const generated =
-      candidate.id === REFERENCE ? reference : await runAll(feature, candidate, items);
+  const runs = new Map<string, Promise<Generated[]>>();
+  const outputsOf = (candidate: Candidate) => {
+    let run = runs.get(candidate.id);
+    if (!run) {
+      run = runAll(feature, candidate, items);
+      runs.set(candidate.id, run);
+    }
+    return run;
+  };
+  const measure = (generated: Generated[]) => {
     const failures = generated.map((entry, index) => failuresOf(entry, items[index]!));
-    const hardFailures = failures.filter((list) => list.length > 0).length;
-    const ok = generated.length - hardFailures;
-    const cost = generated.reduce((sum, entry) => sum + entry.costMicroUsd, 0);
-    const avgMs = generated.reduce((sum, entry) => sum + entry.ms, 0) / generated.length;
+    const covered = items.some((item) => item.coverage)
+      ? generated.reduce((sum, entry, index) => {
+          const { coverage } = items[index]!;
+          return sum + (entry.error || !coverage ? 0 : coverage(entry.output));
+        }, 0)
+      : null;
+    return {
+      failureLists: failures,
+      failures: failures.filter((list) => list.length > 0).length,
+      covered,
+      avgMs: generated.reduce((sum, entry) => sum + entry.ms, 0) / generated.length,
+    };
+  };
+
+  /** A candidate's row, judged against `opponent` (the bar, or itself when it is the bar). */
+  async function rowFor(candidate: Candidate, opponent: Candidate): Promise<Row> {
+    const generated = await outputsOf(candidate);
+    const theirs = await outputsOf(opponent);
+    const isBar = candidate.id === opponent.id;
+    const mine = measure(generated);
+    const other = measure(theirs);
     const judged = Object.fromEntries(
       JUDGES.map(({ id }) => [id, { win: 0, tie: 0, loss: 0 }]),
-    ) as Row["judged"];
-    const passesChecks = hardFailures <= referenceFailures;
-    if (candidate.id !== REFERENCE && passesChecks) {
+    ) as Judged;
+    // Judging costs money, so only models that could still pass are judged.
+    const passesChecks =
+      mine.failures <= other.failures && (mine.covered ?? 0) >= (other.covered ?? 0);
+    if (!isBar && passesChecks) {
+      // Judge on items where the opponent passed, so the comparison is against a good output.
+      // Up to half of them come from the owner's own resume, when it's set up.
+      const passing = items
+        .map((item, index) => ({ item, index }))
+        .filter(({ index }) => other.failureLists[index]!.length === 0);
+      const judgeable = [
+        ...passing.filter(({ item }) => item.own).slice(0, Math.ceil(JUDGE_ITEMS / 2)),
+        ...passing.filter(({ item }) => !item.own),
+      ].slice(0, JUDGE_ITEMS);
       const comparisons = await pool(
         judgeable
           .filter(({ index }) => !generated[index]!.error)
           .map(
             ({ item, index }) =>
               () =>
-                compare(feature, candidate, item, generated[index]!, reference[index]!),
+                compare(feature, candidate, item, generated[index]!, theirs[index]!, opponent),
           ),
         4,
       );
@@ -557,103 +608,102 @@ async function runFeature(feature: string, items: Item[]): Promise<Row[]> {
         for (const result of results) judged[result.judge][result.outcome] += 1;
       }
     }
-    // As good as the reference: each judge prefers it at least as often as it prefers the reference.
-    const atLeastAsGood = (id: JudgeId) => {
-      const { win, tie, loss } = judged[id];
-      return win + tie + loss > 0 && win >= loss;
-    };
+    const scores = { failures: mine.failures, covered: mine.covered, avgMs: mine.avgMs, judged };
+    const ok = generated.length - mine.failures;
+    const cost = generated.reduce((sum, entry) => sum + entry.costMicroUsd, 0);
     return {
+      ...scores,
       candidate: candidate.id,
       model: candidate.model,
+      vendor: candidate.vendor,
       ok,
       total: generated.length,
-      hardFailures,
-      sampleFailures: failures.flat().slice(0, 4),
+      sampleFailures: mine.failureLists.flat().slice(0, 4),
       costPerSuccessMicro: ok ? cost / ok : Number.POSITIVE_INFINITY,
-      avgMs,
-      judged,
-      eligible:
-        candidate.id === REFERENCE ||
-        (passesChecks && avgMs <= MAX_AVG_MS && JUDGES.every(({ id }) => atLeastAsGood(id))),
+      bar: isBar,
+      eligible: isBar || tiesBar(scores, { ...other, judged }),
       pending:
-        candidate.id !== REFERENCE &&
+        !isBar &&
         passesChecks &&
         JUDGES.some(({ id }) => judged[id].win + judged[id].tie + judged[id].loss === 0),
     };
   }
 
-  const rows = [await rowFor(REFERENCE_CANDIDATE)];
   const current = CURRENT_ROUTE[feature];
   const only = ONLY.get(feature);
   if (only) {
-    const known = [current, ...TIERS.flat(), UPGRADE];
+    const known = [current, ...TIERS.flat(), UPGRADE, ...PREMIUM];
+    const rows = [await rowFor(REFERENCE_CANDIDATE, REFERENCE_CANDIDATE)];
     for (const id of only) {
       const candidate = known.find((entry) => entry?.id === id);
       if (!candidate) throw new Error(`--only: no candidate "${id}" for ${feature}`);
-      rows.push(await rowFor(candidate));
+      rows.push(await rowFor(candidate, REFERENCE_CANDIDATE));
     }
     return rows;
   }
-  if (current) rows.push(await rowFor(current));
+
+  // First the bar: the reference, or the premium model that clearly beats it.
+  const premiums = PREMIUM_FEATURES.has(feature) ? PREMIUM.filter(available) : [];
+  const againstReference: Row[] = [];
+  for (const candidate of premiums) {
+    againstReference.push(await rowFor(candidate, REFERENCE_CANDIDATE));
+  }
+  const referenceRow = await rowFor(REFERENCE_CANDIDATE, REFERENCE_CANDIDATE);
+  const winner = barFrom(referenceRow, againstReference);
+  const bar = premiums.find((entry) => entry.id === winner?.candidate) ?? REFERENCE_CANDIDATE;
+
+  const rows =
+    bar.id === REFERENCE
+      ? [referenceRow, ...againstReference]
+      : [await rowFor(bar, bar), await rowFor(REFERENCE_CANDIDATE, bar)];
+  const add = async (candidates: Candidate[]) => {
+    const fresh = candidates.filter(
+      (candidate) => available(candidate) && !rows.some((row) => row.candidate === candidate.id),
+    );
+    const added = await Promise.all(fresh.map((candidate) => rowFor(candidate, bar)));
+    rows.push(...added);
+    return added;
+  };
+  if (bar.id !== REFERENCE) await add(premiums);
+  const cheaper = current ? await add([current]) : [];
   for (const tier of TIERS) {
-    rows.push(...(await Promise.all(tier.map((candidate) => rowFor(candidate)))));
-    // Once a model cheaper than the reference passes, the dearer tiers can't win on cost.
-    if (rows.some((row) => row.candidate !== REFERENCE && row.eligible)) break;
+    // Once a model cheaper than the bar passes, the dearer tiers can't win on cost.
+    if (cheaper.some((row) => row.eligible)) break;
+    cheaper.push(...(await add(tier)));
   }
   // After the tiers, so that the upgrade passing doesn't stop a cheaper tier from being tried.
-  if (UPGRADE_FEATURES.has(feature)) rows.push(await rowFor(UPGRADE));
+  if (UPGRADE_FEATURES.has(feature)) await add([UPGRADE]);
   return rows;
-}
-
-async function spotCheck(
-  items: Item[],
-): Promise<Record<JudgeId, { win: number; tie: number; loss: number }>> {
-  const tally = Object.fromEntries(
-    JUDGES.map(({ id }) => [id, { win: 0, tie: 0, loss: 0 }]),
-  ) as Record<JudgeId, { win: number; tie: number; loss: number }>;
-  for (const item of items.slice(0, 5)) {
-    const opus = await generate("tailor", SPOT_CHECK, item);
-    const reference = await generate("tailor", REFERENCE_CANDIDATE, item);
-    if (opus.error || reference.error) continue;
-    for (const result of await compare("tailor", SPOT_CHECK, item, opus, reference)) {
-      tally[result.judge][result.outcome] += 1;
-    }
-  }
-  return tally;
 }
 
 // --- Report -------------------------------------------------------------------------------------
 
-function report(
-  results: Record<string, Row[]>,
-  spot: Record<JudgeId, { win: number; tie: number; loss: number }> | null,
-): string {
+function report(results: Record<string, Row[]>): string {
   const lines = [
     `# Model quality check`,
     ``,
-    `New spend: Claude ${usd(spent.anthropic)} of ${usd(BUDGET_MICRO.anthropic)}, OpenAI ${usd(spent.openai)} of ${usd(BUDGET_MICRO.openai)}. Reused from earlier runs: ${usd(reusedMicro)}.`,
+    `New spend: Claude ${usd(spent.anthropic)} of ${usd(BUDGET_MICRO.anthropic)}, OpenAI ${usd(spent.openai)} of ${usd(BUDGET_MICRO.openai)}, Meta ${usd(spent.meta)} of ${usd(BUDGET_MICRO.meta)}. Reused from earlier runs: ${usd(reusedMicro)}.`,
     ``,
-    `A model is eligible when it fails no more checks than the reference (Claude Sonnet 5), each judge prefers it at least as often as the reference, and it answers within ${MAX_AVG_MS / 1000}s on average. The cheapest eligible model is chosen.`,
+    `A model passes when it ties the bar: no more failed checks, at least as many of the job's skills kept (tailoring), each judge prefers it at least as often as the bar, and it answers within ${MAX_AVG_MS / 1000}s on average. The bar is Claude Sonnet 5 unless a premium model clearly beats it. The cheapest passing model is chosen.`,
     ``,
   ];
-  const routes: Record<string, string> = {};
+  const routes: Record<string, string[]> = {};
   for (const [feature, rows] of Object.entries(results)) {
+    routes[feature] = verifiedList(rows);
     const chosen = rows
       .filter((row) => row.eligible)
-      .sort((a, b) => a.costPerSuccessMicro - b.costPerSuccessMicro)[0]!;
-    routes[feature] = chosen.model;
+      .sort((a, b) => a.costPerSuccessMicro - b.costPerSuccessMicro)[0];
+    const coverage = rows.some((row) => row.covered !== null);
     lines.push(`## ${feature}`, ``);
     lines.push(
-      `| Model | Passed checks | Claude judge (win/tie/loss) | GPT judge (win/tie/loss) | Cost per success | Avg time | Eligible |`,
+      `| Model | Passed checks |${coverage ? " Job skills kept |" : ""} Claude judge (win/tie/loss) | GPT judge (win/tie/loss) | Cost per success | Avg time | Passes |`,
     );
-    lines.push(`|---|---|---|---|---|---|---|`);
+    lines.push(`|---|---|${coverage ? "---|" : ""}---|---|---|---|---|`);
     for (const row of rows) {
       const tally = (id: JudgeId) =>
-        row.candidate === REFERENCE
-          ? "reference"
-          : `${row.judged[id].win}/${row.judged[id].tie}/${row.judged[id].loss}`;
+        row.bar ? "bar" : `${row.judged[id].win}/${row.judged[id].tie}/${row.judged[id].loss}`;
       lines.push(
-        `| ${row.model}${row.model === chosen.model ? " **(chosen)**" : ""} | ${row.ok}/${row.total} | ${tally("claude-judge")} | ${tally("gpt-judge")} | ${usd(row.costPerSuccessMicro)} | ${(row.avgMs / 1000).toFixed(1)}s | ${row.eligible ? "yes" : row.pending ? "judging pending" : "no"} |`,
+        `| ${row.model}${row === chosen ? " **(chosen)**" : ""} | ${row.ok}/${row.total} |${coverage ? ` ${row.covered} |` : ""} ${tally("claude-judge")} | ${tally("gpt-judge")} | ${usd(row.costPerSuccessMicro)} | ${(row.avgMs / 1000).toFixed(1)}s | ${row.eligible ? "yes" : row.pending ? "judging pending" : "no"} |`,
       );
     }
     const failing = rows.filter((row) => row.sampleFailures.length);
@@ -663,16 +713,20 @@ function report(
     }
     lines.push(``);
   }
-  if (spot) {
-    lines.push(
-      `## Spot check: Opus 5.5 vs Sonnet 5 on tailoring`,
-      ``,
-      `From Opus 5.5's side, win/tie/loss — Claude judge ${spot["claude-judge"].win}/${spot["claude-judge"].tie}/${spot["claude-judge"].loss}, GPT judge ${spot["gpt-judge"].win}/${spot["gpt-judge"].tie}/${spot["gpt-judge"].loss}.`,
-      ``,
-    );
-  }
   lines.push(`## Routes`, ``, "```json", JSON.stringify(routes, null, 2), "```");
   return lines.join("\n");
+}
+
+/** Saves each tested feature's passing models as the app's verified list. */
+function writeRoutes(results: Record<string, Row[]>): void {
+  if (NO_SPEND || OWN_ONLY || ONLY.size > 0 || args.has("items")) {
+    print("\nVerified list not written: it comes from a full run only.");
+    return;
+  }
+  const verified = JSON.parse(readFileSync(VERIFIED_ROUTES, "utf8")) as Record<string, string[]>;
+  for (const [feature, rows] of Object.entries(results)) verified[feature] = verifiedList(rows);
+  writeFileSync(VERIFIED_ROUTES, `${JSON.stringify(verified, null, 2)}\n`);
+  print(`\nVerified list written for ${Object.keys(results).join(", ")}.`);
 }
 
 // --- Main ---------------------------------------------------------------------------------------
@@ -686,29 +740,25 @@ for (const feature of ONLY.keys()) {
   if (!features.includes(feature as never)) throw new Error(`--only: ${feature} is not being run`);
 }
 const results: Record<string, Row[]> = {};
-let spot: Awaited<ReturnType<typeof spotCheck>> | null = null;
 try {
+  if (!process.env.META_API_KEY && !NO_SPEND) print("No META_API_KEY: Muse models are skipped.");
   for (const feature of features) {
     const items = allItems[feature]!.filter((item) => !OWN_ONLY || item.own).slice(0, ITEM_LIMIT);
     if (!items.length) throw new Error(`No ${feature} items; is fixtures/private/ filled in?`);
-    print(
-      `\n== ${feature} (${items.length} items) — new spend so far Claude ${usd(spent.anthropic)}, OpenAI ${usd(spent.openai)}`,
-    );
+    print(`\n== ${feature} (${items.length} items) — new spend so far ${spending()}`);
     results[feature] = await runFeature(feature, items);
     for (const row of results[feature]!) {
       print(
-        `  ${row.model.padEnd(18)} checks ${row.ok}/${row.total}  cost/success ${usd(row.costPerSuccessMicro)}  ${(row.avgMs / 1000).toFixed(1)}s  eligible ${row.eligible}`,
+        `  ${row.model.padEnd(18)} checks ${row.ok}/${row.total}  cost/success ${usd(row.costPerSuccessMicro)}  ${(row.avgMs / 1000).toFixed(1)}s  passes ${row.eligible}${row.bar ? " (bar)" : ""}`,
       );
     }
-  }
-  if (SPOT && features.includes("tailor" as never) && !NO_SPEND) {
-    spot = await spotCheck(allItems.tailor!.filter((item) => !OWN_ONLY || item.own));
   }
 } catch (error) {
   if (!(error instanceof BudgetExceeded)) throw error;
   print(`\nStopped: ${error.message} after new spend of ${usd(totalSpent())}.`);
 }
-const markdown = report(results, spot);
+const markdown = report(results);
 writeFile("report.md", markdown);
-writeCache("summary.json", { spent, reusedMicro, results, spot });
+writeCache("summary.json", { spent, reusedMicro, results });
 print(`\n${markdown}`);
+if (WRITE_ROUTES) writeRoutes(results);

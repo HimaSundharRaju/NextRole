@@ -26,6 +26,7 @@ import {
   type StructuredCall,
 } from "./client";
 import { configuredModel, type AiFeature } from "./config";
+import { studioError } from "./errors";
 import { STUDIO_SYSTEM } from "./prompts";
 import {
   answersRequest,
@@ -210,7 +211,7 @@ export class AnthropicProvider implements AiProvider {
       message = await stream.finalMessage();
     } catch (error) {
       if (error instanceof Anthropic.APIError || ctx.signal?.aborted) {
-        yield { type: "error", message: mapAnthropicError(error).message };
+        yield studioError(mapAnthropicError(error));
       } else {
         // With eager input streaming the SDK rejects when a tool input isn't parseable JSON.
         log.warn({ err: error }, "studio tool input could not be parsed");

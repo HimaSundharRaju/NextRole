@@ -127,7 +127,8 @@ In the repository on GitHub, open **Settings → Secrets and variables → Actio
 | `BETTER_AUTH_SECRET`                       | Output of `openssl rand -base64 48`                                         |
 | `ENCRYPTION_KEY`                           | Output of `openssl rand -base64 32`                                         |
 | `ANTHROPIC_API_KEY`                        | The Anthropic API key                                                       |
-| `OPENAI_API_KEY`                           | Optional: the OpenAI API key, for features routed to OpenAI models          |
+| `OPENAI_API_KEY`                           | Optional: the OpenAI API key, so auto mode can use OpenAI models            |
+| `META_API_KEY`                             | Optional: a Meta Model API key, so auto mode can use Muse models            |
 | `USAJOBS_API_KEY`                          | Optional: a USAJOBS API key, for federal tech jobs                          |
 | `ADZUNA_APP_KEY`                           | Optional: the Adzuna app key (only once Adzuna licenses the site)           |
 | `SMTP_URL`                                 | The Resend SMTP URL                                                         |

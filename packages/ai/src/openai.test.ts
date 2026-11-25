@@ -10,6 +10,7 @@ import {
   CLAUDE_FALLBACK,
   DEFAULT_ROUTES,
   parseRoute,
+  routeChain,
   routeFor,
   RoutedProvider,
   type Route,
@@ -392,16 +393,17 @@ describe("routing", () => {
 
   const routes =
     (map: Partial<Record<AiFeature, Route>>) =>
-    (feature: AiFeature): Route =>
-      map[feature] ?? { vendor: "anthropic", model: "claude-haiku-4-5" };
+    (feature: AiFeature): Route[] => [
+      map[feature] ?? { vendor: "anthropic", model: "claude-haiku-4-5" },
+    ];
 
   it("retries on Claude when the OpenAI route fails", async () => {
-    const claude = new MockProvider();
     const routed = new RoutedProvider(
-      routes({ cover_letter: { vendor: "openai", model: "gpt-4o-mini" } }),
+      (feature) => routeChain(feature, { AI_ROUTE_COVER_LETTER: "openai:gpt-4o-mini" }),
       {
-        anthropic: claude as never,
-        openaiProvider: new FailingProvider() as never,
+        vendors: { openai: true },
+        providerFor: (route) =>
+          route.vendor === "openai" ? new FailingProvider() : new MockProvider(),
       },
     );
     const letter = await routed.writeCoverLetter({ resume: RESUME, job: JOB }, { userId: null });
@@ -413,7 +415,7 @@ describe("routing", () => {
       expect(CLAUDE_FALLBACK[feature as AiFeature], feature).toMatch(/^claude-/);
       if (route.vendor === "openai") expect(route.model, feature).toMatch(/^gpt-/);
     }
-    const unrouted = new RoutedProvider((feature) => routeFor(feature, {}));
+    const unrouted = new RoutedProvider((feature) => routeChain(feature, {}, {}));
     expect(unrouted.modelFor("match")).toBe("claude-haiku-5-5");
   });
 

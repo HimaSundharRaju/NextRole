@@ -63,7 +63,8 @@ export type StudioEvent =
   | { type: "text"; text: string }
   | { type: "resume"; resume: Resume; summary: string }
   | { type: "done"; reply: string; changed: boolean }
-  | { type: "error"; message: string };
+  /** `unavailable`: the model's API failed. For auto mode; callers of `getAi` don't get it. */
+  | { type: "error"; message: string; unavailable?: boolean };
 
 export interface AiProvider {
   readonly name: "anthropic" | "openai" | "routed" | "mock";

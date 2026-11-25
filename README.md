@@ -107,7 +107,8 @@ every variable with its default.
 | `BETTER_AUTH_SECRET`                       | yes      | At least 32 random characters; signs sessions and tokens                                                                 |
 | `ENCRYPTION_KEY`                           | yes      | 32 random bytes, base64; for encrypting stored third-party credentials such as mailbox tokens (AES-256-GCM)              |
 | `ANTHROPIC_API_KEY`                        | yes      | Anthropic API key                                                                                                        |
-| `OPENAI_API_KEY`                           | no       | OpenAI API key for features routed to OpenAI models; without it they stay on Claude                                      |
+| `OPENAI_API_KEY`                           | no       | OpenAI API key; auto mode skips OpenAI models without it                                                                 |
+| `META_API_KEY`                             | no       | Meta Model API key for the Muse models; auto mode skips them without it                                                  |
 | `AI_MODEL`                                 | no       | Puts every feature on one Claude model instead of the per-feature routes (`AI_ROUTE_<FEATURE>` overrides one)            |
 | `AI_BATCH`                                 | no       | `off` makes auto-prepare call the AI right away instead of in half-price batches (worker only)                           |
 | `ENRICH_JOBS`, `ENRICH_DAILY_BUDGET_USD`   | no       | Job enrichment with GPT-4o-mini batches (on when `OPENAI_API_KEY` is set; `off` stops it) and its daily cap (default $2) |

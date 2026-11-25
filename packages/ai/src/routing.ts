@@ -1,9 +1,12 @@
 import { AiRefusalError, ExternalServiceError } from "@gettargetrole/core/errors";
 import { createLogger } from "@gettargetrole/core/logger";
 import { AnthropicProvider } from "./anthropic-provider";
-import type { AiFeature, AiVendor } from "./config";
-import { OpenAIProvider } from "./openai-provider";
+import { vendorOf, type AiFeature, type AiVendor } from "./config";
+import { ModelUnavailableError } from "./errors";
+import { getMeta, isTrainingModel } from "./meta";
+import { getOpenAI, OpenAIProvider } from "./openai-provider";
 import type { AiCallContext, AiProvider, StudioEvent } from "./types";
+import verifiedRoutes from "./verified-routes.json" with { type: "json" };
 
 const log = createLogger("ai-routing");
 
@@ -12,13 +15,26 @@ export interface Route {
   model: string;
 }
 
+/**
+ * Per feature, the models that passed the latest quality check, cheapest first, as
+ * `vendor:model`. The check (`packages/ai/eval`) writes `verified-routes.json`.
+ */
+export type VerifiedRoutes = Partial<Record<AiFeature, string[]>>;
+
+/** Which of the optional vendors have an API key. Claude is always taken to be set up. */
+export type Vendors = Partial<Record<Exclude<AiVendor, "anthropic">, boolean>>;
+
+export function configuredVendors(env: NodeJS.ProcessEnv = process.env): Vendors {
+  return { openai: Boolean(env.OPENAI_API_KEY), meta: Boolean(env.META_API_KEY) };
+}
+
 /** The quality check's reference: the bar every cheaper model had to match. */
 const REFERENCE_MODEL = "claude-sonnet-5";
 
 /**
- * Which model handles each feature by default: the cheapest model that matched the reference
- * (Claude Sonnet 5) in the quality check, `packages/ai/eval` (results in docs/ARCHITECTURE.md).
- * Where no other model matched it, the feature runs on the reference itself.
+ * Which model handles a feature until the verified list names others: the cheapest model that
+ * matched the reference (Claude Sonnet 5) in the quality check, `packages/ai/eval` (results in
+ * docs/ARCHITECTURE.md). Where no other model matched it, the feature runs on the reference itself.
  */
 export const DEFAULT_ROUTES: Record<AiFeature, Route> = {
   // Tied the reference on every import (PDF and text) at about 1/30 of the cost.
@@ -44,7 +60,7 @@ export const DEFAULT_ROUTES: Record<AiFeature, Route> = {
   enrich: { vendor: "openai", model: "gpt-4o-mini" },
 };
 
-/** The Claude model a feature uses when its OpenAI route fails or OpenAI isn't configured. */
+/** The Claude model that ends a feature's chain, so there's always somewhere left to go. */
 export const CLAUDE_FALLBACK: Record<AiFeature, string> = {
   // Claude Haiku 4.5 also matched the reference on imports; Haiku 5.5 on fit analysis.
   import: "claude-haiku-4-5",
@@ -59,143 +75,212 @@ export const CLAUDE_FALLBACK: Record<AiFeature, string> = {
   enrich: "claude-haiku-4-5",
 };
 
-/** Parses an override like `openai:gpt-5-mini`, `anthropic:claude-sonnet-5` or `claude-sonnet-5`. */
+const isVendor = (value: string): value is AiVendor =>
+  value === "anthropic" || value === "openai" || value === "meta";
+
+/**
+ * Parses a route like `openai:gpt-6-luna`, `meta:muse-ember-1.0` or `claude-sonnet-5`. Null for
+ * anything else, and for models that let their vendor train on what they're sent.
+ */
 export function parseRoute(value: string): Route | null {
   const [first, second] = value.trim().split(":", 2);
   if (!first) return null;
-  if (second === undefined) {
-    return { vendor: first.startsWith("claude") ? "anthropic" : "openai", model: first };
-  }
-  if ((first === "anthropic" || first === "openai") && second) {
-    return { vendor: first, model: second };
-  }
-  return null;
+  let route: Route | null = null;
+  if (second === undefined) route = { vendor: vendorOf(first), model: first };
+  else if (isVendor(first) && second) route = { vendor: first, model: second };
+  return route && !isTrainingModel(route.model) ? route : null;
 }
+
+const keyOf = (route: Route) => `${route.vendor}:${route.model}`;
+
+const claudeFallback = (feature: AiFeature): Route => ({
+  vendor: "anthropic",
+  model: CLAUDE_FALLBACK[feature],
+});
 
 /**
- * The route for a feature. `AI_ROUTE_<FEATURE>` (e.g. `AI_ROUTE_TAILOR=openai:gpt-5-mini`)
- * overrides one feature; `AI_MODEL` puts every feature on one Claude model; otherwise the
- * defaults apply.
+ * The models a feature tries, in order. `AI_ROUTE_<FEATURE>` (e.g.
+ * `AI_ROUTE_TAILOR=openai:gpt-6-luna`) pins one feature and `AI_MODEL` puts every feature on one
+ * Claude model; otherwise the verified list applies, or the default until a check has run. The
+ * feature's Claude fallback comes last, except after a pinned Claude model.
  */
-export function routeFor(feature: AiFeature, env: NodeJS.ProcessEnv = process.env): Route {
+export function routeChain(
+  feature: AiFeature,
+  env: NodeJS.ProcessEnv = process.env,
+  verified: VerifiedRoutes = verifiedRoutes as VerifiedRoutes,
+): Route[] {
   const override = env[`AI_ROUTE_${feature.toUpperCase()}`];
-  const parsed = override ? parseRoute(override) : null;
-  if (parsed) return parsed;
-  if (env.AI_MODEL) return { vendor: "anthropic", model: env.AI_MODEL };
-  return DEFAULT_ROUTES[feature];
+  const pinned: Route | null =
+    (override ? parseRoute(override) : null) ??
+    (env.AI_MODEL ? { vendor: "anthropic", model: env.AI_MODEL } : null);
+  if (pinned?.vendor === "anthropic") return [pinned];
+
+  const listed = (verified[feature] ?? []).flatMap((entry) => parseRoute(entry) ?? []);
+  const preferred = pinned ? [pinned] : listed.length > 0 ? listed : [DEFAULT_ROUTES[feature]];
+  const chain = [...preferred, claudeFallback(feature)];
+  return [...new Map(chain.map((route) => [keyOf(route), route])).values()];
 }
 
-/** The route a feature takes: without OpenAI configured, its OpenAI route runs on Claude. */
-export function effectiveRoute(route: Route, feature: AiFeature, openai: boolean): Route {
-  return route.vendor === "openai" && !openai
-    ? { vendor: "anthropic", model: CLAUDE_FALLBACK[feature] }
-    : route;
+/** The model a feature uses first. */
+export function routeFor(feature: AiFeature, env: NodeJS.ProcessEnv = process.env): Route {
+  return routeChain(feature, env)[0]!;
 }
 
-/** The Claude model for a feature: its route's model, or its fallback when routed to OpenAI. */
+/** The routes whose vendor has a key; if none does, the feature's Claude fallback. */
+export function usableRoutes(chain: Route[], feature: AiFeature, vendors: Vendors): Route[] {
+  const usable = chain.filter((route) => route.vendor === "anthropic" || vendors[route.vendor]);
+  return usable.length > 0 ? usable : [claudeFallback(feature)];
+}
+
+/** The Claude model for a feature: its route's model, or its fallback when routed elsewhere. */
 export function claudeModelFor(route: Route, feature: AiFeature): string {
   return route.vendor === "anthropic" ? route.model : CLAUDE_FALLBACK[feature];
 }
 
-/** Errors that mean "try the same request on Claude": outages, limits, bad output, refusals. */
+/** Errors that mean "try the same request on another model": outages, limits, bad output, refusals. */
 function shouldFallBack(error: unknown): boolean {
   return error instanceof ExternalServiceError || error instanceof AiRefusalError;
 }
 
+function createProvider(route: Route): AiProvider {
+  if (route.vendor === "anthropic") return new AnthropicProvider(() => route.model);
+  return new OpenAIProvider(() => route.model, route.vendor === "meta" ? getMeta : getOpenAI);
+}
+
+/** How long auto mode puts off using a model after its API fails. */
+const REST_MS = 60_000;
+
 /**
- * Sends each feature to its routed model, Claude or OpenAI. When an OpenAI call fails, the same
- * request runs on the feature's Claude fallback, so users see a result rather than an error.
+ * Auto mode: each feature runs on the first model in its chain. When a call fails, the same
+ * request goes to the next, so users see a result rather than an error. A model whose API is
+ * unavailable is rested for a minute: it's tried only after the others.
  */
 export class RoutedProvider implements AiProvider {
   readonly name = "routed" as const;
-  private readonly anthropic: AnthropicProvider;
-  private readonly openai: OpenAIProvider | null;
+  private readonly vendors: Vendors;
+  private readonly create: (route: Route) => AiProvider;
+  private readonly now: () => number;
+  private readonly providers = new Map<string, AiProvider>();
+  private readonly restingUntil = new Map<string, number>();
 
   constructor(
-    private readonly routes: (feature: AiFeature) => Route = (feature) => routeFor(feature),
+    private readonly chain: (feature: AiFeature) => Route[] = (feature) => routeChain(feature),
     options: {
-      openai?: boolean;
-      anthropic?: AnthropicProvider;
-      openaiProvider?: OpenAIProvider;
+      vendors?: Vendors;
+      providerFor?: (route: Route) => AiProvider;
+      now?: () => number;
     } = {},
   ) {
-    this.anthropic =
-      options.anthropic ??
-      new AnthropicProvider((feature) => claudeModelFor(this.routes(feature), feature));
-    this.openai =
-      options.openaiProvider ??
-      (options.openai ? new OpenAIProvider((feature) => this.routes(feature).model) : null);
+    this.vendors = options.vendors ?? {};
+    this.create = options.providerFor ?? createProvider;
+    this.now = options.now ?? Date.now;
   }
 
-  private route(feature: AiFeature): Route {
-    return effectiveRoute(this.routes(feature), feature, Boolean(this.openai));
+  /** The feature's usable routes in the order to try them: resting models go last. */
+  private order(feature: AiFeature): Route[] {
+    const routes = usableRoutes(this.chain(feature), feature, this.vendors);
+    const resting = (route: Route) => (this.restingUntil.get(keyOf(route)) ?? 0) > this.now();
+    return [...routes.filter((route) => !resting(route)), ...routes.filter(resting)];
+  }
+
+  private provider(route: Route): AiProvider {
+    let provider = this.providers.get(keyOf(route));
+    if (!provider) {
+      provider = this.create(route);
+      this.providers.set(keyOf(route), provider);
+    }
+    return provider;
+  }
+
+  private rest(route: Route): void {
+    this.restingUntil.set(keyOf(route), this.now() + REST_MS);
   }
 
   modelFor(feature: AiFeature): string {
-    return this.route(feature).model;
+    return this.order(feature)[0]!.model;
   }
 
-  private async call<R>(feature: AiFeature, run: (provider: AiProvider) => Promise<R>): Promise<R> {
-    if (this.route(feature).vendor === "anthropic") return run(this.anthropic);
-    try {
-      return await run(this.openai!);
-    } catch (error) {
-      if (!shouldFallBack(error)) throw error;
-      log.warn({ feature, err: error }, "OpenAI route failed; retrying on Claude");
-      return run(this.anthropic);
+  private async call<R>(
+    feature: AiFeature,
+    ctx: AiCallContext,
+    run: (provider: AiProvider) => Promise<R>,
+  ): Promise<R> {
+    const routes = this.order(feature);
+    for (let index = 0; ; index += 1) {
+      const route = routes[index]!;
+      try {
+        return await run(this.provider(route));
+      } catch (error) {
+        if (error instanceof ModelUnavailableError) this.rest(route);
+        const last = index === routes.length - 1;
+        if (last || ctx.signal?.aborted || !shouldFallBack(error)) throw error;
+        log.warn(
+          { feature, model: route.model, err: error },
+          "AI model failed; trying the next one",
+        );
+      }
     }
   }
 
   importResume(...[source, ctx]: Parameters<AiProvider["importResume"]>) {
-    return this.call("import", (provider) => provider.importResume(source, ctx));
+    return this.call("import", ctx, (provider) => provider.importResume(source, ctx));
   }
 
   generateResume(...[input, ctx]: Parameters<AiProvider["generateResume"]>) {
-    return this.call("generate", (provider) => provider.generateResume(input, ctx));
+    return this.call("generate", ctx, (provider) => provider.generateResume(input, ctx));
   }
 
   tailorResume(...[input, ctx]: Parameters<AiProvider["tailorResume"]>) {
-    return this.call("tailor", (provider) => provider.tailorResume(input, ctx));
+    return this.call("tailor", ctx, (provider) => provider.tailorResume(input, ctx));
   }
 
   analyzeFit(...[input, ctx]: Parameters<AiProvider["analyzeFit"]>) {
-    return this.call("match", (provider) => provider.analyzeFit(input, ctx));
+    return this.call("match", ctx, (provider) => provider.analyzeFit(input, ctx));
   }
 
   writeCoverLetter(...[input, ctx]: Parameters<AiProvider["writeCoverLetter"]>) {
-    return this.call("cover_letter", (provider) => provider.writeCoverLetter(input, ctx));
+    return this.call("cover_letter", ctx, (provider) => provider.writeCoverLetter(input, ctx));
   }
 
   answerQuestions(...[input, ctx]: Parameters<AiProvider["answerQuestions"]>) {
-    return this.call("answers", (provider) => provider.answerQuestions(input, ctx));
+    return this.call("answers", ctx, (provider) => provider.answerQuestions(input, ctx));
   }
 
   draftOutreach(...[input, ctx]: Parameters<AiProvider["draftOutreach"]>) {
-    return this.call("outreach", (provider) => provider.draftOutreach(input, ctx));
+    return this.call("outreach", ctx, (provider) => provider.draftOutreach(input, ctx));
   }
 
   prepareInterview(...[input, ctx]: Parameters<AiProvider["prepareInterview"]>) {
-    return this.call("interview", (provider) => provider.prepareInterview(input, ctx));
+    return this.call("interview", ctx, (provider) => provider.prepareInterview(input, ctx));
   }
 
   async *studioChat(
     input: Parameters<AiProvider["studioChat"]>[0],
     ctx: AiCallContext,
   ): AsyncGenerator<StudioEvent> {
-    if (this.route("studio").vendor === "anthropic") {
-      yield* this.anthropic.studioChat(input, ctx);
-      return;
-    }
-    // Fall back to Claude only if OpenAI fails before anything reached the user.
-    let started = false;
-    for await (const event of this.openai!.studioChat(input, ctx)) {
-      if (event.type === "error" && !started && !ctx.signal?.aborted) {
-        log.warn({ message: event.message }, "OpenAI studio turn failed; retrying on Claude");
-        yield* this.anthropic.studioChat(input, ctx);
-        return;
+    const routes = this.order("studio");
+    for (const [index, route] of routes.entries()) {
+      // Move on only if a turn fails before anything reached the user.
+      let started = false;
+      let moveOn = false;
+      for await (const event of this.provider(route).studioChat(input, ctx)) {
+        if (event.type !== "error") {
+          started = true;
+          yield event;
+          continue;
+        }
+        if (event.unavailable) this.rest(route);
+        if (!started && index < routes.length - 1 && !ctx.signal?.aborted) {
+          log.warn(
+            { model: route.model, message: event.message },
+            "AI studio turn failed; trying the next model",
+          );
+          moveOn = true;
+          break;
+        }
+        yield { type: "error", message: event.message };
       }
-      started = true;
-      yield event;
+      if (!moveOn) return;
     }
   }
 }

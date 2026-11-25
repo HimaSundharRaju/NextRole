@@ -23,6 +23,7 @@ export const WEB_ENV_KEYS = [
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_BASE_URL",
   "OPENAI_API_KEY",
+  "META_API_KEY",
   "SMTP_URL",
   "EMAIL_FROM",
 ] as const;
@@ -46,6 +47,7 @@ export const JOBS_ENV_KEYS = [
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_BASE_URL",
   "OPENAI_API_KEY",
+  "META_API_KEY",
   // Job feeds, each read when its keys are set.
   "USAJOBS_API_KEY",
   "USAJOBS_EMAIL",

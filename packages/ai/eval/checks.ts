@@ -94,6 +94,21 @@ export function checkTailor(source: Resume, result: TailorResult): string[] {
   return failures;
 }
 
+/**
+ * How many of the job's skills that the candidate has a tailored resume keeps. A model that
+ * drops them is worse even when it fails no check.
+ */
+export function keptJobSkills(
+  source: Resume,
+  job: Pick<JobContext, "description">,
+  output: Resume,
+): number {
+  const has = new Set(findSkills(resumeToPlainText(source)));
+  const kept = new Set(findSkills(resumeToPlainText(output)));
+  const asked = new Set(findSkills(job.description));
+  return [...asked].filter((skill) => has.has(skill) && kept.has(skill)).length;
+}
+
 function words(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
