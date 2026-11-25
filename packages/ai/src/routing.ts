@@ -25,8 +25,9 @@ export const DEFAULT_ROUTES: Record<AiFeature, Route> = {
   import: { vendor: "openai", model: "gpt-4o-mini" },
   // GPT-4o mini gave verdicts that contradicted its own score; Luna passed every check.
   match: { vendor: "openai", model: "gpt-6-luna" },
-  // Added no skills the resume doesn't show, where the reference did, at under 1/10 of the cost.
-  tailor: { vendor: "anthropic", model: "claude-haiku-5-5" },
+  // Across 25 profiles, claude-haiku-5-5 failed more fact checks than the reference, and once
+  // claimed experience the resume doesn't show.
+  tailor: { vendor: "anthropic", model: REFERENCE_MODEL },
   // Both judges still preferred the reference's cover letters.
   cover_letter: { vendor: "anthropic", model: REFERENCE_MODEL },
   // The same price as the reference, and both judges preferred its answers.

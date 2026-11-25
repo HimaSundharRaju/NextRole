@@ -11,6 +11,8 @@
  *          --own-only yes (only the items built from your own resume; give --judge-items 10 or more
  *                          to judge all of them)
  *          --spot-check yes (also compare Opus 5.5 with Sonnet 5 on tailoring)
+ *          --only tailor:haiku-5.5,match:gpt-6-luna (compare just these candidates with the
+ *                          reference on those features, e.g. to retest the routed models)
  * Sonnet 5.5, priced like the reference, is compared on every writing feature.
  * Every model and judge result is cached under packages/ai/eval/results/, so a rerun only pays
  * for what's missing. Results that failed on an API error (out of credit, overloaded) are retried
@@ -24,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import type { Resume } from "@gettargetrole/resume/schema";
 import { resumeToPlainText } from "@gettargetrole/resume/text";
 import { AnthropicProvider } from "../src/anthropic-provider";
+import { profileBlock } from "../src/context";
 import { OpenAIProvider } from "../src/openai-provider";
 import type {
   ApplicationAnswers,
@@ -71,6 +74,12 @@ const ITEM_LIMIT = Number(args.get("items") ?? Number.POSITIVE_INFINITY);
 const NO_SPEND = args.has("no-spend");
 const OWN_ONLY = args.has("own-only");
 const SPOT = args.has("spot-check");
+const ONLY = new Map<string, string[]>();
+for (const entry of (args.get("only") ?? "").split(",").filter(Boolean)) {
+  const [feature, candidate] = entry.split(":") as [string, string | undefined];
+  if (!candidate) throw new Error(`--only takes feature:candidate, not "${entry}"`);
+  ONLY.set(feature, [...(ONLY.get(feature) ?? []), candidate]);
+}
 const RESULTS = new URL("./results/", import.meta.url);
 
 interface Candidate {
@@ -125,6 +134,8 @@ interface Item {
   id: string;
   task: string;
   resume: string;
+  /** The candidate profile the model was given, which the judges need to check claims. */
+  profile?: string;
   job: string;
   run: (ai: AiProvider, ctx: AiCallContext) => Promise<unknown>;
   check: (output: unknown) => string[];
@@ -211,6 +222,9 @@ function providerFor(candidate: Candidate): AiProvider {
 const text = (resume: Resume) => resumeToPlainText(resume);
 const bullets = (items: string[]) => items.map((item) => `- ${item}`).join("\n");
 
+/** Features whose requests include the candidate's profile (src/requests.ts). */
+const PROFILE_FEATURES = new Set(["cover_letter", "answers", "outreach", "match"]);
+
 function pairItems<T>(
   feature: string,
   task: string,
@@ -223,7 +237,8 @@ function pairItems<T>(
     id: `${pair.persona.id}__${pair.job.key}`,
     task,
     resume: text(pair.persona.resume),
-    job: `${pair.job.title} at ${pair.job.company}\n\n${pair.job.description}`,
+    profile: PROFILE_FEATURES.has(feature) ? profileBlock(pair.persona.profile) : undefined,
+    job: `${pair.job.title} at ${pair.job.company}\nLocation: ${pair.job.location || "Not stated"}\n\n${pair.job.description}`,
     run: (ai, ctx) => run(pair, ai, ctx),
     check: (output) => check(pair, output as T),
     render: (output) => render(output as T),
@@ -358,6 +373,7 @@ function studioItem(
     own: persona.own === true,
     task: rest.task,
     resume: text(persona.resume),
+    profile: profileBlock(persona.profile),
     job: rest.job,
     run: async (ai, ctx) => {
       let reply = "";
@@ -457,6 +473,7 @@ async function compare(
       const result = await judge(id, {
         task: item.task,
         resume: item.resume,
+        profile: item.profile,
         job: item.job,
         candidate: item.render(mine.output),
         reference: item.render(reference.output),
@@ -567,6 +584,16 @@ async function runFeature(feature: string, items: Item[]): Promise<Row[]> {
 
   const rows = [await rowFor(REFERENCE_CANDIDATE)];
   const current = CURRENT_ROUTE[feature];
+  const only = ONLY.get(feature);
+  if (only) {
+    const known = [current, ...TIERS.flat(), UPGRADE];
+    for (const id of only) {
+      const candidate = known.find((entry) => entry?.id === id);
+      if (!candidate) throw new Error(`--only: no candidate "${id}" for ${feature}`);
+      rows.push(await rowFor(candidate));
+    }
+    return rows;
+  }
   if (current) rows.push(await rowFor(current));
   for (const tier of TIERS) {
     rows.push(...(await Promise.all(tier.map((candidate) => rowFor(candidate)))));
@@ -654,6 +681,10 @@ const allItems = await buildItems();
 const features = (args.get("features") ?? Object.keys(allItems).join(",")).split(",") as Array<
   keyof typeof allItems
 >;
+// A mistyped feature would silently run every candidate on it, which costs money.
+for (const feature of ONLY.keys()) {
+  if (!features.includes(feature as never)) throw new Error(`--only: ${feature} is not being run`);
+}
 const results: Record<string, Row[]> = {};
 let spot: Awaited<ReturnType<typeof spotCheck>> | null = null;
 try {

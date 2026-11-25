@@ -420,11 +420,11 @@ describe("routing", () => {
   it("runs each feature on the cheapest model that passed the quality check", () => {
     const route = (feature: AiFeature) =>
       `${DEFAULT_ROUTES[feature].vendor}:${DEFAULT_ROUTES[feature].model}`;
-    expect(route("tailor")).toBe("anthropic:claude-haiku-5-5");
     expect(route("outreach")).toBe("anthropic:claude-haiku-5-5");
     expect(route("answers")).toBe("anthropic:claude-sonnet-5-5");
     expect(route("match")).toBe("openai:gpt-6-luna");
     // No other model matched the current one on these.
+    expect(route("tailor")).toBe("anthropic:claude-sonnet-5");
     expect(route("cover_letter")).toBe("anthropic:claude-sonnet-5");
     expect(route("studio")).toBe("anthropic:claude-sonnet-5");
     expect(route("import")).toBe("openai:gpt-4o-mini");
