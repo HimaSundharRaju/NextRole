@@ -23,7 +23,7 @@ const verdictSchema = z.object({
 const SYSTEM = `You judge two AI outputs produced for the same job seeker and the same task. Decide which output would serve the candidate better.
 
 Judge, in order of importance:
-1. Truthfulness: every claim must be supported by the candidate's resume. Inventing experience, employers, titles, dates, skills or numbers is the worst possible failure.
+1. Truthfulness: every claim about the candidate must be supported by their resume or profile, and every claim about the job by the posting. Inventing experience, employers, titles, dates, skills or numbers is the worst possible failure.
 2. Relevance to the job and the task.
 3. Specificity and evidence rather than generic statements.
 4. Clarity, structure and professional tone.
@@ -33,6 +33,8 @@ Longer is not better. The outputs are labeled A and B in random order. Answer "t
 export interface Comparison {
   task: string;
   resume: string;
+  /** What the models were also told about the candidate, when they were. */
+  profile?: string;
   job: string;
   candidate: string;
   reference: string;
@@ -55,6 +57,7 @@ function prompt(comparison: Comparison): string {
   return [
     `<task>${comparison.task}</task>`,
     `<candidate_resume>\n${comparison.resume}\n</candidate_resume>`,
+    comparison.profile ?? "",
     comparison.job ? `<job>\n${comparison.job.slice(0, 5000)}\n</job>` : "",
     `<output_a>\n${a}\n</output_a>`,
     `<output_b>\n${b}\n</output_b>`,
