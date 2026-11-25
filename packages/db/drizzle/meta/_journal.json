@@ -85,6 +85,13 @@
       "when": 1790809422665,
       "tag": "0011_concierge_board",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794183874705,
+      "tag": "0012_customer_care",
+      "breakpoints": true
     }
   ]
 }

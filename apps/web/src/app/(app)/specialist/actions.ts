@@ -1,12 +1,15 @@
 "use server";
 
+import { NotFoundError } from "@gettargetrole/core/errors";
 import { createLogger } from "@gettargetrole/core/logger";
 import { sendEmail } from "@gettargetrole/core/mailer";
 import {
+  activeSpecialistId,
   addStaffNote,
   APPLICATION_STATUSES,
   askClient,
   confirmInboxAccess,
+  createCase,
   getDb,
   notifications,
   proposeExternal,
@@ -18,6 +21,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { withConcierge } from "@/lib/concierge-errors";
+import { withSupport } from "@/lib/support-errors";
 import { authedAction } from "@/server/action";
 import { recordAudit } from "@/server/audit";
 import { assertCanActForClient } from "@/server/concierge";
@@ -265,6 +269,56 @@ export const saveClientAnswerBank = authedAction(
       targetId: clientId,
     });
     refreshClient(clientId);
+    return null;
+  },
+  specialistRoles,
+);
+
+/**
+ * Hands a client's problem to customer care. It opens an escalation that care sees and the client
+ * doesn't: nothing is emailed until an agent writes to them.
+ */
+export const escalateClient = authedAction(
+  z.object({
+    clientId: z.string().min(1),
+    note: z
+      .string()
+      .trim()
+      .min(10, "Say what's wrong, in a sentence or two")
+      .max(2000, "That's too long: keep it under 2,000 characters"),
+  }),
+  async ({ clientId, note }, user) => {
+    await assertAssigned(user, clientId);
+    const db = getDb();
+    const client = await clientEmail(clientId);
+    if (!client) throw new NotFoundError("Client");
+    const notice = await withSupport(async () =>
+      createCase(db, {
+        kind: "escalation",
+        source: "specialist",
+        topic: "concierge",
+        subject: `Escalation from ${user.name}`,
+        body: note,
+        userId: clientId,
+        contactName: client.name,
+        contactEmail: client.email,
+        raisedByUserId: user.id,
+        specialistId: user.role === "specialist" ? user.id : await activeSpecialistId(db, clientId),
+        verified: false,
+        visibility: "internal",
+        authorKind: "agent",
+        authorUserId: user.id,
+      }),
+    );
+    await recordAudit({
+      actorUserId: user.id,
+      action: "specialist.case.escalate",
+      targetType: "support_case",
+      targetId: notice.caseId,
+      metadata: { clientId },
+    });
+    refreshClient(clientId);
+    revalidatePath("/care");
     return null;
   },
   specialistRoles,

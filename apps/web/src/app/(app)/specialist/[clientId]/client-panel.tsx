@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { StatusOptions } from "@/components/applications/status-options";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Input, Label, Select, Textarea } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -13,6 +14,7 @@ import {
   addStaffNoteToApplication,
   askClientQuestion,
   confirmClientInbox,
+  escalateClient,
   moveClientApplication,
   proposeJobsToClient,
   saveClientAnswerBank,
@@ -414,5 +416,64 @@ export function StaffNoteForm({
         Add note
       </Button>
     </div>
+  );
+}
+
+/** "Escalate to care": a note for customer care about a client; the client isn't told. */
+export function EscalateForm({ clientId }: { clientId: string }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [pending, startTransition] = useTransition();
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <>
+      <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
+        Escalate to care
+      </Button>
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Escalate to customer care"
+        description="Tell them what's wrong. The client isn't told unless care writes to them."
+      >
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            startTransition(async () => {
+              const result = await escalateClient({ clientId, note });
+              if (!result.ok) {
+                setError(result.fieldErrors?.note ?? result.error);
+                return;
+              }
+              setError(null);
+              setNote("");
+              setOpen(false);
+              toast.success("Sent to customer care.");
+              router.refresh();
+            });
+          }}
+        >
+          <Textarea
+            aria-label="What should customer care know?"
+            rows={5}
+            maxLength={2000}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+          {error ? <p className="text-xs text-danger">{error}</p> : null}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={pending} disabled={note.trim().length < 10}>
+              Send to care
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+    </>
   );
 }

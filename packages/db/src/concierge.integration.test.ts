@@ -77,6 +77,16 @@ describe.skipIf(!TEST_DATABASE_URL)("concierge (Postgres integration)", () => {
     });
 
   describe("proposals", () => {
+    it("won't propose a hidden job", async () => {
+      await db
+        .getDb()
+        .update(db.jobs)
+        .set({ hiddenAt: new Date() })
+        .where(drizzle.eq(db.jobs.id, jobIds[0]!));
+      const result = await propose([jobIds[0]!]);
+      expect(result).toMatchObject({ created: [], unavailable: [jobIds[0]] });
+    });
+
     it("proposes each job once and leaves jobs the client already has alone", async () => {
       const first = await propose([jobIds[0]!, jobIds[1]!], { note: "Strong fit" });
       expect(first.created).toHaveLength(2);

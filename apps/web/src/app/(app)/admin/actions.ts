@@ -8,7 +8,6 @@ import {
   getDb,
   PLANS,
   ROLES,
-  sessions,
   setWeeklyTarget,
   slugify,
   specialistAssignments,
@@ -23,6 +22,7 @@ import { z } from "zod";
 import { withConcierge } from "@/lib/concierge-errors";
 import { authedAction } from "@/server/action";
 import { recordAudit } from "@/server/audit";
+import { applyBan } from "@/server/data/admin";
 import { enqueueCompanyRequests, enqueueCompanySync } from "@/server/queue";
 
 const adminOnly = { roles: ["admin" as const] };
@@ -204,13 +204,7 @@ export const setUserBanned = authedAction(
   }),
   async ({ userId, banned, reason }, user) => {
     if (userId === user.id) throw new ValidationError("You can't ban yourself.");
-    const db = getDb();
-    await db
-      .update(users)
-      .set({ banned, banReason: banned ? (reason ?? "Violation of terms") : null })
-      .where(eq(users.id, userId));
-    // Banning takes effect immediately: revoke every active session.
-    if (banned) await db.delete(sessions).where(eq(sessions.userId, userId));
+    await applyBan(userId, banned, reason);
     await recordAudit({
       actorUserId: user.id,
       action: banned ? "admin.user.ban" : "admin.user.unban",

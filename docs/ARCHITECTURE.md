@@ -67,7 +67,11 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    add the fields the job-board filters use, without AI calls: countries and states
    (`locations.ts`, from board-supplied addresses or the location text), employment types
    including explicit W-2, C2C and 1099 arrangements (`employment.ts`), and what the post says
-   about visa sponsorship and citizenship or clearance (`visa.ts`, explicit statements only).
+   about visa sponsorship and citizenship or clearance (`visa.ts`, explicit statements only,
+   read a sentence at a time: a refusal, an offer, or a restriction to citizens, permanent
+   residents and other U.S. persons; a post that says both stays unknown, and so does an offer
+   in a post that also restricts the role to U.S. persons). `explainVisaSignals` returns the
+   sentence behind each label; nothing stores it yet.
 4. **Upsert.** Jobs are upserted on `(company, external id)`. A content hash means an unchanged
    posting only updates `last_seen_at`, and a stored posting whose details come from a second
    request is only marked as still open. Jobs that disappear from a board are closed, but only
@@ -87,8 +91,11 @@ Schema changes are made in `packages/db/src/schema` and turned into a SQL migrat
    word (or whose number isn't in its quote) is dropped. The board's data and the parsers win;
    enrichment only fills what they left unknown, and keeps its additions until the post
    changes. The job board filters on required years, and the match score uses the post's level
-   and years instead of guessing from the title. Feeds that share only a snippet of each post
-   (Adzuna) aren't enriched or auto-prepared: there's too little to go on.
+   and years instead of guessing from the title; until a post is enriched, both fall back to
+   the level its title implies (`seniority.ts`: Intern, New Grad, Senior, Staff, Principal,
+   Director and the like; `years-filter.ts` is the SQL twin for the filter). Feeds that share
+   only a snippet of each post (Adzuna) aren't enriched or auto-prepared: there's too little to
+   go on.
 6. **Score ghost jobs.** Each sync scores the company's open jobs for signs that no one is being
    hired (`ghosts.ts`, below), and a job listed past its closing date (USAJOBS gives one) is
    closed rather than reopened.
@@ -159,9 +166,13 @@ and the request records what happened, which the user and admins can see.
 
 Matching (`packages/jobs/src/match.ts`) is deterministic and costs nothing to run, so the whole
 feed can be ranked. The score is skill overlap (50%), title similarity to the target roles (30%)
-and location fit (20%). It is reduced for a seniority mismatch or pay below the salary floor, and
-each score comes with the reasons behind it. The AI's deeper fit analysis runs only when a
-candidate asks for it on a single job.
+and location fit (20%). A job that lists fewer than four skills can't earn full skill credit
+(its share is blended toward the neutral 50%), and a title that shares only a job noun such as
+"Engineer" with the target roles keeps a quarter of its title credit unless three or more of
+the job's skills match. The score is reduced for a seniority mismatch (a mid-level candidate
+loses 6 points for a Senior role, 15 for Staff, 20 for Principal and above, 25 for an
+internship) or pay below the salary floor, and each score comes with the reasons behind it.
+The AI's deeper fit analysis runs only when a candidate asks for it on a single job.
 
 ## Applying
 
@@ -230,6 +241,44 @@ Specialists apply for Concierge clients; the design is in
 - **Jobs.** The worker expires proposals left for 7 days (03:30 UTC) and emails a daily digest
   of new proposals (14:00 UTC).
 
+## Customer care board
+
+A support team works from `/care`; the design is in
+`docs/superpowers/specs/2026-11-08-customer-care-board-design.md`.
+
+- **Cases.** A help request or a Concierge escalation is a case: `support_cases` and its
+  `support_messages`, each message public or internal. `packages/db/src/support/` holds the
+  rules, the case operations, the board's queries, account help, the job-report and
+  company-request queues, and the Monday check. `canMoveCase` decides who may move a case:
+  agents reply, solve and reopen; the requester's answer reopens it, within 14 days once it is
+  solved; only the system solves a case by itself. Every update checks the current state, so a
+  stale action fails with "This changed — refresh".
+- **Private links.** Each email to a requester carries a link of its own. Only its hash is
+  stored, in `support_case_links`, one row per email; the link works signed out, shows only the
+  public thread, never signs anyone in, and stops 14 days after the case is solved. A signed-out
+  request linked to an account stays unverified until the requester confirms it from the link.
+  Deleting an account takes an open, verified "My data" request about that account, and the
+  agent typing the account's email to confirm.
+- **Signed-out requests.** `publicAction` (`apps/web/src/server/action.ts`) is
+  `authedAction` without the session check. Visitors are rate limited by address, taken by
+  `clientIp` from the right-hand end of `X-Forwarded-For`, so `TRUSTED_PROXIES` decides which
+  hops count as ours; signed-in users are limited per account.
+- **Who may act.** Support agents act only on regular user accounts, admins on anyone else, and
+  nobody on their own account. Only admins change roles. Every staff action is audited as
+  `care.*`.
+- **Data export links.** An agent can email a user a single-use link, valid for 24 hours, that
+  downloads their data without signing in. Opening the link only shows a page; the button posts
+  to the download route, which uses it up, so a mail scanner can't waste it. Internal notes are
+  never emailed, shown to the user or exported.
+- **Hidden jobs.** Customer care can hide a reported job with `jobs.hidden_at`. Search, top
+  matches, alerts, auto-prepare and Concierge proposals skip it, and a sync never clears it
+  because the ingest upsert lists its columns one by one. Keeping a job marks its reports
+  reviewed so they stop adding ghost points, and "wrong details" reports never add any.
+- **Jobs.** The worker solves cases left waiting on the user for 7 days every hour, and on
+  Mondays at 06:00 UTC opens an escalation for each Concierge client who missed last week's
+  target (or adds the miss to the one already open). `concierge_week_checks` makes a second run
+  for the same week do nothing.
+
 ## AI integration
 
 All AI features go through the `AiProvider` interface in `packages/ai`: resume import and
@@ -250,8 +299,8 @@ prep and the Studio chat.
 - **Model and reasoning.** Claude models run with adaptive thinking at a per-feature effort:
   `high` for writing judged on quality (generation, tailoring), `medium` for interactive and
   extraction work. Older models such as `claude-haiku-4-5` support neither, so requests to them
-  leave both out. OpenAI reasoning models (GPT-5 family) get a per-feature reasoning effort;
-  GPT-4.x models take none.
+  leave both out. OpenAI reasoning models (GPT-5 and GPT-6 families) get a per-feature reasoning
+  effort (`none` where a GPT-6 model rejects `minimal`); GPT-4.x models take none.
 - **OpenAI specifics.** Responses aren't stored on OpenAI's side (`store: false`), since resumes
   are personal data. A hash of the user id is sent as `prompt_cache_key`, which raises cache hits
   on the user's resume prefix without revealing the account. Results come back as strict
@@ -269,9 +318,9 @@ prep and the Studio chat.
   input is validated against the resume schema before it is applied, and each applied edit is
   saved as a revision the user can restore.
 - **Refusal fallbacks.** On models whose safety classifiers can decline a request
-  (`claude-opus-5`, `claude-opus-5-5`, `claude-fable-5` and `claude-fable-5-1`), requests opt into
-  server-side fallbacks, so a declined request is retried by the API on a fallback model rather
-  than failing.
+  (`claude-opus-5`, `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5` and
+  `claude-fable-5-1`), requests opt into server-side fallbacks, so a declined request is retried by
+  the API on a fallback model rather than failing. `claude-haiku-5-5` has no server-side fallback.
 - **Token economy.** Per-job requests send the user's resume and profile first with a cache
   breakpoint, then the job, so the next job's request reads them from the prompt cache; the
   Studio caches earlier turns the same way. These per-user entries live for five minutes.
@@ -303,7 +352,7 @@ prep and the Studio chat.
   row in `usage_events` only when a new result is saved, so reused results and failed calls are
   free. The spend cap is about 1.35–1.5× the measured cost of using every allowance
   (`UNIT_COST_USD` and `fullUseCostUsd` in `plans.ts`, which a test keeps in step with the caps),
-  so it only stops outliers: Free $0.30, Plus $6, Pro $15 and Concierge $95 a month. The
+  so it only stops outliers: Free $0.30, Plus $5, Pro $12 and Concierge $66 a month. The
   dashboard, settings and each AI button show what's left this month. Batched calls are recorded
   at the batch price and flagged (`ai_usage.batch`).
 - **Testing.** `AI_PROVIDER=mock` swaps in a deterministic provider for local development and the
@@ -318,20 +367,27 @@ failures that matter most on a resume: changed or invented employers, titles, da
 education; technical skills the resume doesn't show; invented numbers; and hard limits such as a
 LinkedIn note over 300 characters. Two judges from different vendors (Claude Sonnet 5 and
 GPT-5-mini) then compare each candidate with the reference, Claude Sonnet 5, blind and in random
-order. A feature moves to a cheaper model only when that model fails no more checks than the
+order. A feature moves to another model only when that model fails no more checks than the
 reference, wins or ties at least half the comparisons with both judges, and answers in under 30
 seconds on average.
 
-Results from September 2026:
+Results from September 2026 (the synthetic pairs) and November 2026. The November run compared
+`claude-sonnet-5-5`, `claude-haiku-5-5` and `gpt-6-luna` on one real resume against 5 target jobs
+(kept out of git): 5 tailorings, cover letters, answer sets, outreach drafts and fit analyses, 1
+import and 7 Studio requests. The synthetic pairs haven't been run on those three models. Judge
+results below count both judges together; costs are per request.
 
-| Feature                                | Route             | Evidence                                                                                                                                                                                                                                                                      |
-| -------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Resume import                          | `gpt-4o-mini`     | Tied the reference on all 8 imports with both judges; $0.0005 against $0.015                                                                                                                                                                                                  |
-| Fit analysis                           | `gpt-4o-mini`     | Won or tied 7 of 8 comparisons (Claude judge) and 6 of 8 (GPT judge); $0.0004 against $0.012                                                                                                                                                                                  |
-| Tailoring                              | `claude-sonnet-5` | Cheaper models added technical skills the candidate doesn't have far more often: Sonnet 5 was clean on 15 of 20, Haiku 4.5 on 6, the GPT models on 0–2                                                                                                                        |
-| Cover letters, answers, interview prep | `claude-sonnet-5` | Both judges preferred Claude; the GPT models won or tied 0–38% of comparisons                                                                                                                                                                                                 |
-| Outreach, Studio, generation           | `claude-sonnet-5` | Not judged yet, so they run on the reference                                                                                                                                                                                                                                  |
-| Job enrichment                         | `gpt-4o-mini`     | On 50 real posts it kept the most facts (3.3 a post against 2.1 for GPT-4.1), every quote-checked fact matched GPT-4.1, and 9 of 11 levels fell in the same junior/mid/senior band; $0.0002 a post in batches. GPT-5-nano costs a third as much but found a third fewer facts |
+| Feature                       | Route               | Evidence                                                                                                                                                                                                                                                                      |
+| ----------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resume import                 | `gpt-4o-mini`       | September: tied the reference on all 8 imports with both judges; $0.0005 against $0.015                                                                                                                                                                                       |
+| Fit analysis                  | `gpt-6-luna`        | November: passed all 5 checks where `gpt-4o-mini` passed 3 (verdicts that contradicted the score); 7 wins, 1 tie, 2 losses against the reference; $0.0005 against $0.016                                                                                                      |
+| Tailoring                     | `claude-haiku-5-5`  | November: added no unlisted skills in 5 of 5, where the reference did in 2; 5 wins, 3 ties, 2 losses; $0.0016 against $0.028. In September, Haiku 4.5 and the GPT models added unlisted skills far more often than the reference                                              |
+| Application answers           | `claude-sonnet-5-5` | November: 8 wins, 1 tie, 1 loss, at the reference's price                                                                                                                                                                                                                     |
+| Outreach                      | `claude-haiku-5-5`  | November: passed all checks; 7 wins, 3 losses; $0.0015 against $0.014                                                                                                                                                                                                         |
+| Cover letters, interview prep | `claude-sonnet-5`   | Both judges preferred it for letters in September and November; interview prep last judged in September                                                                                                                                                                       |
+| Studio                        | `claude-sonnet-5`   | November: `claude-haiku-5-5` passed more checks (6 of 7 against 5) but lost all 4 tailoring comparisons; `claude-sonnet-5-5` once returned an edit that failed validation                                                                                                     |
+| Generation                    | `claude-sonnet-5`   | Not judged yet, so it runs on the reference                                                                                                                                                                                                                                   |
+| Job enrichment                | `gpt-4o-mini`       | On 50 real posts it kept the most facts (3.3 a post against 2.1 for GPT-4.1), every quote-checked fact matched GPT-4.1, and 9 of 11 levels fell in the same junior/mid/senior band; $0.0002 a post in batches. GPT-5-nano costs a third as much but found a third fewer facts |
 
 Job enrichment has its own check (`eval/enrich.mts`): each model reads the same real posts,
 the quote check runs on every answer, and the facts that survive are compared with GPT-4.1's.
@@ -339,8 +395,9 @@ the quote check runs on every answer, and the facts that survive are compared wi
 Run it with
 `NODE_USE_ENV_PROXY=1 node --env-file=../../.env --import tsx eval/run.mts` from `packages/ai`
 (it needs both API keys). Results are cached under `eval/results/`, so a rerun only pays for what's
-missing, and `--budget` stops the run before it spends more; `--no-spend yes` rebuilds the report
-from the cache.
+missing, `--budget-anthropic` and `--budget-openai` stop the run before it spends more, and
+`--no-spend yes` rebuilds the report from the cache. To check on your own resume, put it in
+`eval/fixtures/private/` (gitignored) and add `--own-only yes`.
 
 Resume import accepts PDFs, which are sent to the model as document blocks; Word files, which are
 converted to text with mammoth; and pasted text. The model extracts a structured resume (see

@@ -310,6 +310,7 @@ const REQUEST_STATUS = {
   added: { label: "Added", tone: "success" },
   tracked: { label: "Already tracked", tone: "primary" },
   not_found: { label: "No board found", tone: "warning" },
+  declined: { label: "Declined", tone: "danger" },
 } as const;
 
 async function Companies() {

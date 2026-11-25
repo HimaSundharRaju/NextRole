@@ -26,3 +26,4 @@ export { findTailoredResume, resumeHash, saveTailoredResume, type TailorTarget }
 export { monthlyUnits, monthlyUsage, recordUsageEvent, type MonthlyUsage } from "./usage";
 
 export * from "./concierge";
+export * from "./support";

@@ -41,6 +41,7 @@ function openJobs(jobIds: string[], db: Database) {
       and(
         inArray(jobs.id, jobIds),
         isNull(jobs.closedAt),
+        isNull(jobs.hiddenAt),
         isNull(jobs.duplicateOf),
         lt(jobs.ghostScore, LIKELY_GHOST_SCORE),
       ),
