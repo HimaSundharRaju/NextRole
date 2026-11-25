@@ -39,9 +39,19 @@ export function getOpenAI(): OpenAI {
   return client;
 }
 
-/** GPT-5 and o-series models reason and take an effort setting; GPT-4.x models reject it. */
+/** GPT-5, GPT-6 and o-series models reason and take an effort setting; GPT-4.x models reject it. */
 export function isReasoningModel(model: string): boolean {
-  return /^(?:gpt-5|o\d)/.test(model);
+  return /^(?:gpt-[56]|o\d)/.test(model);
+}
+
+/**
+ * The reasoning effort to send for a feature, or null on models that don't reason. GPT-6 models
+ * reject `minimal`, so they get `none`, the closest setting they take.
+ */
+export function reasoningEffortFor(model: string, feature: AiFeature): ReasoningEffort {
+  if (!isReasoningModel(model)) return null;
+  const effort = FEATURE_EFFORT[feature];
+  return effort === "minimal" && model.startsWith("gpt-6") ? "none" : effort;
 }
 
 /** Reasoning effort per feature on reasoning models: more for writing judged on quality. */
@@ -201,11 +211,12 @@ export class OpenAIProvider implements AiProvider {
   private options(feature: AiFeature, ctx: AiCallContext) {
     const model = this.modelFor(feature);
     const key = userKey(ctx.userId);
+    const effort = reasoningEffortFor(model, feature);
     return {
       model,
       // Resumes are personal data: don't keep responses on OpenAI's side.
       store: false,
-      ...(isReasoningModel(model) ? { reasoning: { effort: FEATURE_EFFORT[feature] } } : {}),
+      ...(effort ? { reasoning: { effort } } : {}),
       ...(key ? { prompt_cache_key: key, safety_identifier: key } : {}),
     };
   }

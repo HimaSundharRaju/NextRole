@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import { describe, expect, it } from "vitest";
 import { estimateCostMicroUsd, type AiFeature } from "./config";
 import { MockProvider } from "./mock-provider";
-import { OpenAIProvider } from "./openai-provider";
+import { OpenAIProvider, reasoningEffortFor } from "./openai-provider";
 import { TAILOR_SYSTEM } from "./prompts";
 import {
   CLAUDE_FALLBACK,
@@ -439,5 +439,22 @@ describe("OpenAI cost estimation", () => {
     expect(estimateCostMicroUsd("gpt-4o-mini-2024-07-18", tokens)).toBe(825_000);
     // gpt-5-mini: $0.25, $0.025, $2.
     expect(estimateCostMicroUsd("gpt-5-mini", tokens)).toBe(2_275_000);
+    // gpt-6-luna: $0.10, $0.01, $0.50; gpt-6.1-terra: $1, $0.05, $5.
+    expect(estimateCostMicroUsd("gpt-6-luna", tokens)).toBe(610_000);
+    expect(estimateCostMicroUsd("gpt-6.1-terra", tokens)).toBe(6_050_000);
+  });
+});
+
+describe("reasoning effort", () => {
+  it("sets effort on GPT-5, GPT-6 and o-series models, never on GPT-4.x", () => {
+    expect(reasoningEffortFor("gpt-5-mini", "match")).toBe("low");
+    expect(reasoningEffortFor("gpt-6-luna", "match")).toBe("low");
+    expect(reasoningEffortFor("gpt-6.1-terra", "tailor")).toBe("medium");
+    expect(reasoningEffortFor("gpt-4o-mini", "match")).toBeNull();
+  });
+
+  it("asks GPT-6 for no reasoning where GPT-5 takes minimal, which GPT-6 rejects", () => {
+    expect(reasoningEffortFor("gpt-5-nano", "enrich")).toBe("minimal");
+    expect(reasoningEffortFor("gpt-6-luna", "enrich")).toBe("none");
   });
 });

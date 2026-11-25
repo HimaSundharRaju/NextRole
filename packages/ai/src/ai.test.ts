@@ -116,6 +116,37 @@ describe("cost estimation", () => {
     ).toBe(6_000_000);
   });
 
+  it("prices Claude Sonnet 5.5 like Sonnet 5", () => {
+    const tokens = {
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    };
+    expect(estimateCostMicroUsd("claude-sonnet-5-5", tokens)).toBe(12_000_000);
+  });
+
+  it("prices Claude Haiku 5.5 at $0.10 / $0.50, and 5× once a prompt passes 100K tokens", () => {
+    const output = { outputTokens: 10_000, cacheReadTokens: 0, cacheWriteTokens: 0 };
+    // 50K in at $0.10 + 10K out at $0.50 per million.
+    expect(estimateCostMicroUsd("claude-haiku-5-5", { inputTokens: 50_000, ...output })).toBe(
+      10_000,
+    );
+    // A 150K-token prompt bills the whole request at $0.50 / $2.50.
+    expect(estimateCostMicroUsd("claude-haiku-5-5", { inputTokens: 150_000, ...output })).toBe(
+      100_000,
+    );
+    // Cached tokens count toward the prompt's size.
+    expect(
+      estimateCostMicroUsd("claude-haiku-5-5", {
+        inputTokens: 1_000,
+        outputTokens: 0,
+        cacheReadTokens: 100_000,
+        cacheWriteTokens: 0,
+      }),
+    ).toBe(5_500);
+  });
+
   it("prices 1-hour cache writes at 2× input and batches at half price", () => {
     const tokens = {
       inputTokens: 0,
@@ -137,14 +168,20 @@ describe("model capabilities", () => {
       refusalFallbacks: true,
       forcedToolChoice: true,
     });
-    for (const model of ["claude-opus-5-5", "claude-fable-5-1"]) {
+    for (const model of ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5"]) {
       expect(modelCapabilities(model)).toEqual({
         adaptiveThinking: true,
         refusalFallbacks: true,
         forcedToolChoice: false,
       });
     }
-    for (const model of ["claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-6"]) {
+    // Claude Haiku 5.5 has no server-side refusal fallback.
+    for (const model of [
+      "claude-sonnet-5",
+      "claude-haiku-5-5",
+      "claude-opus-4-8",
+      "claude-opus-4-6",
+    ]) {
       expect(modelCapabilities(model)).toEqual({
         adaptiveThinking: true,
         refusalFallbacks: false,
