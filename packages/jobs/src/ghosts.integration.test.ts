@@ -188,8 +188,13 @@ describe.skipIf(!TEST_DATABASE_URL)("ghost jobs (Postgres integration)", () => {
   });
 
   it("finds a repost when a sync sees a role taken down and put back up", async () => {
-    await ingest.syncCompany(companyId, { fetch: fakeFetch({ [board]: greenhouseResponse }) });
-    const reposted = structuredClone(greenhouseResponse);
+    // Published a week ago. The shared response's own date ages into "open 60 days", a second
+    // reason with points of its own, so the expected score would change with the calendar.
+    const published = new Date(Date.now() - 7 * DAY_MS).toISOString();
+    const listed = structuredClone(greenhouseResponse);
+    Object.assign(listed.jobs[0]!, { first_published: published, updated_at: published });
+    await ingest.syncCompany(companyId, { fetch: fakeFetch({ [board]: listed }) });
+    const reposted = structuredClone(listed);
     reposted.jobs[0] = { ...reposted.jobs[0]!, id: 5012345 };
     const { newJobIds } = await ingest.syncCompany(companyId, {
       fetch: fakeFetch({ [board]: reposted }),
