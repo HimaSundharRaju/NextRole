@@ -3,6 +3,7 @@ import {
   aiUsage,
   applicationEvents,
   applications,
+  clientTasks,
   getDb,
   jobMatches,
   jobReports,
@@ -11,9 +12,10 @@ import {
   profiles,
   resumeMessages,
   resumes,
+  supportExport,
   users,
 } from "@gettargetrole/db";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 
 /** Everything GetTargetRole stores about a user, for data portability requests. */
 export async function exportUserData(userId: string) {
@@ -47,11 +49,18 @@ export async function exportUserData(userId: string) {
       ? await db
           .select()
           .from(applicationEvents)
-          .where(inArray(applicationEvents.applicationId, appIds))
+          .where(
+            and(
+              inArray(applicationEvents.applicationId, appIds),
+              ne(applicationEvents.type, "staff_note"),
+            ),
+          )
       : [],
     outreach: await db.select().from(outreachMessages).where(eq(outreachMessages.userId, userId)),
     jobMatches: await db.select().from(jobMatches).where(eq(jobMatches.userId, userId)),
     jobReports: await db.select().from(jobReports).where(eq(jobReports.userId, userId)),
+    clientTasks: await db.select().from(clientTasks).where(eq(clientTasks.clientId, userId)),
+    support: await supportExport(db, userId),
     notifications: await db.select().from(notifications).where(eq(notifications.userId, userId)),
     aiUsage: await db
       .select({ feature: aiUsage.feature, model: aiUsage.model, createdAt: aiUsage.createdAt })

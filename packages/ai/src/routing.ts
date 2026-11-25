@@ -18,22 +18,25 @@ const REFERENCE_MODEL = "claude-sonnet-5";
 /**
  * Which model handles each feature by default: the cheapest model that matched the reference
  * (Claude Sonnet 5) in the quality check, `packages/ai/eval` (results in docs/ARCHITECTURE.md).
- * Where no cheaper model matched it, the feature runs on the reference itself.
+ * Where no other model matched it, the feature runs on the reference itself.
  */
 export const DEFAULT_ROUTES: Record<AiFeature, Route> = {
   // Tied the reference on every import (PDF and text) at about 1/30 of the cost.
   import: { vendor: "openai", model: "gpt-4o-mini" },
-  // Judged as good as or better than the reference in most comparisons, at about 1/30 of the cost.
-  match: { vendor: "openai", model: "gpt-4o-mini" },
-  // Every cheaper model added skills the candidate doesn't have far more often.
-  tailor: { vendor: "anthropic", model: REFERENCE_MODEL },
-  // Both judges preferred the reference's letters, answers and interview prep.
+  // GPT-4o mini gave verdicts that contradicted its own score; Luna passed every check.
+  match: { vendor: "openai", model: "gpt-6-luna" },
+  // Added no skills the resume doesn't show, where the reference did, at under 1/10 of the cost.
+  tailor: { vendor: "anthropic", model: "claude-haiku-5-5" },
+  // Both judges still preferred the reference's cover letters.
   cover_letter: { vendor: "anthropic", model: REFERENCE_MODEL },
-  answers: { vendor: "anthropic", model: REFERENCE_MODEL },
+  // The same price as the reference, and both judges preferred its answers.
+  answers: { vendor: "anthropic", model: "claude-sonnet-5-5" },
   interview: { vendor: "anthropic", model: REFERENCE_MODEL },
-  // Not judged yet, so they stay on the reference.
+  // Not judged yet, so it stays on the reference.
   generate: { vendor: "anthropic", model: REFERENCE_MODEL },
-  outreach: { vendor: "anthropic", model: REFERENCE_MODEL },
+  // Both judges rated it at least as good as the reference, at about 1/9 of the cost.
+  outreach: { vendor: "anthropic", model: "claude-haiku-5-5" },
+  // Judges preferred the reference when the Studio was asked to tailor a resume.
   studio: { vendor: "anthropic", model: REFERENCE_MODEL },
   // Bulk extraction across every post: on 50 real posts it kept the most facts, and every fact
   // that passed the quote check matched GPT-4.1 (packages/ai/eval/enrich.mts).
@@ -42,9 +45,9 @@ export const DEFAULT_ROUTES: Record<AiFeature, Route> = {
 
 /** The Claude model a feature uses when its OpenAI route fails or OpenAI isn't configured. */
 export const CLAUDE_FALLBACK: Record<AiFeature, string> = {
-  // Claude Haiku 4.5 also matched the reference on these two.
+  // Claude Haiku 4.5 also matched the reference on imports; Haiku 5.5 on fit analysis.
   import: "claude-haiku-4-5",
-  match: "claude-haiku-4-5",
+  match: "claude-haiku-5-5",
   tailor: REFERENCE_MODEL,
   cover_letter: REFERENCE_MODEL,
   answers: REFERENCE_MODEL,

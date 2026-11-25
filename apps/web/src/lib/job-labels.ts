@@ -89,6 +89,7 @@ export const JOB_REPORT_REASON_LABEL: Record<JobReportReason, string> = {
   closed: "It's filled or no longer open",
   no_reply: "I applied and never heard back",
   not_real: "It looks fake or misleading",
+  wrong_details: "Wrong details (location, pay or company)",
   other: "Something else",
 };
 

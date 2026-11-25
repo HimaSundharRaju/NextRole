@@ -4,6 +4,7 @@ import { connectionConfig } from "./client";
 import {
   AUTO_PREPARE_BUDGET_SHARE,
   AUTO_PREPARE_DAILY_MAX,
+  CONCIERGE_WEEKLY_TARGET,
   fullUseCostUsd,
   MONTHLY_AI_BUDGET_USD,
   nextPlanWithMore,
@@ -11,6 +12,15 @@ import {
   PLAN_ORDER,
   USAGE_UNITS,
 } from "./plans";
+import {
+  APPLICATION_STATUSES,
+  CASE_STATUSES,
+  COMPANY_REQUEST_STATUSES,
+  JOB_REPORT_REASONS,
+  NOTIFICATION_TYPES,
+  ROLES,
+  SUPPORT_TOPICS,
+} from "./schema";
 import { DEFAULT_COMPANIES } from "./seed-lib";
 import { slugify } from "./slug";
 import { resumeHash } from "./tailored";
@@ -113,5 +123,33 @@ describe("plan limits", () => {
     expect(nextPlanWithMore("plus", "auto")).toBe("pro");
     expect(nextPlanWithMore("pro", "tailor")).toBe("concierge");
     expect(nextPlanWithMore("concierge", "tailor")).toBeNull();
+  });
+});
+
+describe("concierge configuration", () => {
+  it("adds the Concierge steps and a positive weekly target", () => {
+    expect(APPLICATION_STATUSES).toEqual(
+      expect.arrayContaining(["proposed", "approved", "waiting_on_client", "skipped"]),
+    );
+    expect(CONCIERGE_WEEKLY_TARGET).toBeGreaterThan(0);
+  });
+});
+
+describe("customer care configuration", () => {
+  it("adds the support role, the case enums and the new report, request and notification values", () => {
+    expect(ROLES).toContain("support");
+    expect(SUPPORT_TOPICS).toEqual([
+      "account",
+      "billing",
+      "concierge",
+      "jobs",
+      "bug",
+      "data",
+      "other",
+    ]);
+    expect(CASE_STATUSES).toEqual(["open", "waiting_on_user", "solved"]);
+    expect(JOB_REPORT_REASONS).toContain("wrong_details");
+    expect(COMPANY_REQUEST_STATUSES).toContain("declined");
+    expect(NOTIFICATION_TYPES).toContain("support");
   });
 });

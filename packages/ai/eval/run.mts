@@ -5,10 +5,19 @@
  *
  *   NODE_USE_ENV_PROXY=1 node --env-file=.env --import tsx packages/ai/eval/run.mts
  *
- * Options: --features tailor,cover_letter   --budget 15   --judge-items 8   --items 2 (smoke test)
+ * Options: --features tailor,cover_letter   --judge-items 8   --items 2 (smoke test)
+ *          --budget-anthropic 5   --budget-openai 5 (USD of new spending per vendor)
  *          --no-spend yes (rebuild the report from cached results only; nothing new is called)
+ *          --own-only yes (only the items built from your own resume; give --judge-items 10 or more
+ *                          to judge all of them)
+ *          --spot-check yes (also compare Opus 5.5 with Sonnet 5 on tailoring)
+ * Sonnet 5.5, priced like the reference, is compared on every writing feature.
  * Every model and judge result is cached under packages/ai/eval/results/, so a rerun only pays
- * for what's missing, and the budget counts cached spend too.
+ * for what's missing. Results that failed on an API error (out of credit, overloaded) are retried
+ * instead of reused. Cheaper models run cheapest tier first: a feature moves on to the next tier
+ * only when nothing in the one before it passed.
+ *
+ * To include your own resume, put it in fixtures/private/ (gitignored; see fixtures.ts).
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -36,38 +45,81 @@ import {
   checkStudioEdit,
   checkTailor,
 } from "./checks";
-import { PAIRS, PERSONAS, QUESTIONS, STUDIO_CASES } from "./fixtures";
+import {
+  OWN_PAIRS,
+  OWN_PERSONA,
+  OWN_RESUME_PDF,
+  PAIRS,
+  PERSONAS,
+  QUESTIONS,
+  STUDIO_CASES,
+  type Persona,
+} from "./fixtures";
 import { judge, JUDGES, type JudgeId, type JudgeResult } from "./judge";
 
 const args = new Map<string, string>();
 for (let index = 2; index < process.argv.length; index += 2) {
   args.set(process.argv[index]!.replace(/^--/, ""), process.argv[index + 1] ?? "");
 }
-const BUDGET_MICRO = Number(args.get("budget") ?? 15) * 1_000_000;
+type Vendor = "anthropic" | "openai";
+const BUDGET_MICRO: Record<Vendor, number> = {
+  anthropic: Number(args.get("budget-anthropic") ?? 5) * 1_000_000,
+  openai: Number(args.get("budget-openai") ?? 5) * 1_000_000,
+};
 const JUDGE_ITEMS = Number(args.get("judge-items") ?? 8);
 const ITEM_LIMIT = Number(args.get("items") ?? Number.POSITIVE_INFINITY);
 const NO_SPEND = args.has("no-spend");
+const OWN_ONLY = args.has("own-only");
+const SPOT = args.has("spot-check");
 const RESULTS = new URL("./results/", import.meta.url);
 
 interface Candidate {
   id: string;
-  vendor: "anthropic" | "openai";
+  vendor: Vendor;
   model: string;
 }
 
-const CANDIDATES: Candidate[] = [
-  { id: "sonnet-5", vendor: "anthropic", model: "claude-sonnet-5" },
-  { id: "haiku-4.5", vendor: "anthropic", model: "claude-haiku-4-5" },
-  { id: "gpt-5-mini", vendor: "openai", model: "gpt-5-mini" },
-  { id: "gpt-4.1-mini", vendor: "openai", model: "gpt-4.1-mini" },
-  { id: "gpt-4o-mini", vendor: "openai", model: "gpt-4o-mini" },
-  { id: "gpt-5-nano", vendor: "openai", model: "gpt-5-nano" },
+const REFERENCE_CANDIDATE: Candidate = {
+  id: "sonnet-5",
+  vendor: "anthropic",
+  model: "claude-sonnet-5",
+};
+const REFERENCE = REFERENCE_CANDIDATE.id;
+/**
+ * The cheaper model a feature runs on today, when it isn't the reference. Its results are cached
+ * from earlier rounds, so a new model has to beat it on cost to replace it.
+ */
+const CURRENT_ROUTE: Partial<Record<string, Candidate>> = {
+  import: { id: "gpt-4o-mini", vendor: "openai", model: "gpt-4o-mini" },
+  match: { id: "gpt-4o-mini", vendor: "openai", model: "gpt-4o-mini" },
+};
+/**
+ * Models to try, cheapest tier first. Earlier rounds ruled out Claude Haiku 4.5, GPT-5 mini and
+ * nano, GPT-4.1 mini and GPT-4o mini for the writing features (results in docs/ARCHITECTURE.md).
+ */
+const TIERS: Candidate[][] = [
+  // $0.10 / $0.50 per million tokens.
+  [
+    { id: "haiku-5.5", vendor: "anthropic", model: "claude-haiku-5-5" },
+    { id: "gpt-6-luna", vendor: "openai", model: "gpt-6-luna" },
+  ],
+  // $1 / $5: half the reference's price.
+  [{ id: "gpt-6.1-terra", vendor: "openai", model: "gpt-6.1-terra" }],
 ];
-const REFERENCE = "sonnet-5";
+/** The reference's successor at the same price: an upgrade rather than a saving. */
+const UPGRADE: Candidate = { id: "sonnet-5.5", vendor: "anthropic", model: "claude-sonnet-5-5" };
+const UPGRADE_FEATURES = new Set([
+  "tailor",
+  "cover_letter",
+  "answers",
+  "outreach",
+  "interview",
+  "studio",
+]);
 /** People wait on these features, so a route must answer this fast on average. */
 const MAX_AVG_MS = 30_000;
-/** Checked against the reference on a few tailors: is Sonnet 5 as good as the current default? */
-const SPOT_CHECK: Candidate = { id: "opus-5", vendor: "anthropic", model: "claude-opus-5" };
+/** Checked against the reference on a few tailors: is the premium model worth its price? */
+const SPOT_CHECK: Candidate = { id: "opus-5.5", vendor: "anthropic", model: "claude-opus-5-5" };
 
 interface Item {
   id: string;
@@ -77,6 +129,8 @@ interface Item {
   run: (ai: AiProvider, ctx: AiCallContext) => Promise<unknown>;
   check: (output: unknown) => string[];
   render: (output: unknown) => string;
+  /** Built from the owner's own resume (fixtures/private/). */
+  own?: boolean;
 }
 
 interface Generated {
@@ -88,18 +142,28 @@ interface Generated {
 
 // --- Ledger -------------------------------------------------------------------------------------
 
-let spentMicro = 0;
+/** New spending this run, per vendor; only this counts toward the budgets. */
+const spent: Record<Vendor, number> = { anthropic: 0, openai: 0 };
+/** What the cached results this run reused cost when they were made. */
+let reusedMicro = 0;
 const counted = new Set<string>();
 class BudgetExceeded extends Error {}
 
-/** A cached result; its cost counts toward the budget once per run. */
+/**
+ * Messages of failures from the API itself (a rejected or expired key, no credit left, overload),
+ * not from the model's output.
+ */
+const API_ERROR =
+  /couldn't process this request|busy right now|unavailable right now|not configured correctly/i;
+
+/** A cached result, reused for free. */
 function readCache<T>(path: string): T | null {
   const url = new URL(path, RESULTS);
   if (!existsSync(url)) return null;
   const value = JSON.parse(readFileSync(url, "utf8")) as T & { costMicroUsd?: number };
   if (!counted.has(path)) {
     counted.add(path);
-    spentMicro += value.costMicroUsd ?? 0;
+    reusedMicro += value.costMicroUsd ?? 0;
   }
   return value;
 }
@@ -115,9 +179,13 @@ function writeCache(path: string, value: unknown): void {
   writeFile(path, JSON.stringify(value, null, 2));
 }
 
-function guardBudget(): void {
-  if (spentMicro >= BUDGET_MICRO) throw new BudgetExceeded("budget reached");
+function guardBudget(vendor: Vendor): void {
+  if (spent[vendor] >= BUDGET_MICRO[vendor]) {
+    throw new BudgetExceeded(`the ${vendor} budget was reached`);
+  }
 }
+
+const totalSpent = () => spent.anthropic + spent.openai;
 
 async function pool<T>(tasks: Array<() => Promise<T>>, size: number): Promise<T[]> {
   const results: T[] = [];
@@ -151,7 +219,7 @@ function pairItems<T>(
   render: (output: T) => string,
   limit = PAIRS.length,
 ): Item[] {
-  return PAIRS.slice(0, limit).map((pair) => ({
+  return [...PAIRS.slice(0, limit), ...OWN_PAIRS].map((pair) => ({
     id: `${pair.persona.id}__${pair.job.key}`,
     task,
     resume: text(pair.persona.resume),
@@ -159,7 +227,22 @@ function pairItems<T>(
     run: (ai, ctx) => run(pair, ai, ctx),
     check: (output) => check(pair, output as T),
     render: (output) => render(output as T),
+    own: pair.persona.own === true,
   }));
+}
+
+/** The owner's original resume file, checked against their confirmed persona.json. */
+function ownImportItem(persona: Persona, pdf: Buffer): Item {
+  return {
+    id: "owner__original-pdf",
+    task: "Convert the resume into structured data exactly as written.",
+    resume: text(persona.resume),
+    job: "",
+    run: (ai, ctx) => ai.importResume({ kind: "pdf", data: pdf, fileName: "resume.pdf" }, ctx),
+    check: (output) => checkImport(persona.resume, output as ImportResult),
+    render: (output) => text((output as ImportResult).resume),
+    own: true,
+  };
 }
 
 async function buildItems(): Promise<Record<string, Item[]>> {
@@ -227,58 +310,97 @@ async function buildItems(): Promise<Record<string, Item[]>> {
           .join("\n\n"),
       10,
     ),
-    import: PERSONAS.flatMap((persona, index) =>
-      (["pdf", "text"] as const).map((kind) => ({
-        id: `${persona.id}__${kind}`,
-        task: "Convert the resume into structured data exactly as written.",
-        resume: text(persona.resume),
-        job: "",
-        run: (ai: AiProvider, ctx: AiCallContext) =>
-          ai.importResume(
-            kind === "pdf"
-              ? { kind: "pdf", data: pdfs[index]!, fileName: `${persona.id}.pdf` }
-              : { kind: "text", text: text(persona.resume) },
-            ctx,
-          ),
-        check: (output: unknown) => checkImport(persona.resume, output as ImportResult),
-        render: (output: unknown) => text((output as ImportResult).resume),
-      })),
-    ),
-    studio: PERSONAS.slice(0, 3).flatMap((persona) =>
-      STUDIO_CASES.map((studioCase, index) => ({
-        id: `${persona.id}__${index}`,
-        task: `The candidate asked the resume editor: "${studioCase.message}"`,
-        resume: text(persona.resume),
-        job: "",
-        run: async (ai: AiProvider, ctx: AiCallContext) => {
-          let reply = "";
-          let resume: Resume | null = null;
-          for await (const event of ai.studioChat(
-            {
-              resume: persona.resume,
-              history: [],
-              message: studioCase.message,
-              profile: persona.profile,
-            },
-            ctx,
-          )) {
-            if (event.type === "resume") resume = event.resume;
-            if (event.type === "done") reply = event.reply;
-            if (event.type === "error") throw new Error(event.message);
-          }
-          return { reply, resume };
-        },
-        check: (output: unknown) => {
-          const { resume } = output as { resume: Resume | null };
-          return checkStudioEdit(persona.resume, resume, studioCase.sections, studioCase.expect);
-        },
-        render: (output: unknown) => {
-          const { reply, resume } = output as { reply: string; resume: Resume | null };
-          return `${reply}\n\n${resume ? text(resume) : "(no edit)"}`;
-        },
-      })),
-    ),
+    import: [
+      ...(OWN_PERSONA && OWN_RESUME_PDF ? [ownImportItem(OWN_PERSONA, OWN_RESUME_PDF)] : []),
+      ...PERSONAS.flatMap((persona, index) =>
+        (["pdf", "text"] as const).map((kind) => ({
+          id: `${persona.id}__${kind}`,
+          task: "Convert the resume into structured data exactly as written.",
+          resume: text(persona.resume),
+          job: "",
+          run: (ai: AiProvider, ctx: AiCallContext) =>
+            ai.importResume(
+              kind === "pdf"
+                ? { kind: "pdf", data: pdfs[index]!, fileName: `${persona.id}.pdf` }
+                : { kind: "text", text: text(persona.resume) },
+              ctx,
+            ),
+          check: (output: unknown) => checkImport(persona.resume, output as ImportResult),
+          render: (output: unknown) => text((output as ImportResult).resume),
+        })),
+      ),
+    ],
+    studio: [
+      ...[...PERSONAS.slice(0, 3), ...(OWN_PERSONA ? [OWN_PERSONA] : [])].flatMap((persona) =>
+        STUDIO_CASES.map((studioCase, index) =>
+          studioItem(persona, `${persona.id}__${index}`, studioCase.message, {
+            task: `The candidate asked the resume editor: "${studioCase.message}"`,
+            job: "",
+            check: (resume) =>
+              checkStudioEdit(persona.resume, resume, studioCase.sections, studioCase.expect),
+          }),
+        ),
+      ),
+      ...ownStudioTailorItems(),
+    ],
   };
+}
+
+/** One request to the Studio chat; the output is its reply and the edited resume. */
+function studioItem(
+  persona: Persona,
+  id: string,
+  message: string,
+  rest: { task: string; job: string; check: (resume: Resume | null) => string[] },
+): Item {
+  return {
+    id,
+    own: persona.own === true,
+    task: rest.task,
+    resume: text(persona.resume),
+    job: rest.job,
+    run: async (ai, ctx) => {
+      let reply = "";
+      let resume: Resume | null = null;
+      for await (const event of ai.studioChat(
+        { resume: persona.resume, history: [], message, profile: persona.profile },
+        ctx,
+      )) {
+        if (event.type === "resume") resume = event.resume;
+        if (event.type === "done") reply = event.reply;
+        if (event.type === "error") throw new Error(event.message);
+      }
+      return { reply, resume };
+    },
+    check: (output) => rest.check((output as { resume: Resume | null }).resume),
+    render: (output) => {
+      const { reply, resume } = output as { reply: string; resume: Resume | null };
+      return `${reply}\n\n${resume ? text(resume) : "(no edit)"}`;
+    },
+  };
+}
+
+/** Tailoring through the Studio chat on the owner's resume, held to the tailor feature's facts. */
+function ownStudioTailorItems(): Item[] {
+  return OWN_PAIRS.slice(0, 2).map(({ persona, job }) => {
+    const posting = `${job.title} at ${job.company}\n\n${job.description}`;
+    const message = `Tailor my resume to this job without adding anything I haven't done.\n\n${posting.slice(0, 3000)}`;
+    return studioItem(persona, `${persona.id}__tailor-${job.key}`, message, {
+      task: `The candidate asked the resume editor to tailor the resume to the ${job.title} role at ${job.company} without inventing anything.`,
+      job: posting,
+      check: (resume) => {
+        if (!resume) return ["no edit applied"];
+        const sections: Array<keyof Resume> = ["basics", "summary", "experience", "skills"];
+        const tailored = { resume, summaryOfChanges: ["studio"], missingKeywords: [] };
+        return [
+          ...new Set([
+            ...checkStudioEdit(persona.resume, resume, sections),
+            ...checkTailor(persona.resume, tailored as unknown as TailorResult),
+          ]),
+        ];
+      },
+    });
+  });
 }
 
 // --- Running ------------------------------------------------------------------------------------
@@ -286,9 +408,9 @@ async function buildItems(): Promise<Record<string, Item[]>> {
 async function generate(feature: string, candidate: Candidate, item: Item): Promise<Generated> {
   const path = `${feature}/${candidate.id}/${item.id}.json`;
   const cached = readCache<Generated>(path);
-  if (cached) return cached;
+  if (cached && (NO_SPEND || !(cached.error && API_ERROR.test(cached.error)))) return cached;
   if (NO_SPEND) return { output: null, error: "not run", costMicroUsd: 0, ms: 0 };
-  guardBudget();
+  guardBudget(candidate.vendor);
   let cost = 0;
   const started = Date.now();
   const ctx: AiCallContext = {
@@ -309,7 +431,7 @@ async function generate(feature: string, candidate: Candidate, item: Item): Prom
       ms: Date.now() - started,
     };
   }
-  spentMicro += result.costMicroUsd;
+  spent[candidate.vendor] += result.costMicroUsd;
   writeCache(path, result);
   return result;
 }
@@ -326,12 +448,12 @@ async function compare(
   reference: Generated,
 ): Promise<JudgeResult[]> {
   const results = await Promise.all(
-    JUDGES.map(async ({ id }): Promise<JudgeResult | null> => {
+    JUDGES.map(async ({ id, vendor }): Promise<JudgeResult | null> => {
       const path = `${feature}/judge/${candidate.id}/${item.id}__${id}.json`;
       const cached = readCache<JudgeResult>(path);
       if (cached) return cached;
       if (NO_SPEND) return null;
-      guardBudget();
+      guardBudget(vendor);
       const result = await judge(id, {
         task: item.task,
         resume: item.resume,
@@ -340,7 +462,7 @@ async function compare(
         reference: item.render(reference.output),
         candidateFirst: candidateFirst(`${feature}/${candidate.id}/${item.id}`),
       });
-      spentMicro += result.costMicroUsd;
+      spent[vendor] += result.costMicroUsd;
       writeCache(path, result);
       return result;
     }),
@@ -368,34 +490,32 @@ const usd = (micro: number) => `$${(micro / 1_000_000).toFixed(4)}`;
 /** Progress and the report go to stdout; this is a command-line script. */
 const print = (line: string) => process.stdout.write(`${line}\n`);
 
-async function runFeature(feature: string, items: Item[]): Promise<Row[]> {
-  const runs = new Map<string, Generated[]>();
-  await Promise.all(
-    CANDIDATES.map(async (candidate) => {
-      runs.set(
-        candidate.id,
-        await pool(
-          items.map((item) => () => generate(feature, candidate, item)),
-          3,
-        ),
-      );
-    }),
+const runAll = (feature: string, candidate: Candidate, items: Item[]) =>
+  pool(
+    items.map((item) => () => generate(feature, candidate, item)),
+    3,
   );
+
+async function runFeature(feature: string, items: Item[]): Promise<Row[]> {
   const failuresOf = (generated: Generated, item: Item) =>
     generated.error ? [`error: ${generated.error}`] : item.check(generated.output);
-  const reference = runs.get(REFERENCE)!;
+  const reference = await runAll(feature, REFERENCE_CANDIDATE, items);
   const referenceFailures = reference.filter(
     (generated, index) => failuresOf(generated, items[index]!).length > 0,
   ).length;
   // Judge on items where the reference itself passed, so the comparison is against a good output.
-  const judgeable = items
+  // Up to half of them come from the owner's own resume, when it's set up.
+  const passing = items
     .map((item, index) => ({ item, index }))
-    .filter(({ item, index }) => failuresOf(reference[index]!, item).length === 0)
-    .slice(0, JUDGE_ITEMS);
+    .filter(({ item, index }) => failuresOf(reference[index]!, item).length === 0);
+  const judgeable = [
+    ...passing.filter(({ item }) => item.own).slice(0, Math.ceil(JUDGE_ITEMS / 2)),
+    ...passing.filter(({ item }) => !item.own),
+  ].slice(0, JUDGE_ITEMS);
 
-  const rows: Row[] = [];
-  for (const candidate of CANDIDATES) {
-    const generated = runs.get(candidate.id)!;
+  async function rowFor(candidate: Candidate): Promise<Row> {
+    const generated =
+      candidate.id === REFERENCE ? reference : await runAll(feature, candidate, items);
     const failures = generated.map((entry, index) => failuresOf(entry, items[index]!));
     const hardFailures = failures.filter((list) => list.length > 0).length;
     const ok = generated.length - hardFailures;
@@ -420,12 +540,12 @@ async function runFeature(feature: string, items: Item[]): Promise<Row[]> {
         for (const result of results) judged[result.judge][result.outcome] += 1;
       }
     }
-    const winOrTie = (id: JudgeId) => {
+    // As good as the reference: each judge prefers it at least as often as it prefers the reference.
+    const atLeastAsGood = (id: JudgeId) => {
       const { win, tie, loss } = judged[id];
-      const total = win + tie + loss;
-      return total === 0 ? 0 : (win + tie) / total;
+      return win + tie + loss > 0 && win >= loss;
     };
-    rows.push({
+    return {
       candidate: candidate.id,
       model: candidate.model,
       ok,
@@ -437,13 +557,24 @@ async function runFeature(feature: string, items: Item[]): Promise<Row[]> {
       judged,
       eligible:
         candidate.id === REFERENCE ||
-        (passesChecks && avgMs <= MAX_AVG_MS && JUDGES.every(({ id }) => winOrTie(id) >= 0.5)),
+        (passesChecks && avgMs <= MAX_AVG_MS && JUDGES.every(({ id }) => atLeastAsGood(id))),
       pending:
         candidate.id !== REFERENCE &&
         passesChecks &&
         JUDGES.some(({ id }) => judged[id].win + judged[id].tie + judged[id].loss === 0),
-    });
+    };
   }
+
+  const rows = [await rowFor(REFERENCE_CANDIDATE)];
+  const current = CURRENT_ROUTE[feature];
+  if (current) rows.push(await rowFor(current));
+  for (const tier of TIERS) {
+    rows.push(...(await Promise.all(tier.map((candidate) => rowFor(candidate)))));
+    // Once a model cheaper than the reference passes, the dearer tiers can't win on cost.
+    if (rows.some((row) => row.candidate !== REFERENCE && row.eligible)) break;
+  }
+  // After the tiers, so that the upgrade passing doesn't stop a cheaper tier from being tried.
+  if (UPGRADE_FEATURES.has(feature)) rows.push(await rowFor(UPGRADE));
   return rows;
 }
 
@@ -455,7 +586,7 @@ async function spotCheck(
   ) as Record<JudgeId, { win: number; tie: number; loss: number }>;
   for (const item of items.slice(0, 5)) {
     const opus = await generate("tailor", SPOT_CHECK, item);
-    const reference = await generate("tailor", CANDIDATES[0]!, item);
+    const reference = await generate("tailor", REFERENCE_CANDIDATE, item);
     if (opus.error || reference.error) continue;
     for (const result of await compare("tailor", SPOT_CHECK, item, opus, reference)) {
       tally[result.judge][result.outcome] += 1;
@@ -473,7 +604,9 @@ function report(
   const lines = [
     `# Model quality check`,
     ``,
-    `Total spend: ${usd(spentMicro)} (budget ${usd(BUDGET_MICRO)}).`,
+    `New spend: Claude ${usd(spent.anthropic)} of ${usd(BUDGET_MICRO.anthropic)}, OpenAI ${usd(spent.openai)} of ${usd(BUDGET_MICRO.openai)}. Reused from earlier runs: ${usd(reusedMicro)}.`,
+    ``,
+    `A model is eligible when it fails no more checks than the reference (Claude Sonnet 5), each judge prefers it at least as often as the reference, and it answers within ${MAX_AVG_MS / 1000}s on average. The cheapest eligible model is chosen.`,
     ``,
   ];
   const routes: Record<string, string> = {};
@@ -505,9 +638,9 @@ function report(
   }
   if (spot) {
     lines.push(
-      `## Spot check: Opus 5 vs Sonnet 5 on tailoring`,
+      `## Spot check: Opus 5.5 vs Sonnet 5 on tailoring`,
       ``,
-      `From Opus 5's side, win/tie/loss — Claude judge ${spot["claude-judge"].win}/${spot["claude-judge"].tie}/${spot["claude-judge"].loss}, GPT judge ${spot["gpt-judge"].win}/${spot["gpt-judge"].tie}/${spot["gpt-judge"].loss}.`,
+      `From Opus 5.5's side, win/tie/loss — Claude judge ${spot["claude-judge"].win}/${spot["claude-judge"].tie}/${spot["claude-judge"].loss}, GPT judge ${spot["gpt-judge"].win}/${spot["gpt-judge"].tie}/${spot["gpt-judge"].loss}.`,
       ``,
     );
   }
@@ -525,8 +658,11 @@ const results: Record<string, Row[]> = {};
 let spot: Awaited<ReturnType<typeof spotCheck>> | null = null;
 try {
   for (const feature of features) {
-    const items = allItems[feature]!.slice(0, ITEM_LIMIT);
-    print(`\n== ${feature} (${items.length} items) — spent so far ${usd(spentMicro)}`);
+    const items = allItems[feature]!.filter((item) => !OWN_ONLY || item.own).slice(0, ITEM_LIMIT);
+    if (!items.length) throw new Error(`No ${feature} items; is fixtures/private/ filled in?`);
+    print(
+      `\n== ${feature} (${items.length} items) — new spend so far Claude ${usd(spent.anthropic)}, OpenAI ${usd(spent.openai)}`,
+    );
     results[feature] = await runFeature(feature, items);
     for (const row of results[feature]!) {
       print(
@@ -534,12 +670,14 @@ try {
       );
     }
   }
-  if (features.includes("tailor" as never) && !NO_SPEND) spot = await spotCheck(allItems.tailor!);
+  if (SPOT && features.includes("tailor" as never) && !NO_SPEND) {
+    spot = await spotCheck(allItems.tailor!.filter((item) => !OWN_ONLY || item.own));
+  }
 } catch (error) {
   if (!(error instanceof BudgetExceeded)) throw error;
-  print(`\nStopped: ${error.message} at ${usd(spentMicro)}.`);
+  print(`\nStopped: ${error.message} after new spend of ${usd(totalSpent())}.`);
 }
 const markdown = report(results, spot);
 writeFile("report.md", markdown);
-writeCache("summary.json", { spentMicro, results, spot });
+writeCache("summary.json", { spent, reusedMicro, results, spot });
 print(`\n${markdown}`);

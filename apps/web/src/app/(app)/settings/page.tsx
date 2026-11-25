@@ -1,5 +1,7 @@
+import { clientConcierge, getDb } from "@gettargetrole/db";
 import { Download } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { PreferencesForm } from "@/components/profile/preferences-form";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -17,7 +19,13 @@ import { monthlyAiSpendMicroUsd, monthlyUsage } from "@/server/ai";
 import { getProfile } from "@/server/data/profile";
 import { getPrimaryResume } from "@/server/data/resumes";
 import { requireOnboardedUser } from "@/server/session";
-import { AboutForm, AutoPrepareForm, DangerZone, PasswordForm } from "./settings-forms";
+import {
+  AboutForm,
+  AutoPrepareForm,
+  ConciergeSettingsForm,
+  DangerZone,
+  PasswordForm,
+} from "./settings-forms";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -29,6 +37,7 @@ export default async function SettingsPage() {
     getPrimaryResume(user.id),
     monthlyUsage(user.id),
   ]);
+  const concierge = user.plan === "concierge" ? await clientConcierge(getDb(), user.id) : null;
   const allowances = allowancesFor(user.plan, usage);
   const plan = PLANS[user.plan];
   const used = Math.min(100, Math.round((spend / (plan.monthlyAiBudgetUsd * 1_000_000)) * 100));
@@ -158,7 +167,11 @@ export default async function SettingsPage() {
             </table>
           </div>
           <p className="text-muted-foreground">
-            Need more? Contact support to change plans — self-serve billing is coming soon.
+            Need more?{" "}
+            <Link href="/support" className="font-medium text-primary">
+              Contact support
+            </Link>{" "}
+            to change plans — self-serve billing is coming soon.
           </p>
         </CardBody>
       </Card>
@@ -169,6 +182,22 @@ export default async function SettingsPage() {
           <PasswordForm />
         </CardBody>
       </Card>
+
+      {concierge ? (
+        <Card id="concierge" className="scroll-mt-20">
+          <CardHeader
+            title="Concierge"
+            description="Your job-search Gmail, your consent, and pausing your search."
+          />
+          <CardBody>
+            <ConciergeSettingsForm
+              jobSearchEmail={concierge.setup.jobSearchEmail}
+              consent={Boolean(concierge.setup.consentAt)}
+              paused={concierge.setup.paused}
+            />
+          </CardBody>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader

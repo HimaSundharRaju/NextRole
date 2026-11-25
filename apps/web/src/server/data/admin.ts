@@ -9,12 +9,23 @@ import {
   companyRequests,
   getDb,
   jobs,
+  sessions,
   specialistAssignments,
   users,
 } from "@gettargetrole/db";
 import { and, desc, eq, gte, ilike, isNull, or, sql } from "drizzle-orm";
 import { PLANS } from "@/lib/plans";
 import { startOfMonth } from "../ai";
+
+/** Bans or unbans an account. A ban takes effect at once: every active session is deleted. */
+export async function applyBan(userId: string, banned: boolean, reason?: string): Promise<void> {
+  const db = getDb();
+  await db
+    .update(users)
+    .set({ banned, banReason: banned ? (reason ?? "Violation of terms") : null })
+    .where(eq(users.id, userId));
+  if (banned) await db.delete(sessions).where(eq(sessions.userId, userId));
+}
 
 export async function platformStats() {
   const db = getDb();
@@ -115,38 +126,6 @@ export async function listAssignments() {
     .innerJoin(users, eq(specialistAssignments.clientId, users.id))
     .where(eq(specialistAssignments.active, true));
   return { specialists, assignments: rows };
-}
-
-export async function isAssignedSpecialist(
-  specialistId: string,
-  clientId: string,
-): Promise<boolean> {
-  const [row] = await getDb()
-    .select({ clientId: specialistAssignments.clientId })
-    .from(specialistAssignments)
-    .where(
-      and(
-        eq(specialistAssignments.specialistId, specialistId),
-        eq(specialistAssignments.clientId, clientId),
-        eq(specialistAssignments.active, true),
-      ),
-    )
-    .limit(1);
-  return Boolean(row);
-}
-
-export async function clientsOf(specialistId: string) {
-  return getDb()
-    .select({ id: users.id, name: users.name, email: users.email, plan: users.plan })
-    .from(specialistAssignments)
-    .innerJoin(users, eq(specialistAssignments.clientId, users.id))
-    .where(
-      and(
-        eq(specialistAssignments.specialistId, specialistId),
-        eq(specialistAssignments.active, true),
-      ),
-    )
-    .orderBy(users.name);
 }
 
 const usd = (micro: string | number | null | undefined) => Number(micro ?? 0) / 1_000_000;

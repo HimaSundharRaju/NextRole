@@ -1,5 +1,6 @@
 import type { RemotePreference, Seniority, WorkplaceType } from "@gettargetrole/db/schema";
 import { annualize } from "./normalize";
+import { SENIORITY_ROLE_LABEL, seniorityFromTitle } from "./seniority";
 
 /**
  * Deterministic, zero-cost fit score used to rank the job feed and trigger alerts.
@@ -101,9 +102,6 @@ export function titleSimilarity(jobTitle: string, targetTitle: string): number {
   return overlap / target.size;
 }
 
-const SENIOR_TITLE = /\b(senior|sr\.?|staff|principal|lead|head|director|vp|chief)\b/i;
-const JUNIOR_TITLE = /\b(junior|jr\.?|intern|internship|entry|new grad|graduate|associate)\b/i;
-
 const JUNIOR_LEVELS = new Set<Seniority>(["intern", "entry"]);
 const SENIOR_LEVELS = new Set<Seniority>([
   "senior",
@@ -114,24 +112,50 @@ const SENIOR_LEVELS = new Set<Seniority>([
   "executive",
 ]);
 
+/** Points off for a mid-level candidate, by the level of the role. */
+const MID_CANDIDATE_PENALTY: Record<Seniority, number> = {
+  intern: 25,
+  entry: 10,
+  mid: 0,
+  senior: 6,
+  manager: 15,
+  staff: 15,
+  principal: 20,
+  director: 20,
+  executive: 20,
+};
+
 /**
- * Points off for a level mismatch: a junior candidate and a senior role (or one asking for five
- * or more years), or a senior candidate and an entry-level role. The post's level, when
- * enrichment has read it, beats guessing from the title.
+ * Points off for a level mismatch. The post's level (read by enrichment), else the one its title
+ * implies, else nothing: most posts have neither years nor a level, so the title does the work.
+ * A junior candidate loses points for senior roles and ones asking for five or more years, a
+ * mid-level candidate for roles above or far below them, and a senior one for internships and
+ * entry-level roles.
  */
 function seniorityPenalty(
   seniority: Seniority | null,
   job: JobSignals,
 ): { points: number; reason?: string } {
   if (!seniority) return { points: 0 };
-  const jobSenior = job.seniority ? SENIOR_LEVELS.has(job.seniority) : SENIOR_TITLE.test(job.title);
-  const jobJunior = job.seniority ? JUNIOR_LEVELS.has(job.seniority) : JUNIOR_TITLE.test(job.title);
+  const level = job.seniority ?? seniorityFromTitle(job.title);
+  const levelReason = level ? SENIORITY_ROLE_LABEL[level] : undefined;
   const years = job.yearsMin ?? 0;
-  if (JUNIOR_LEVELS.has(seniority) && (jobSenior || years >= 5)) {
-    return { points: 20, reason: years >= 5 ? `Asks for ${years}+ years` : undefined };
+
+  if (JUNIOR_LEVELS.has(seniority)) {
+    if ((level && SENIOR_LEVELS.has(level)) || years >= 5) {
+      return { points: 20, reason: years >= 5 ? `Asks for ${years}+ years` : levelReason };
+    }
+    return { points: 0 };
   }
-  if (seniority === "mid" && years >= 8) return { points: 10, reason: `Asks for ${years}+ years` };
-  if (SENIOR_LEVELS.has(seniority) && jobJunior) return { points: 15 };
+  if (seniority === "mid") {
+    const byLevel = level ? MID_CANDIDATE_PENALTY[level] : 0;
+    const byYears = years >= 8 ? 10 : 0;
+    if (byYears > byLevel) return { points: byYears, reason: `Asks for ${years}+ years` };
+    return byLevel > 0 ? { points: byLevel, reason: levelReason } : { points: 0 };
+  }
+  // Senior and above: internships and entry-level roles are a step down.
+  if (level === "intern") return { points: 25, reason: levelReason };
+  if (level === "entry") return { points: 15, reason: levelReason };
   return { points: 0 };
 }
 
@@ -165,19 +189,87 @@ function locationFit(
   }
 }
 
+/** A job that lists fewer skills than this can't earn full skill credit: too little to go on. */
+const MIN_SKILLS_FOR_FULL_CREDIT = 4;
+/** What a job with no skills listed is worth, and where a sparse list's credit is pulled toward. */
+const NEUTRAL_SKILL_FIT = 0.5;
+
+/**
+ * The share of a job's skills the candidate has, tempered when the job lists few: one matching
+ * skill out of one used to earn the full 50 points, so unrelated roles with a single extracted
+ * skill (a "Physical Design Engineer" that mentions Python) scored 77%. Below four skills a
+ * high share is blended toward the neutral 50% in proportion to how few there are; a low share is
+ * left alone, and four or more skills count as before.
+ */
+function skillFitOf(matched: number, total: number): number {
+  if (total === 0) return NEUTRAL_SKILL_FIT;
+  const share = matched / total;
+  if (share <= NEUTRAL_SKILL_FIT || total >= MIN_SKILLS_FOR_FULL_CREDIT) return share;
+  const confidence = total / MIN_SKILLS_FOR_FULL_CREDIT;
+  return confidence * share + (1 - confidence) * NEUTRAL_SKILL_FIT;
+}
+
+/** Words that name a kind of job in any field: sharing only these says nothing about the field. */
+const GENERIC_ROLE_WORDS = new Set([
+  "engineer",
+  "scientist",
+  "analyst",
+  "manager",
+  "specialist",
+  "consultant",
+  "associate",
+  "architect",
+  "administrator",
+  "coordinator",
+  "representative",
+  "executive",
+  "officer",
+  "technician",
+  "strategist",
+  "advisor",
+]);
+
+/**
+ * A role sanity check: whether the job's title shares a word that names the field (not just
+ * "Engineer") with at least one of the candidate's target titles. A target with no field word,
+ * such as "Engineer", has nothing to check against, so it counts as a match.
+ */
+function sharesFieldWithTargets(jobTitle: string, targetTitles: string[]): boolean {
+  const job = titleTokens(jobTitle);
+  for (const target of targetTitles) {
+    const field = [...titleTokens(target)].filter((word) => !GENERIC_ROLE_WORDS.has(word));
+    if (field.length === 0 || field.some((word) => job.has(word))) return true;
+  }
+  return false;
+}
+
+/** The share of a title match that survives when only a job noun is shared and nothing backs it up. */
+const NOUN_ONLY_TITLE_FACTOR = 0.25;
+/** Matching skills that back up a role whose title shares no field word with the targets. */
+const SKILLS_THAT_BACK_UP_A_TITLE = 3;
+
 export function quickMatch(candidate: CandidateSignals, job: JobSignals): QuickMatch {
   const reasons: string[] = [];
   const have = new Set(candidate.skills.map((skill) => skill.toLowerCase()));
   const matchedSkills = job.skills.filter((skill) => have.has(skill.toLowerCase()));
   const missingSkills = job.skills.filter((skill) => !have.has(skill.toLowerCase()));
-  const skillFit = job.skills.length ? matchedSkills.length / job.skills.length : 0.5;
+  const skillFit = skillFitOf(matchedSkills.length, job.skills.length);
   if (matchedSkills.length) {
     reasons.push(`${matchedSkills.length}/${job.skills.length} skills match`);
   }
 
-  const titleFit = candidate.targetTitles.length
+  let titleFit = candidate.targetTitles.length
     ? Math.max(...candidate.targetTitles.map((title) => titleSimilarity(job.title, title)))
     : 0.5;
+  // "Physical Design Engineer" shares only "Engineer" with "Data Engineer": that is a different
+  // field, not half a match, unless the skills say otherwise.
+  if (
+    candidate.targetTitles.length &&
+    matchedSkills.length < SKILLS_THAT_BACK_UP_A_TITLE &&
+    !sharesFieldWithTargets(job.title, candidate.targetTitles)
+  ) {
+    titleFit *= NOUN_ONLY_TITLE_FACTOR;
+  }
   if (titleFit >= 0.75) reasons.push("Title matches your target role");
 
   const location = locationFit(candidate, job);
