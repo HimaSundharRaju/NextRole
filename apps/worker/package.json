@@ -13,14 +13,14 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.128.0",
-    "bullmq": "6.7.2",
+    "bullmq": "6.7.8",
     "drizzle-orm": "0.45.4",
-    "ioredis": "6.0.0",
+    "ioredis": "6.1.0",
     "mammoth": "1.13.0",
-    "openai": "7.54.0",
+    "openai": "7.63.0",
     "pg": "8.23.1",
     "pino": "10.4.0",
-    "sanitize-html": "2.18.1",
+    "sanitize-html": "2.18.2",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -34,7 +34,7 @@
     "tsup": "8.5.1",
     "tsx": "4.23.15",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.72.2",
-    "vitest": "5.1.0"
+    "typescript-eslint": "8.74.0",
+    "vitest": "5.1.1"
   }
 }

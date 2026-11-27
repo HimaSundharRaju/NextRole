@@ -16,14 +16,14 @@
     "@gettargetrole/core": "workspace:*",
     "@gettargetrole/resume": "workspace:*",
     "mammoth": "1.13.0",
-    "openai": "7.54.0",
+    "openai": "7.63.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/node": "26.6.6",
     "eslint": "9.39.5",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.72.2",
-    "vitest": "5.1.0"
+    "typescript-eslint": "8.74.0",
+    "vitest": "5.1.1"
   }
 }
