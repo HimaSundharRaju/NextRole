@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.128.0",
+    "@anthropic-ai/sdk": "1.13.0",
     "@gettargetrole/core": "workspace:*",
     "@gettargetrole/resume": "workspace:*",
     "mammoth": "1.13.0",

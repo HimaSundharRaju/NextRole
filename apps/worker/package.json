@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.128.0",
+    "@anthropic-ai/sdk": "1.13.0",
     "bullmq": "6.7.2",
     "drizzle-orm": "0.45.4",
     "ioredis": "6.0.0",
